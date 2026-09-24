@@ -529,6 +529,36 @@ bool TestNonIdentityTransformRequired(const std::string& rotatedPath) {
 
 bool TestRequirePresentMissingMetadataNoPublish(
     const std::string& path) {
+    {
+        FrameEngineState probeState;
+        LocalVideoReader probeReader(probeState);
+        CHECK(OpenStart(
+            probeReader,
+            path,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
+
+        ReadResult probe;
+        for (int attempt = 0; attempt < 32; ++attempt) {
+            probe = probeReader.readNext();
+            if (probe.kind == ReadResultKind::Frame) {
+                break;
+            }
+            CHECK(probe.kind == ReadResultKind::NotReady);
+        }
+
+        CHECK(probe.kind == ReadResultKind::Frame);
+        CHECK(probe.frame.has_value());
+        std::cout
+            << "[INFO] RequirePresent fixture metadata:"
+            << " primaries="
+            << (probe.frame->colorPrimaries() != nullptr ? 1 : 0)
+            << " transfer="
+            << (probe.frame->transferFunction() != nullptr ? 1 : 0)
+            << " matrix="
+            << (probe.frame->yCbCrMatrix() != nullptr ? 1 : 0)
+            << std::endl;
+    }
+
     FrameEngineState state;
     LocalVideoReader reader(state);
     FrameNormalizer normalizer;
@@ -551,6 +581,12 @@ bool TestRequirePresentMissingMetadataNoPublish(
             ColorMetadataPolicy::RequirePresent));
 
     const auto result = PumpUntilAction(pump);
+    std::cout
+        << "[INFO] RequirePresent pipeline status="
+        << static_cast<int>(result.status)
+        << " normalization="
+        << static_cast<int>(result.normalizationStatus)
+        << std::endl;
 
     CHECK(result.status ==
           FramePipelinePumpStatus::NormalizationRejected);
