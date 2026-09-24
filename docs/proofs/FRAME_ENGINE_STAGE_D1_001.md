@@ -44,7 +44,7 @@ Latest functional tested head:
 
 `3fcd802f54c874fb49825448fbe16b1826605181`
 
-Final documentation/state reconciliation is validated again by pull_request CI on the final branch head.
+Final cleanup/evidence reconciliation is validated again by pull_request CI on the final branch head. The proof records the latest functional tested SHA; the terminal Builder return records the immutable final-head SHA/run metadata to avoid a self-referential commit loop.
 
 ---
 
@@ -322,13 +322,13 @@ Both PASS.
 
 ## 15. Stage D1 tests
 
-Canonical functional Run #4:
+Canonical functional pull_request Run #14:
 
-`36072914281`
+`36073999128`
 
 Head:
 
-`82f3a1a13e9a9baa79f2b7528e3f096f8eef9804`
+`3fcd802f54c874fb49825448fbe16b1826605181`
 
 Result:
 
