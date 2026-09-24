@@ -158,9 +158,10 @@ AcquireResult ReadyFrameQueue::tryAcquire(
 
         AcquireResult result;
         result.kind = AcquireResultKind::Acquired;
-        result.lease.emplace(
+        ReadyFrameLease readyLease(
             std::move(*frameLease),
             entry->tracker);
+        result.lease.emplace(std::move(readyLease));
         return result;
     }
 
