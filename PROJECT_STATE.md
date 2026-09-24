@@ -2,10 +2,10 @@
 
 ## Current phase
 
-- **PHASE:** FOUNDATION / ARCHITECTURE
+- **PHASE:** CENTRAL INJECTION RESEARCH
 - **FUNCTIONAL IMPLEMENTATION:** NOT STARTED
 - **DEVICE PROOF:** NOT STARTED
-- **CENTRAL INJECTION:** RESEARCH REQUIRED
+- **CENTRAL INJECTION:** RESEARCH IN PROGRESS / CANDIDATE ONLY
 - **IOS 15.8.8 COMPATIBILITY:** TARGET / NOT YET PROVEN
 - **PUBLIC RELEASE:** NO
 
@@ -20,79 +20,107 @@
 
 No runtime PASS may be recorded until the relevant behavior is tested on the real target device.
 
-## Product direction
+## Research baseline
 
-VCAM PRO is intended to source media directly from the local iPhone gallery, decode and normalize it locally, produce camera-compatible frame buffers, and substitute frames at a central injection point that has first been validated for iOS 15.8.8.
+Approved base `main`:
 
-The preferred system boundary is entirely on-device. OBS, PC transport, USB streaming, Wi-Fi streaming, external backends, external authentication, wallets, plans, subscriptions, and third-party licensing are outside the product architecture.
+`6e2e30e1242f47fed702e0af1cab51137eb6f77a`
 
-## Central injection decision status
+Research workstream:
 
-`mediaserverd` is currently:
+`builder/central-injection-research-001`
 
-**CANDIDATE CENTRAL INJECTION POINT / RESEARCH HYPOTHESIS**
-
-It is not yet an approved final injection point. The later research phase must establish the actual central point on iOS 15.8.8, characterize the relevant internals, and prove stability and fail-open behavior before architecture freeze.
-
-## Reference state observed during foundation preflight
+Reference state observed for this research:
 
 | Repository | Mutability | Observed state |
 | --- | --- | --- |
-| `martaxi-boss/VCAM-PRO` | Mutable project repo | Empty before bootstrap; no branch/HEAD existed |
 | `martaxi-boss/MotionCam-iOS` | READ ONLY | `main` @ `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` |
-| `martaxi-boss/IOS-15-USB` | READ ONLY | Repository empty; no branch/HEAD |
+| `martaxi-boss/IOS-15-USB` | READ ONLY | EMPTY; no branch / no HEAD |
 | `martaxi-boss/IOS-16-USB-4k` | READ ONLY | `main` @ `cc20d787070c67565173d4a46c218e2549cecc93` |
 
-## Foundation evidence summary
+Official upstream snapshots used:
 
-### MotionCam-iOS
+- Dopamine `3.x` @ `1a54e76d515ff5916b64e44d6afbb57d2bc89ee9`
+- ElleKit `main` @ `1017a0d09606ea49ba8bc4d6cccc530d372e640e`
+- Theos rootless/packaging documentation
+- Apple AVFoundation/CoreMedia/VideoToolbox/IOSurface documentation
 
-Current source contains local gallery selection, `UIImagePickerController`, `AVAssetReader`, local playback/loop concepts, a `MediaManager`, and a process-local enable flag. Its current substitution path is process-local and is not adopted as VCAM PRO's final central architecture.
+## Central injection research result
 
-### IOS-15-USB
+### Confirmed
 
-Current GitHub evidence is only:
+- MotionCam's current frame-substitution architecture is process-local.
+- Current Dopamine source has a rootless process/systemhook injection layer and an iOS15-specific spawn-hook path.
+- Current Dopamine loads rootless `TweakLoader.dylib` when tweak injection is enabled.
+- Current ElleKit source implements rootless tweak filtering/loading and provides `mobilesubstrate` compatibility.
+- The iOS16 reference filter explicitly includes `mediaserverd`.
+- The iOS16 reference has static CoreMedia/CoreVideo/VideoToolbox, pixel-buffer-pool, IOSurface-property, Darwin-notification and hook-symbol evidence.
+- The current IOS-15-USB GitHub repository is empty.
 
-**EMPTY REPOSITORY**
+### Leading research candidate
 
-Any Owner-provided information about an older package is classified as:
+`mediaserverd`
 
-**HISTORICAL / NON-CURRENT-GITHUB EVIDENCE**
+Status:
 
-It may guide research hypotheses around iOS 15, arm64, rootless operation, `mediaserverd`, `CMSampleBuffer`, `CVPixelBuffer`, and central injection, but it is not current-repository proof.
+**CANDIDATE ONLY — NOT FINAL ARCHITECTURE**
 
-### IOS-16-USB-4k
+Reason: it has the strongest current central-target evidence, but iOS 15.8.8 runtime load, the exact private camera callback, threading, buffer ownership/lifetime, format, timing, and stability remain unproven.
 
-Static evidence at the observed HEAD includes:
+## Next proof gate
 
-- `iphoneos-arm64`
-- rootless `/var/jb/...` layout
-- MobileSubstrate
-- CoreMedia
-- CoreVideo
-- VideoToolbox
-- `CMSampleBufferGetImageBuffer`
-- `CVPixelBufferPool`
-- `VTDecompressionSession`
-- `VTPixelTransferSession`
-- `VTPixelRotationSession`
-- Darwin notification primitives
-- a recovered filter/analysis referencing `mediaserverd`
+If authorized by the Supervisor, the first functional proof must be limited to:
 
-This evidence is useful for research only. It does **not** establish iOS 15.8.8 compatibility.
+**LOAD / REACHABILITY / PASSIVE OBSERVATION**
 
-## Performance targets
+The proof must not include:
 
-1. Stable 720p / 30 fps.
-2. Then 1080p / 30 fps.
-3. 4K is not an initial requirement.
+- gallery;
+- Media Engine;
+- frame decode;
+- frame conversion;
+- shared frame IPC;
+- virtual frame production;
+- frame substitution.
 
-Priority:
+### Required order
 
-**STABILITY > LATENCY > QUALITY > MAXIMUM RESOLUTION**
+1. prove a minimal research dylib loads in the candidate process without changing camera behavior;
+2. identify the exact iOS15.8.8 callback/symbol;
+3. prove passive reachability while preserving original behavior;
+4. characterize thread, sample-buffer/pixel-buffer lifetime, pixel format, dimensions and timing;
+5. demonstrate fail-open/recovery behavior;
+6. return to Supervisor audit.
 
-## Next allowed phase
+Frame substitution remains prohibited until a later explicit order.
 
-The next phase may be **CENTRAL INJECTION RESEARCH** only after Supervisor audit of this foundation.
+## Fail-open contract
 
-No tweak, media service, injector, daemon, dylib, application, package, hook, functional Makefile, jailbreak script, functional release workflow, Objective-C code, C/C++ code, or binary belongs to this phase.
+The approved fail-open policy is unchanged:
+
+- VCAM OFF / absent -> real/original behavior;
+- no virtual state -> real/original behavior;
+- unknown callback -> original behavior;
+- invalid/incompatible buffer -> real/original behavior;
+- error -> original behavior;
+- injector/proof component unavailable -> original behavior.
+
+No future design may block `mediaserverd` or another critical camera pipeline while waiting for media, IPC, decode, or a frame.
+
+## Provenance
+
+The research report documents names, filters, symbols, dependencies, public APIs and relationships only.
+
+No proprietary dylib, closed implementation, converted disassembly, credentials, backend, anti-debug logic or commercial component has been copied into VCAM PRO.
+
+See:
+
+`docs/research/CENTRAL_INJECTION_IOS15.md`
+
+for the full FACT / INFERENCE / UNKNOWN evidence map and source list.
+
+## Public release
+
+**NO**
+
+No merge or public release is authorized by this research phase.
