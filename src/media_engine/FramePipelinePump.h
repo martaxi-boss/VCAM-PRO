@@ -10,7 +10,6 @@
 
 namespace vcam::media_engine {
 
-class FramePipelinePumpTestAccess;
 
 enum class FramePipelinePumpStatus : std::uint8_t {
     Published = 0,
@@ -57,8 +56,6 @@ public:
     const NormalizationTarget& target() const noexcept;
 
 private:
-    friend class FramePipelinePumpTestAccess;
-
     FramePipelinePumpResult processFrame(
         frame_engine::PreparedFrame frame,
         const SourceVideoInfo& info,

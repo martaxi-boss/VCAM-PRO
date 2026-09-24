@@ -23,26 +23,6 @@ using namespace vcam::media_engine;
 
 }  // namespace
 
-namespace vcam::media_engine {
-
-class FramePipelinePumpTestAccess final {
-public:
-    static FramePipelinePumpResult processFrame(
-        FramePipelinePump& pump,
-        frame_engine::PreparedFrame frame,
-        const SourceVideoInfo& info,
-        std::uint64_t generation,
-        std::uint64_t epoch) {
-        return pump.processFrame(
-            std::move(frame),
-            info,
-            generation,
-            epoch);
-    }
-};
-
-}  // namespace vcam::media_engine
-
 namespace {
 
 using namespace vcam::frame_engine;
@@ -90,7 +70,8 @@ bool CreateLocalVideoFixture(
     int frameCount = 3,
     int width = 64,
     int height = 48,
-    CGAffineTransform transform = CGAffineTransformIdentity) {
+    CGAffineTransform transform = CGAffineTransformIdentity,
+    bool stripColorMetadata = false) {
     @autoreleasepool {
         NSString* nsPath =
             [[NSString alloc] initWithUTF8String:path.c_str()];
@@ -179,6 +160,18 @@ bool CreateLocalVideoFixture(
                         static_cast<unsigned char>(32 + index * 32),
                         bytesPerRow * rows);
             CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+
+            if (stripColorMetadata) {
+                CVBufferRemoveAttachment(
+                    pixelBuffer,
+                    kCVImageBufferColorPrimariesKey);
+                CVBufferRemoveAttachment(
+                    pixelBuffer,
+                    kCVImageBufferTransferFunctionKey);
+                CVBufferRemoveAttachment(
+                    pixelBuffer,
+                    kCVImageBufferYCbCrMatrixKey);
+            }
 
             const CMTime pts = CMTimeMake(index, 30);
             const BOOL appended =
@@ -571,16 +564,16 @@ bool TestNonIdentityTransformRequired(const std::string& rotatedPath) {
 }
 
 bool TestRequirePresentMissingMetadataNoPublish(
-    const std::string&) {
+    const std::string& path) {
     FrameEngineState state;
-    state.selectOrReplaceMedia();
-    CHECK(state.markReaderReady());
-    CHECK(state.start());
-    CHECK(state.beginReading());
-
     LocalVideoReader reader(state);
     FrameNormalizer normalizer;
     ReadyFrameQueue queue(2);
+
+    CHECK(OpenStart(
+        reader,
+        path,
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
 
     FramePipelinePump pump(
         state,
@@ -593,20 +586,7 @@ bool TestRequirePresentMissingMetadataNoPublish(
             48,
             ColorMetadataPolicy::RequirePresent));
 
-    SourceVideoInfo info;
-    info.naturalSize = CGSizeMake(64, 48);
-    info.preferredTransform = CGAffineTransformIdentity;
-    info.outputPixelFormat =
-        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
-
-    auto result = FramePipelinePumpTestAccess::processFrame(
-        pump,
-        MakeFrameWithoutColorMetadata(
-            state.mediaGeneration(),
-            state.timelineEpoch()),
-        info,
-        state.mediaGeneration(),
-        state.timelineEpoch());
+    const auto result = PumpUntilAction(pump);
 
     CHECK(result.status ==
           FramePipelinePumpStatus::NormalizationRejected);
@@ -944,6 +924,7 @@ int main() {
         const std::string fixture = UniqueFixturePath("main");
         const std::string oneFrame = UniqueFixturePath("one");
         const std::string replacement = UniqueFixturePath("replacement");
+        const std::string noColorMetadata = UniqueFixturePath("no-color");
         const std::string rotated = UniqueFixturePath("rotated");
 
         const CGAffineTransform rotatedTransform =
@@ -952,6 +933,13 @@ int main() {
         if (!CreateLocalVideoFixture(fixture, 3) ||
             !CreateLocalVideoFixture(oneFrame, 1) ||
             !CreateLocalVideoFixture(replacement, 2) ||
+            !CreateLocalVideoFixture(
+                noColorMetadata,
+                2,
+                64,
+                48,
+                CGAffineTransformIdentity,
+                true) ||
             !CreateLocalVideoFixture(
                 rotated,
                 2,
@@ -963,6 +951,7 @@ int main() {
             RemoveFixture(fixture);
             RemoveFixture(oneFrame);
             RemoveFixture(replacement);
+            RemoveFixture(noColorMetadata);
             RemoveFixture(rotated);
             return EXIT_FAILURE;
         }
@@ -994,7 +983,7 @@ int main() {
         Run("RequirePresent missing metadata does not publish",
             [&] {
                 return TestRequirePresentMissingMetadataNoPublish(
-                    fixture);
+                    noColorMetadata);
             });
         Run("EOS without loop propagates without publish",
             [&] { return TestEOSWithoutLoopNoPublish(oneFrame); });
@@ -1028,6 +1017,7 @@ int main() {
         RemoveFixture(fixture);
         RemoveFixture(oneFrame);
         RemoveFixture(replacement);
+        RemoveFixture(noColorMetadata);
         RemoveFixture(rotated);
 
         std::cout << "Stage D1 tests run: " << gTestsRun
