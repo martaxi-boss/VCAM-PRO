@@ -90,8 +90,7 @@ bool CreateLocalVideoFixture(
     int frameCount = 3,
     int width = 64,
     int height = 48,
-    CGAffineTransform transform = CGAffineTransformIdentity,
-    AVVideoCodecType codec = AVVideoCodecTypeH264) {
+    CGAffineTransform transform = CGAffineTransformIdentity) {
     @autoreleasepool {
         NSString* nsPath =
             [[NSString alloc] initWithUTF8String:path.c_str()];
@@ -111,26 +110,15 @@ bool CreateLocalVideoFixture(
             return false;
         }
 
-        NSDictionary* settings = nil;
-        if ([codec isEqualToString:AVVideoCodecTypeH264]) {
-            NSDictionary* compression = @{
-                AVVideoAverageBitRateKey : @(150000)
-            };
-            settings = @{
-                AVVideoCodecKey : codec,
-                AVVideoWidthKey : @(width),
-                AVVideoHeightKey : @(height),
-                AVVideoCompressionPropertiesKey : compression,
-            };
-        } else {
-            // Test-only metadata-sparse fixture path. No AVVideoColorPropertiesKey
-            // is supplied; this intentionally avoids declaring color metadata.
-            settings = @{
-                AVVideoCodecKey : codec,
-                AVVideoWidthKey : @(width),
-                AVVideoHeightKey : @(height),
-            };
-        }
+        NSDictionary* compression = @{
+            AVVideoAverageBitRateKey : @(150000)
+        };
+        NSDictionary* settings = @{
+            AVVideoCodecKey : AVVideoCodecTypeH264,
+            AVVideoWidthKey : @(width),
+            AVVideoHeightKey : @(height),
+            AVVideoCompressionPropertiesKey : compression,
+        };
 
         AVAssetWriterInput* input =
             [AVAssetWriterInput assetWriterInputWithMediaType:AVMediaTypeVideo
@@ -957,8 +945,6 @@ int main() {
         const std::string oneFrame = UniqueFixturePath("one");
         const std::string replacement = UniqueFixturePath("replacement");
         const std::string rotated = UniqueFixturePath("rotated");
-        const std::string metadataSparse =
-            UniqueFixturePath("metadata-sparse");
 
         const CGAffineTransform rotatedTransform =
             CGAffineTransformMake(0, 1, -1, 0, 48, 0);
@@ -971,21 +957,13 @@ int main() {
                 2,
                 64,
                 48,
-                rotatedTransform) ||
-            !CreateLocalVideoFixture(
-                metadataSparse,
-                2,
-                64,
-                48,
-                CGAffineTransformIdentity,
-                AVVideoCodecTypeJPEG)) {
+                rotatedTransform)) {
             std::cerr << "Unable to create deterministic Stage D1 fixtures."
                       << std::endl;
             RemoveFixture(fixture);
             RemoveFixture(oneFrame);
             RemoveFixture(replacement);
             RemoveFixture(rotated);
-            RemoveFixture(metadataSparse);
             return EXIT_FAILURE;
         }
 
@@ -1016,7 +994,7 @@ int main() {
         Run("RequirePresent missing metadata does not publish",
             [&] {
                 return TestRequirePresentMissingMetadataNoPublish(
-                    metadataSparse);
+                    fixture);
             });
         Run("EOS without loop propagates without publish",
             [&] { return TestEOSWithoutLoopNoPublish(oneFrame); });
@@ -1051,7 +1029,6 @@ int main() {
         RemoveFixture(oneFrame);
         RemoveFixture(replacement);
         RemoveFixture(rotated);
-        RemoveFixture(metadataSparse);
 
         std::cout << "Stage D1 tests run: " << gTestsRun
                   << ", failures: " << gFailures << std::endl;
