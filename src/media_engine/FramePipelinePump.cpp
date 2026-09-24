@@ -78,15 +78,27 @@ FramePipelinePumpResult FramePipelinePump::pumpOnce() {
         return result;
     }
 
-    SourceGeometry geometry;
-    geometry.naturalSize = info->naturalSize;
-    geometry.preferredTransform = info->preferredTransform;
+    return processFrame(
+        std::move(*read.frame),
+        *info,
+        state_.mediaGeneration(),
+        state_.timelineEpoch());
+}
 
-    const std::uint64_t generation = state_.mediaGeneration();
-    const std::uint64_t epoch = state_.timelineEpoch();
+FramePipelinePumpResult FramePipelinePump::processFrame(
+    frame_engine::PreparedFrame frame,
+    const SourceVideoInfo& info,
+    std::uint64_t generation,
+    std::uint64_t epoch) {
+    FramePipelinePumpResult result;
+    result.readResult = ReadResultKind::Frame;
+
+    SourceGeometry geometry;
+    geometry.naturalSize = info.naturalSize;
+    geometry.preferredTransform = info.preferredTransform;
 
     NormalizationResult normalized = normalizer_.prepare(
-        *read.frame,
+        frame,
         geometry,
         target_,
         generation,

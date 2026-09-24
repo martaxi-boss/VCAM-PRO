@@ -21,6 +21,33 @@ namespace {
 using namespace vcam::frame_engine;
 using namespace vcam::media_engine;
 
+}  // namespace
+
+namespace vcam::media_engine {
+
+class FramePipelinePumpTestAccess final {
+public:
+    static FramePipelinePumpResult processFrame(
+        FramePipelinePump& pump,
+        frame_engine::PreparedFrame frame,
+        const SourceVideoInfo& info,
+        std::uint64_t generation,
+        std::uint64_t epoch) {
+        return pump.processFrame(
+            std::move(frame),
+            info,
+            generation,
+            epoch);
+    }
+};
+
+}  // namespace vcam::media_engine
+
+namespace {
+
+using namespace vcam::frame_engine;
+using namespace vcam::media_engine;
+
 int gFailures = 0;
 int gTestsRun = 0;
 
@@ -225,6 +252,42 @@ QueueContext Context(const FrameEngineState& state) {
     context.currentTimelineEpoch = state.timelineEpoch();
     context.minimumSequence = std::nullopt;
     return context;
+}
+
+PreparedFrame MakeFrameWithoutColorMetadata(
+    std::uint64_t generation,
+    std::uint64_t epoch) {
+    CVPixelBufferRef pixelBuffer = nullptr;
+    const CVReturn created = CVPixelBufferCreate(
+        kCFAllocatorDefault,
+        64,
+        48,
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        nullptr,
+        &pixelBuffer);
+    if (created != kCVReturnSuccess || pixelBuffer == nullptr) {
+        throw std::runtime_error(
+            "Unable to create metadata-free D1 pixel buffer fixture.");
+    }
+
+    FrameIdentity identity{0, generation, epoch, 0};
+    FrameTiming timing;
+    timing.sourcePTS = kCMTimeZero;
+    timing.presentationTimestamp = kCMTimeInvalid;
+    timing.duration = CMTimeMake(1, 30);
+
+    PreparedFrame frame(
+        pixelBuffer,
+        identity,
+        timing,
+        OrientationState::SourceNotNormalized,
+        FrameValidity::Ready,
+        nullptr,
+        nullptr,
+        nullptr,
+        nullptr);
+    CVPixelBufferRelease(pixelBuffer);
+    return frame;
 }
 
 FramePipelinePumpResult PumpUntilAction(
@@ -508,15 +571,16 @@ bool TestNonIdentityTransformRequired(const std::string& rotatedPath) {
 }
 
 bool TestRequirePresentMissingMetadataNoPublish(
-    const std::string& path) {
+    const std::string&) {
     FrameEngineState state;
+    state.selectOrReplaceMedia();
+    CHECK(state.markReaderReady());
+    CHECK(state.start());
+    CHECK(state.beginReading());
+
     LocalVideoReader reader(state);
     FrameNormalizer normalizer;
     ReadyFrameQueue queue(2);
-    CHECK(OpenStart(
-        reader,
-        path,
-        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
 
     FramePipelinePump pump(
         state,
@@ -529,7 +593,21 @@ bool TestRequirePresentMissingMetadataNoPublish(
             48,
             ColorMetadataPolicy::RequirePresent));
 
-    const auto result = PumpUntilAction(pump);
+    SourceVideoInfo info;
+    info.naturalSize = CGSizeMake(64, 48);
+    info.preferredTransform = CGAffineTransformIdentity;
+    info.outputPixelFormat =
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+
+    auto result = FramePipelinePumpTestAccess::processFrame(
+        pump,
+        MakeFrameWithoutColorMetadata(
+            state.mediaGeneration(),
+            state.timelineEpoch()),
+        info,
+        state.mediaGeneration(),
+        state.timelineEpoch());
+
     CHECK(result.status ==
           FramePipelinePumpStatus::NormalizationRejected);
     CHECK(result.normalizationStatus ==

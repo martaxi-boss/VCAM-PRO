@@ -10,6 +10,8 @@
 
 namespace vcam::media_engine {
 
+class FramePipelinePumpTestAccess;
+
 enum class FramePipelinePumpStatus : std::uint8_t {
     Published = 0,
     TransformRequired,
@@ -55,6 +57,14 @@ public:
     const NormalizationTarget& target() const noexcept;
 
 private:
+    friend class FramePipelinePumpTestAccess;
+
+    FramePipelinePumpResult processFrame(
+        frame_engine::PreparedFrame frame,
+        const SourceVideoInfo& info,
+        std::uint64_t generation,
+        std::uint64_t epoch);
+
     frame_engine::FrameEngineState& state_;
     LocalVideoReader& reader_;
     FrameNormalizer& normalizer_;
