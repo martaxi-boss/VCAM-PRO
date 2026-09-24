@@ -418,6 +418,129 @@ bool TestUnknownColorMetadataRemainsUnknown() {
     return true;
 }
 
+bool TestRequirePresentCompleteMetadata() {
+    CFStringRef primaries = CFSTR("VCAM_REQUIRE_PRIMARIES");
+    CFStringRef transfer = CFSTR("VCAM_REQUIRE_TRANSFER");
+    CFStringRef matrix = CFSTR("VCAM_REQUIRE_MATRIX");
+
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        8,
+        6,
+        1,
+        1,
+        FrameValidity::Ready,
+        primaries,
+        transfer,
+        matrix);
+
+    auto result = Prepare(
+        frame,
+        IdentityGeometry(),
+        Target(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            8,
+            6,
+            ColorMetadataPolicy::RequirePresent));
+
+    CHECK(result.status == NormalizationStatus::ReadyPassthrough);
+    CHECK(result.requirement == TransformRequirement::None);
+    CHECK(result.frame.has_value());
+    CHECK(CFEqual(result.frame->colorPrimaries(), primaries));
+    CHECK(CFEqual(result.frame->transferFunction(), transfer));
+    CHECK(CFEqual(result.frame->yCbCrMatrix(), matrix));
+    return true;
+}
+
+bool TestRequirePresentRejectsIncompleteMetadata() {
+    CFStringRef primaries = CFSTR("VCAM_REQUIRE_PRIMARIES");
+    CFStringRef transfer = CFSTR("VCAM_REQUIRE_TRANSFER");
+    CFStringRef matrix = CFSTR("VCAM_REQUIRE_MATRIX");
+
+    {
+        auto missingPrimaries = MakeFrame(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            8,
+            6,
+            1,
+            1,
+            FrameValidity::Ready,
+            nullptr,
+            transfer,
+            matrix);
+
+        auto result = Prepare(
+            missingPrimaries,
+            IdentityGeometry(),
+            Target(
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                8,
+                6,
+                ColorMetadataPolicy::RequirePresent));
+
+        CHECK(result.status ==
+              NormalizationStatus::MissingRequiredColorMetadata);
+        CHECK(result.requirement == TransformRequirement::None);
+        CHECK(!result.frame.has_value());
+    }
+
+    {
+        auto missingTransfer = MakeFrame(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            8,
+            6,
+            1,
+            1,
+            FrameValidity::Ready,
+            primaries,
+            nullptr,
+            matrix);
+
+        auto result = Prepare(
+            missingTransfer,
+            IdentityGeometry(),
+            Target(
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                8,
+                6,
+                ColorMetadataPolicy::RequirePresent));
+
+        CHECK(result.status ==
+              NormalizationStatus::MissingRequiredColorMetadata);
+        CHECK(result.requirement == TransformRequirement::None);
+        CHECK(!result.frame.has_value());
+    }
+
+    {
+        auto missingMatrix = MakeFrame(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            8,
+            6,
+            1,
+            1,
+            FrameValidity::Ready,
+            primaries,
+            transfer,
+            nullptr);
+
+        auto result = Prepare(
+            missingMatrix,
+            IdentityGeometry(),
+            Target(
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                8,
+                6,
+                ColorMetadataPolicy::RequirePresent));
+
+        CHECK(result.status ==
+              NormalizationStatus::MissingRequiredColorMetadata);
+        CHECK(result.requirement == TransformRequirement::None);
+        CHECK(!result.frame.has_value());
+    }
+
+    return true;
+}
+
 void Run(const std::string& name,
          const std::function<bool()>& test) {
     ++gTestsRun;
@@ -453,6 +576,8 @@ int main() {
     Run("Color metadata preserved", TestColorMetadataPreserved);
     Run("Attachments preserved", TestAttachmentsPreserved);
     Run("Unknown color metadata remains unknown", TestUnknownColorMetadataRemainsUnknown);
+    Run("RequirePresent complete metadata", TestRequirePresentCompleteMetadata);
+    Run("RequirePresent rejects incomplete metadata", TestRequirePresentRejectsIncompleteMetadata);
 
     std::cout << "Stage C1 normalizer tests run: " << gTestsRun
               << ", failures: " << gFailures << std::endl;

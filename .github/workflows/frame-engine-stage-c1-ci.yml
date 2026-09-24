@@ -104,7 +104,7 @@ jobs:
         run: |
           set -euo pipefail
           build/host/frame_normalizer_stage_c1_tests             | tee build/host/stage-c1-normalizer-test-summary.txt
-          grep -q 'Stage C1 normalizer tests run: 15, failures: 0'             build/host/stage-c1-normalizer-test-summary.txt
+          grep -q 'Stage C1 normalizer tests run: 17, failures: 0'             build/host/stage-c1-normalizer-test-summary.txt
 
       - name: Compile iOS 15 arm64 production objects
         run: |
