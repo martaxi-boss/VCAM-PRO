@@ -166,7 +166,7 @@ jobs:
           echo "=== PACKAGE SHA-256 ==="
           shasum -a 256 "$DEB"
 
-          echo "deb_path=$DEB" >> "$GITHUB_OUTPUT"
+          echo "deb_path=$GITHUB_WORKSPACE/proofs/mediaserverd_load_probe/$DEB" >> "$GITHUB_OUTPUT"
 
       - name: Upload .deb build artifact
         uses: actions/upload-artifact@v4
