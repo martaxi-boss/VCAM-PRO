@@ -1,0 +1,181 @@
+name: Frame Engine Stage C1 CI
+
+on:
+  push:
+    branches:
+      - builder/frame-engine-stage-c1-001
+    paths:
+      - "src/frame_engine/**"
+      - "src/media_engine/**"
+      - "tests/frame_engine/**"
+      - "tests/media_engine/**"
+      - ".github/workflows/frame-engine-stage-c1-ci.yml"
+  pull_request:
+    paths:
+      - "src/frame_engine/**"
+      - "src/media_engine/**"
+      - "tests/frame_engine/**"
+      - "tests/media_engine/**"
+      - ".github/workflows/frame-engine-stage-c1-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  stage-c1:
+    name: Stage C1 queue-normalization-admission
+    runs-on: macos-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun clang++ --version
+          echo "macOS SDK: $(xcrun --sdk macosx --show-sdk-path)"
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+
+      - name: Source negative checks
+        run: |
+          set -euo pipefail
+
+          stage_a_banned='AVAssetReader|AVCapture|VideoToolbox|VTDecompression|MSHookFunction|MSHookMessageEx|%hook|mediaserverd|socket|NSURLSession|UIImagePicker|CVPixelBufferPool'
+          if grep -RInE "$stage_a_banned" src/frame_engine/PreparedFrame.* src/frame_engine/FrameEngineState.*; then
+            echo "Stage A source boundary regression."
+            exit 1
+          fi
+
+          c1_banned='VTDecompression|VTPixelTransfer|VTPixelRotation|VideoToolbox|CoreImage|Metal|vImage|Accelerate|AVCapture|Photos|UIKit|MSHookFunction|MSHookMessageEx|%hook|mediaserverd|NSURLSession|CVPixelBufferPool|Network.framework'
+          if grep -RInE "$c1_banned" src/frame_engine/ReadyFrameQueue.* src/media_engine/FrameNormalizer.*; then
+            echo "Forbidden Stage C1 production token found."
+            exit 1
+          fi
+
+          if grep -RInE '(^|[^A-Za-z])socket([^A-Za-z]|$)|\bnw_[A-Za-z0-9_]+' src/frame_engine/ReadyFrameQueue.* src/media_engine/FrameNormalizer.*; then
+            echo "Forbidden Stage C1 network token found."
+            exit 1
+          fi
+
+      - name: Build Stage A host regression
+        run: |
+          set -euo pipefail
+          mkdir -p build/host
+          xcrun --sdk macosx clang++             -std=c++17             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             tests/frame_engine/frame_engine_stage_a_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/frame_engine_stage_a_tests
+
+      - name: Run Stage A host regression
+        run: |
+          set -euo pipefail
+          build/host/frame_engine_stage_a_tests             | tee build/host/stage-a-test-summary.txt
+          grep -q 'Tests run: 13, failures: 0'             build/host/stage-a-test-summary.txt
+
+      - name: Build Stage B host regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             tests/media_engine/local_video_reader_stage_b_tests.mm             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/local_video_reader_stage_b_tests
+
+      - name: Run Stage B host regression
+        run: |
+          set -euo pipefail
+          build/host/local_video_reader_stage_b_tests             | tee build/host/stage-b-test-summary.txt
+          grep -q 'Stage B tests run: 10, failures: 0'             build/host/stage-b-test-summary.txt
+
+      - name: Build Stage C1 queue tests
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17             -Wall -Wextra -Werror -pedantic             -pthread             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             tests/frame_engine/ready_frame_queue_stage_c1_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/ready_frame_queue_stage_c1_tests
+
+      - name: Run Stage C1 queue tests
+        run: |
+          set -euo pipefail
+          build/host/ready_frame_queue_stage_c1_tests             | tee build/host/stage-c1-queue-test-summary.txt
+          grep -q 'Stage C1 queue tests run: 18, failures: 0'             build/host/stage-c1-queue-test-summary.txt
+
+      - name: Build Stage C1 normalizer tests
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/media_engine/FrameNormalizer.cpp             tests/media_engine/frame_normalizer_stage_c1_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/frame_normalizer_stage_c1_tests
+
+      - name: Run Stage C1 normalizer tests
+        # The 17-test suite includes direct RequirePresent policy coverage.
+        run: |
+          set -euo pipefail
+          build/host/frame_normalizer_stage_c1_tests             | tee build/host/stage-c1-normalizer-test-summary.txt
+          grep -q 'Stage C1 normalizer tests run: 17, failures: 0'             build/host/stage-c1-normalizer-test-summary.txt
+
+      - name: Compile iOS 15 arm64 production objects
+        run: |
+          set -euo pipefail
+          mkdir -p build/ios
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+
+          "$CXX" -std=c++17 -arch arm64 -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -c src/frame_engine/PreparedFrame.cpp             -o build/ios/PreparedFrame.o
+
+          "$CXX" -std=c++17 -arch arm64 -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -c src/frame_engine/FrameEngineState.cpp             -o build/ios/FrameEngineState.o
+
+          "$CXX" -std=c++17 -fobjc-arc -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -c src/media_engine/LocalVideoReader.mm             -o build/ios/LocalVideoReader.o
+
+          "$CXX" -std=c++17 -arch arm64 -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -c src/frame_engine/ReadyFrameQueue.cpp             -o build/ios/ReadyFrameQueue.o
+
+          "$CXX" -std=c++17 -arch arm64 -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -Isrc/media_engine             -c src/media_engine/FrameNormalizer.cpp             -o build/ios/FrameNormalizer.o
+
+          xcrun libtool -static             -o build/ios/libVCAMFrameEngineStageC1.a             build/ios/PreparedFrame.o             build/ios/FrameEngineState.o             build/ios/LocalVideoReader.o             build/ios/ReadyFrameQueue.o             build/ios/FrameNormalizer.o
+
+      - name: Inspect iOS archive
+        run: |
+          set -euo pipefail
+
+          file build/ios/PreparedFrame.o
+          file build/ios/FrameEngineState.o
+          file build/ios/LocalVideoReader.o
+          file build/ios/ReadyFrameQueue.o
+          file build/ios/FrameNormalizer.o
+          file build/ios/libVCAMFrameEngineStageC1.a
+
+          xcrun lipo -info build/ios/libVCAMFrameEngineStageC1.a
+
+          for object in             build/ios/ReadyFrameQueue.o             build/ios/FrameNormalizer.o; do
+            xcrun otool -l "$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'
+          done
+
+          xcrun nm -u build/ios/libVCAMFrameEngineStageC1.a             | tee build/ios/undefined-symbols.txt
+
+          forbidden_symbols='VTDecompression|VTPixelTransfer|VTPixelRotation|CIContext|MTL|vImage|MSHookFunction|MSHookMessageEx|AVCapture|PHPhoto|UIImage|NSURLSession|_socket|_nw_'
+          if xcrun nm -u build/ios/libVCAMFrameEngineStageC1.a               | grep -E "$forbidden_symbols"; then
+            echo "Forbidden Stage C1 production symbol found."
+            exit 1
+          fi
+
+          if ! xcrun nm -u build/ios/libVCAMFrameEngineStageC1.a               | grep -q 'AVAssetReader'; then
+            echo "Expected Stage B AVAssetReader symbol not found."
+            exit 1
+          fi
+
+          if ! xcrun lipo -info build/ios/libVCAMFrameEngineStageC1.a               | grep -q 'arm64'; then
+            echo "arm64 archive proof failed."
+            exit 1
+          fi
+
+          if xcrun lipo -info build/ios/libVCAMFrameEngineStageC1.a               | grep -q 'arm64e'; then
+            echo "arm64e must not be present."
+            exit 1
+          fi
+
+      - name: Upload static build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-frame-engine-stage-c1-static
+          path: |
+            build/ios/libVCAMFrameEngineStageC1.a
+            build/ios/undefined-symbols.txt
+            build/host/stage-a-test-summary.txt
+            build/host/stage-b-test-summary.txt
+            build/host/stage-c1-queue-test-summary.txt
+            build/host/stage-c1-normalizer-test-summary.txt
+          if-no-files-found: error
+          retention-days: 14
