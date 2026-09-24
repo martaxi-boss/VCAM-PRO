@@ -18,12 +18,16 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 25
     env:
-      THEOS: ${{ runner.temp }}/theos
       THEOS_SHA: dd5c14bb9d91311e221d51b5bfb8c9e5948156db
 
     steps:
       - name: Checkout VCAM PRO
         uses: actions/checkout@v4
+
+      - name: Configure build environment
+        run: |
+          set -euo pipefail
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
 
       - name: Record build environment
         run: |
