@@ -1,0 +1,105 @@
+name: Frame Engine Stage A CI
+
+on:
+  push:
+    branches:
+      - builder/frame-engine-stage-a-001
+    paths:
+      - "src/frame_engine/**"
+      - "tests/frame_engine/**"
+      - ".github/workflows/frame-engine-stage-a-ci.yml"
+  pull_request:
+    paths:
+      - "src/frame_engine/**"
+      - "tests/frame_engine/**"
+      - ".github/workflows/frame-engine-stage-a-ci.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  stage-a:
+    name: Stage A types-state-ownership
+    runs-on: macos-26-arm64
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun clang++ --version
+          echo "macOS SDK: $(xcrun --sdk macosx --show-sdk-path)"
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+
+      - name: Stage A negative source checks
+        run: |
+          set -euo pipefail
+          banned='AVAssetReader|AVCapture|VideoToolbox|VTDecompression|MSHookFunction|MSHookMessageEx|%hook|mediaserverd|socket|NSURLSession|UIImagePicker|CVPixelBufferPool'
+          if grep -RInE "$banned" src/frame_engine; then
+            echo "Forbidden Stage A source token found."
+            exit 1
+          fi
+
+      - name: Build host unit tests
+        run: |
+          set -euo pipefail
+          mkdir -p build/host
+          xcrun --sdk macosx clang++             -std=c++17             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             tests/frame_engine/frame_engine_stage_a_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/frame_engine_stage_a_tests
+
+      - name: Run host unit tests
+        run: |
+          set -euo pipefail
+          build/host/frame_engine_stage_a_tests
+
+      - name: Compile iOS 15 arm64 static objects
+        run: |
+          set -euo pipefail
+          mkdir -p build/ios
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+
+          "$CXX"             -std=c++17             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -c src/frame_engine/PreparedFrame.cpp             -o build/ios/PreparedFrame.o
+
+          "$CXX"             -std=c++17             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -c src/frame_engine/FrameEngineState.cpp             -o build/ios/FrameEngineState.o
+
+          xcrun libtool -static             -o build/ios/libVCAMFrameEngineStageA.a             build/ios/PreparedFrame.o             build/ios/FrameEngineState.o
+
+      - name: Inspect iOS archive
+        run: |
+          set -euo pipefail
+          file build/ios/PreparedFrame.o
+          file build/ios/FrameEngineState.o
+          file build/ios/libVCAMFrameEngineStageA.a
+          xcrun lipo -info build/ios/libVCAMFrameEngineStageA.a
+          xcrun otool -l build/ios/PreparedFrame.o | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'
+          xcrun nm -u build/ios/libVCAMFrameEngineStageA.a | tee build/ios/undefined-symbols.txt
+
+          if xcrun nm -u build/ios/libVCAMFrameEngineStageA.a | grep -E 'AVAsset|AVCapture|VTDecompression|MSHookFunction|MSHookMessageEx'; then
+            echo "Forbidden dependency or hook symbol found."
+            exit 1
+          fi
+
+          if ! xcrun lipo -info build/ios/libVCAMFrameEngineStageA.a | grep -q 'arm64'; then
+            echo "arm64 archive proof failed."
+            exit 1
+          fi
+
+          if xcrun lipo -info build/ios/libVCAMFrameEngineStageA.a | grep -q 'arm64e'; then
+            echo "arm64e must not be present."
+            exit 1
+          fi
+
+      - name: Upload static build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-frame-engine-stage-a-static
+          path: |
+            build/ios/libVCAMFrameEngineStageA.a
+            build/ios/undefined-symbols.txt
+          if-no-files-found: error
+          retention-days: 14
