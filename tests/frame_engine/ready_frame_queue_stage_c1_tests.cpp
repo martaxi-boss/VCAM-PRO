@@ -335,12 +335,13 @@ bool TestPurgeGeneration() {
     CHECK(queue.publish(MakeFrame(1, 1, 0),
                         Context(1, 1)) ==
           PublishResult::Published);
+
+    CHECK(queue.purgeGeneration(2) == 1);
+    CHECK(queue.size() == 0);
+
     CHECK(queue.publish(MakeFrame(2, 1, 1),
                         Context(2, 1)) ==
           PublishResult::Published);
-
-    CHECK(queue.purgeGeneration(2) == 1);
-    CHECK(queue.size() == 1);
 
     AcquireResult result = queue.tryAcquire(Context(2, 1));
     CHECK(result.kind == AcquireResultKind::Acquired);
@@ -353,12 +354,13 @@ bool TestPurgeEpoch() {
     CHECK(queue.publish(MakeFrame(2, 1, 0),
                         Context(2, 1)) ==
           PublishResult::Published);
+
+    CHECK(queue.purgeEpoch(2, 2) == 1);
+    CHECK(queue.size() == 0);
+
     CHECK(queue.publish(MakeFrame(2, 2, 1),
                         Context(2, 2)) ==
           PublishResult::Published);
-
-    CHECK(queue.purgeEpoch(2, 2) == 1);
-    CHECK(queue.size() == 1);
 
     AcquireResult result = queue.tryAcquire(Context(2, 2));
     CHECK(result.kind == AcquireResultKind::Acquired);
