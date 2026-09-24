@@ -247,42 +247,6 @@ QueueContext Context(const FrameEngineState& state) {
     return context;
 }
 
-PreparedFrame MakeFrameWithoutColorMetadata(
-    std::uint64_t generation,
-    std::uint64_t epoch) {
-    CVPixelBufferRef pixelBuffer = nullptr;
-    const CVReturn created = CVPixelBufferCreate(
-        kCFAllocatorDefault,
-        64,
-        48,
-        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-        nullptr,
-        &pixelBuffer);
-    if (created != kCVReturnSuccess || pixelBuffer == nullptr) {
-        throw std::runtime_error(
-            "Unable to create metadata-free D1 pixel buffer fixture.");
-    }
-
-    FrameIdentity identity{0, generation, epoch, 0};
-    FrameTiming timing;
-    timing.sourcePTS = kCMTimeZero;
-    timing.presentationTimestamp = kCMTimeInvalid;
-    timing.duration = CMTimeMake(1, 30);
-
-    PreparedFrame frame(
-        pixelBuffer,
-        identity,
-        timing,
-        OrientationState::SourceNotNormalized,
-        FrameValidity::Ready,
-        nullptr,
-        nullptr,
-        nullptr,
-        nullptr);
-    CVPixelBufferRelease(pixelBuffer);
-    return frame;
-}
-
 FramePipelinePumpResult PumpUntilAction(
     FramePipelinePump& pump,
     int maxCalls = 32) {
