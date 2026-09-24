@@ -101,6 +101,7 @@ jobs:
           xcrun --sdk macosx clang++             -std=c++17             -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/media_engine/FrameNormalizer.cpp             tests/media_engine/frame_normalizer_stage_c1_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/frame_normalizer_stage_c1_tests
 
       - name: Run Stage C1 normalizer tests
+        # The 17-test suite includes direct RequirePresent policy coverage.
         run: |
           set -euo pipefail
           build/host/frame_normalizer_stage_c1_tests             | tee build/host/stage-c1-normalizer-test-summary.txt

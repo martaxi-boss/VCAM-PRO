@@ -42,7 +42,7 @@ Stage A and Stage B production source were not modified.
 
 Functional + CI-tested Stage C1 head:
 
-`fab38d02c2ae96f06ec0b3e9f86a416191ed379c`
+`dbe825c608ae9f175a0492d5386c770cf33dec54`
 
 The final documentation/state reconciliation commit is reported by PR metadata and the terminal Builder return. A commit cannot embed its own SHA in its own content without changing that SHA.
 
@@ -489,9 +489,9 @@ Threading in tests is used only to prove fail-fast lock contention behavior.
 
 ## 22. Stage A regression
 
-Canonical successful Run #3:
+Latest canonical remediation Run #5:
 
-`36068657432`
+`36069984848`
 
 Result:
 
@@ -503,9 +503,9 @@ Stage A production source remained unchanged.
 
 ## 23. Stage B regression
 
-Canonical successful Run #3:
+Latest canonical remediation Run #5:
 
-`36068657432`
+`36069984848`
 
 Result:
 
@@ -550,9 +550,9 @@ Covered:
 
 ## 25. Stage C1 normalizer tests
 
-Result:
+Latest remediation result:
 
-**15 / 15 PASS — 0 failures**
+**17 / 17 PASS — 0 failures**
 
 Covered:
 
@@ -570,7 +570,39 @@ Covered:
 12. epoch mismatch -> no output;
 13. color metadata preserved;
 14. attachments preserved;
-15. unknown color metadata remains unknown.
+15. unknown color metadata remains unknown;
+16. RequirePresent with complete color metadata -> ReadyPassthrough;
+17. RequirePresent with incomplete color metadata -> MissingRequiredColorMetadata.
+
+### RequirePresent remediation coverage
+
+The complete-metadata test provides all three required fields:
+
+- color primaries;
+- transfer function;
+- YCbCr matrix.
+
+Expected and observed result:
+
+- `NormalizationStatus::ReadyPassthrough`;
+- output frame present;
+- all three metadata values preserved.
+
+The incomplete-metadata test contains three independent subcases:
+
+1. missing color primaries;
+2. missing transfer function;
+3. missing YCbCr matrix.
+
+For each subcase the test requires:
+
+- `NormalizationStatus::MissingRequiredColorMetadata`;
+- `TransformRequirement::None`;
+- no output frame.
+
+This proves each required field is individually enforced and that missing metadata is not misreported as a pixel-transform requirement.
+
+No black or synthetic frame is created.
 
 ---
 
@@ -599,6 +631,41 @@ The purge tests were aligned with the implemented eager context-cleanup semantic
 Run #3 / `36068657432`:
 
 **SUCCESS**
+
+Supervisor remediation identified one remaining coverage gap: `ColorMetadataPolicy::RequirePresent` was implemented but not directly tested.
+
+Remediation commit:
+
+`dbe825c608ae9f175a0492d5386c770cf33dec54`
+
+Changes:
+
+- added a direct RequirePresent complete-metadata PASS test;
+- added a RequirePresent incomplete-metadata rejection test with independent missing-primaries, missing-transfer, and missing-matrix subcases;
+- updated the CI normalizer expectation from 15 to 17 tests;
+- production code remained unchanged.
+
+Remediation Run #5 / `36069984848`:
+
+**SUCCESS**
+
+Results:
+
+- Stage A: 13 / 13 PASS;
+- Stage B: 10 / 10 PASS;
+- Stage C1 queue: 18 / 18 PASS;
+- Stage C1 normalizer: 17 / 17 PASS;
+- iOS arm64 compile: PASS;
+- minimum iOS: 15.0;
+- negative checks: PASS.
+
+Functional remediation artifact:
+
+- name: `vcam-frame-engine-stage-c1-static`;
+- artifact ID: `10837579053`;
+- digest: `sha256:3254809a35d4608ee9ed15ba2760e362cc422d848efd0673be357e8a992a11f1`.
+
+After this proof reconciliation, a successful `pull_request` validation is required on the final branch head. That final-head run is recorded through immutable GitHub PR run metadata and the Builder terminal report rather than creating a self-referential documentation loop.
 
 No history rewrite was used.
 
@@ -665,13 +732,13 @@ Artifact name:
 
 `vcam-frame-engine-stage-c1-static`
 
-Artifact ID:
+Latest functional remediation artifact ID:
 
-`10837456973`
+`10837579053`
 
 GitHub Actions artifact ZIP digest:
 
-`sha256:351eabf9389679d11e597a0ec4846d8e7516dc786ff4bf7f83f27a4147ca0d4f`
+`sha256:3254809a35d4608ee9ed15ba2760e362cc422d848efd0673be357e8a992a11f1`
 
 Artifact is CI-only.
 
