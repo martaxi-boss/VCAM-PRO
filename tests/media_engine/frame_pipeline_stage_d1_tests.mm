@@ -202,6 +202,187 @@ bool CreateLocalVideoFixture(
     }
 }
 
+bool CreatePassthroughNoColorVideoFixture(
+    const std::string& path,
+    int frameCount = 2,
+    int width = 64,
+    int height = 48) {
+    @autoreleasepool {
+        NSString* nsPath =
+            [[NSString alloc] initWithUTF8String:path.c_str()];
+        if (nsPath == nil) {
+            return false;
+        }
+
+        [[NSFileManager defaultManager] removeItemAtPath:nsPath error:nil];
+        NSURL* url = [NSURL fileURLWithPath:nsPath];
+
+        NSError* writerError = nil;
+        AVAssetWriter* writer =
+            [[AVAssetWriter alloc] initWithURL:url
+                                      fileType:AVFileTypeQuickTimeMovie
+                                         error:&writerError];
+        if (writer == nil) {
+            return false;
+        }
+
+        NSDictionary* attributes = @{
+            (NSString*)kCVPixelBufferPixelFormatTypeKey :
+                @(kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange),
+            (NSString*)kCVPixelBufferWidthKey : @(width),
+            (NSString*)kCVPixelBufferHeightKey : @(height),
+            (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{},
+        };
+
+        CVPixelBufferRef hintBuffer = nullptr;
+        if (CVPixelBufferCreate(
+                kCFAllocatorDefault,
+                width,
+                height,
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                (__bridge CFDictionaryRef)attributes,
+                &hintBuffer) != kCVReturnSuccess ||
+            hintBuffer == nullptr) {
+            return false;
+        }
+
+        CMVideoFormatDescriptionRef format = nullptr;
+        const OSStatus formatStatus =
+            CMVideoFormatDescriptionCreateForImageBuffer(
+                kCFAllocatorDefault,
+                hintBuffer,
+                &format);
+        CVPixelBufferRelease(hintBuffer);
+        if (formatStatus != noErr || format == nullptr) {
+            return false;
+        }
+
+        AVAssetWriterInput* input =
+            [[AVAssetWriterInput alloc]
+                initWithMediaType:AVMediaTypeVideo
+                outputSettings:nil
+                sourceFormatHint:format];
+        if (input == nil || ![writer canAddInput:input]) {
+            CFRelease(format);
+            return false;
+        }
+
+        input.expectsMediaDataInRealTime = NO;
+        input.mediaTimeScale = 30;
+        [writer addInput:input];
+
+        if (![writer startWriting]) {
+            CFRelease(format);
+            return false;
+        }
+        [writer startSessionAtSourceTime:kCMTimeZero];
+
+        for (int index = 0; index < frameCount; ++index) {
+            if (!WaitForWriterInput(input)) {
+                CFRelease(format);
+                return false;
+            }
+
+            CVPixelBufferRef pixelBuffer = nullptr;
+            if (CVPixelBufferCreate(
+                    kCFAllocatorDefault,
+                    width,
+                    height,
+                    kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                    (__bridge CFDictionaryRef)attributes,
+                    &pixelBuffer) != kCVReturnSuccess ||
+                pixelBuffer == nullptr) {
+                CFRelease(format);
+                return false;
+            }
+
+            CVPixelBufferLockBaseAddress(pixelBuffer, 0);
+            if (CVPixelBufferGetPlaneCount(pixelBuffer) < 2) {
+                CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+                CVPixelBufferRelease(pixelBuffer);
+                CFRelease(format);
+                return false;
+            }
+
+            auto* yPlane = static_cast<unsigned char*>(
+                CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 0));
+            auto* uvPlane = static_cast<unsigned char*>(
+                CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, 1));
+            const std::size_t yBytesPerRow =
+                CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 0);
+            const std::size_t yRows =
+                CVPixelBufferGetHeightOfPlane(pixelBuffer, 0);
+            const std::size_t uvBytesPerRow =
+                CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, 1);
+            const std::size_t uvRows =
+                CVPixelBufferGetHeightOfPlane(pixelBuffer, 1);
+
+            std::memset(
+                yPlane,
+                static_cast<unsigned char>(32 + index * 16),
+                yBytesPerRow * yRows);
+            std::memset(uvPlane, 128, uvBytesPerRow * uvRows);
+            CVPixelBufferUnlockBaseAddress(pixelBuffer, 0);
+
+            CVBufferRemoveAttachment(
+                pixelBuffer,
+                kCVImageBufferColorPrimariesKey);
+            CVBufferRemoveAttachment(
+                pixelBuffer,
+                kCVImageBufferTransferFunctionKey);
+            CVBufferRemoveAttachment(
+                pixelBuffer,
+                kCVImageBufferYCbCrMatrixKey);
+
+            CMSampleTimingInfo timing;
+            timing.duration = CMTimeMake(1, 30);
+            timing.presentationTimeStamp = CMTimeMake(index, 30);
+            timing.decodeTimeStamp = kCMTimeInvalid;
+
+            CMSampleBufferRef sample = nullptr;
+            const OSStatus sampleStatus =
+                CMSampleBufferCreateReadyWithImageBuffer(
+                    kCFAllocatorDefault,
+                    pixelBuffer,
+                    format,
+                    &timing,
+                    &sample);
+            CVPixelBufferRelease(pixelBuffer);
+
+            if (sampleStatus != noErr || sample == nullptr) {
+                CFRelease(format);
+                return false;
+            }
+
+            const BOOL appended = [input appendSampleBuffer:sample];
+            CFRelease(sample);
+
+            if (!appended) {
+                CFRelease(format);
+                return false;
+            }
+        }
+
+        [input markAsFinished];
+
+        dispatch_semaphore_t semaphore = dispatch_semaphore_create(0);
+        [writer finishWritingWithCompletionHandler:^{
+            dispatch_semaphore_signal(semaphore);
+        }];
+
+        const dispatch_time_t timeout =
+            dispatch_time(DISPATCH_TIME_NOW,
+                          static_cast<int64_t>(10 * NSEC_PER_SEC));
+        const long waitResult =
+            dispatch_semaphore_wait(semaphore, timeout);
+
+        CFRelease(format);
+
+        return waitResult == 0 &&
+               writer.status == AVAssetWriterStatusCompleted;
+    }
+}
+
 void RemoveFixture(const std::string& path) {
     @autoreleasepool {
         NSString* nsPath =
@@ -933,13 +1114,11 @@ int main() {
         if (!CreateLocalVideoFixture(fixture, 3) ||
             !CreateLocalVideoFixture(oneFrame, 1) ||
             !CreateLocalVideoFixture(replacement, 2) ||
-            !CreateLocalVideoFixture(
+            !CreatePassthroughNoColorVideoFixture(
                 noColorMetadata,
                 2,
                 64,
-                48,
-                CGAffineTransformIdentity,
-                true) ||
+                48) ||
             !CreateLocalVideoFixture(
                 rotated,
                 2,
