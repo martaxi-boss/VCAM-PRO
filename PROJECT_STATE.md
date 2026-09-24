@@ -2,11 +2,13 @@
 
 ## Current phase
 
-- **PHASE:** CENTRAL INJECTION RESEARCH
-- **FUNCTIONAL IMPLEMENTATION:** NOT STARTED
+- **PHASE:** CENTRAL INJECTION — LOAD PROOF PREPARATION
+- **FUNCTIONAL IMPLEMENTATION:** MINIMAL LOAD-ONLY PROBE
+- **BUILD:** PASS
 - **DEVICE PROOF:** NOT STARTED
-- **CENTRAL INJECTION:** RESEARCH IN PROGRESS / CANDIDATE ONLY
-- **IOS 15.8.8 COMPATIBILITY:** TARGET / NOT YET PROVEN
+- **MEDIASERVERD LOAD:** NOT YET PROVEN
+- **FRAME SUBSTITUTION:** PROHIBITED
+- **IOS 15.8.8 RUNTIME:** NOT YET PROVEN
 - **PUBLIC RELEASE:** NO
 
 ## Normative target
@@ -17,110 +19,146 @@
 - iOS 15.8.8
 - Dopamine
 - rootless
+- ElleKit-compatible tweak loading
 
-No runtime PASS may be recorded until the relevant behavior is tested on the real target device.
+No runtime PASS may be recorded until the relevant behavior is tested on the real target device under a separate Supervisor-approved order.
 
-## Research baseline
+## Approved implementation baseline
 
-Approved base `main`:
+Approved `main` used for this workstream:
 
-`6e2e30e1242f47fed702e0af1cab51137eb6f77a`
+`bf1913f8d8fd3c02d791b483a1ecd60a25924e6f`
 
-Research workstream:
+Build workstream:
 
-`builder/central-injection-research-001`
+`builder/mediaserverd-load-probe-build-001`
 
-Reference state observed for this research:
+Reference repositories remained READ ONLY at:
 
-| Repository | Mutability | Observed state |
-| --- | --- | --- |
-| `martaxi-boss/MotionCam-iOS` | READ ONLY | `main` @ `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` |
-| `martaxi-boss/IOS-15-USB` | READ ONLY | EMPTY; no branch / no HEAD |
-| `martaxi-boss/IOS-16-USB-4k` | READ ONLY | `main` @ `cc20d787070c67565173d4a46c218e2549cecc93` |
+| Repository | Observed state |
+| --- | --- |
+| `martaxi-boss/MotionCam-iOS` | `main` @ `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` |
+| `martaxi-boss/IOS-15-USB` | EMPTY; no branch / no HEAD |
+| `martaxi-boss/IOS-16-USB-4k` | `main` @ `cc20d787070c67565173d4a46c218e2549cecc93` |
 
-Official upstream snapshots used:
+## Load-only probe
 
-- Dopamine `3.x` @ `1a54e76d515ff5916b64e44d6afbb57d2bc89ee9`
-- ElleKit `main` @ `1017a0d09606ea49ba8bc4d6cccc530d372e640e`
-- Theos rootless/packaging documentation
-- Apple AVFoundation/CoreMedia/VideoToolbox/IOSurface documentation
+Source location:
 
-## Central injection research result
+`proofs/mediaserverd_load_probe/`
 
-### Confirmed
+The probe is intentionally limited to a C dylib constructor that:
 
-- MotionCam's current frame-substitution architecture is process-local.
-- Current Dopamine source has a rootless process/systemhook injection layer and an iOS15-specific spawn-hook path.
-- Current Dopamine loads rootless `TweakLoader.dylib` when tweak injection is enabled.
-- Current ElleKit source implements rootless tweak filtering/loading and provides `mobilesubstrate` compatibility.
-- The iOS16 reference filter explicitly includes `mediaserverd`.
-- The iOS16 reference has static CoreMedia/CoreVideo/VideoToolbox, pixel-buffer-pool, IOSurface-property, Darwin-notification and hook-symbol evidence.
-- The current IOS-15-USB GitHub repository is empty.
+1. reads process identity;
+2. returns unless the process is exactly `mediaserverd`;
+3. emits one bounded unified-log marker containing the process name and PID.
 
-### Leading research candidate
+Marker:
 
-`mediaserverd`
+`VCAM_PRO_LOAD_PROBE_001`
 
-Status:
+Injection filter:
 
-**CANDIDATE ONLY — NOT FINAL ARCHITECTURE**
+**Executable = mediaserverd only**
 
-Reason: it has the strongest current central-target evidence, but iOS 15.8.8 runtime load, the exact private camera callback, threading, buffer ownership/lifetime, format, timing, and stability remain unproven.
+No hook, camera callback, frame access, IPC, media engine, frame production, frame conversion, or frame substitution exists in this implementation.
 
-## Next proof gate
+## Build result
 
-If authorized by the Supervisor, the first functional proof must be limited to:
+Build environment:
 
-**LOAD / REACHABILITY / PASSIVE OBSERVATION**
+- GitHub Actions macOS runner
+- image `macos-26-arm64`
+- Xcode 26.6
+- iPhoneOS26.5 SDK
+- Apple clang 21.0.0
+- Theos @ `dd5c14bb9d91311e221d51b5bfb8c9e5948156db`
 
-The proof must not include:
+Configuration:
 
-- gallery;
-- Media Engine;
-- frame decode;
-- frame conversion;
-- shared frame IPC;
-- virtual frame production;
-- frame substitution.
+- rootless package scheme
+- arm64 only
+- iOS 15.0 minimum deployment target
+- no arm64e
 
-### Required order
+Successful build/validation:
 
-1. prove a minimal research dylib loads in the candidate process without changing camera behavior;
-2. identify the exact iOS15.8.8 callback/symbol;
-3. prove passive reachability while preserving original behavior;
-4. characterize thread, sample-buffer/pixel-buffer lifetime, pixel format, dimensions and timing;
-5. demonstrate fail-open/recovery behavior;
-6. return to Supervisor audit.
+- GitHub Actions Run #3
+- Run ID `36055302355`
+- result: **SUCCESS**
 
-Frame substitution remains prohibited until a later explicit order.
+Package:
 
-## Fail-open contract
+`com.vcampro.loadprobe_0.0.1_iphoneos-arm64.deb`
 
-The approved fail-open policy is unchanged:
+Package SHA-256:
 
-- VCAM OFF / absent -> real/original behavior;
-- no virtual state -> real/original behavior;
-- unknown callback -> original behavior;
-- invalid/incompatible buffer -> real/original behavior;
-- error -> original behavior;
-- injector/proof component unavailable -> original behavior.
+`d97e5be4c96a005d3fc630dfed7aeac837939e4843b912c7686803ad75061f62`
 
-No future design may block `mediaserverd` or another critical camera pipeline while waiting for media, IPC, decode, or a frame.
+Installed paths:
+
+- `/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.dylib`
+- `/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.plist`
+
+Mach-O:
+
+- arm64 only
+- only observed dynamic dependency beyond its own install name: `/usr/lib/libSystem.B.dylib`
+- no AVFoundation/CoreMedia/CoreVideo/VideoToolbox/Photos/UIKit dependency
+- no `MSHookFunction` / `MSHookMessageEx` symbol
+
+Package control archive contains no maintainer/restart script.
+
+Detailed evidence:
+
+`docs/proofs/MEDIASERVERD_LOAD_PROBE_001.md`
+
+## Central-injection status
+
+`mediaserverd` remains:
+
+**LEADING RESEARCH CANDIDATE / NOT RUNTIME PROVEN**
+
+The successful build does not promote it to final architecture and does not prove that the dylib loads in the daemon on iOS 15.8.8.
+
+## Device gate
+
+Device action was **NOT PERFORMED**.
+
+The next device operation, if later authorized, must begin with load proof only.
+
+This branch does not authorize:
+
+- installation on the iPhone;
+- SSH to the iPhone;
+- Sileo/dpkg installation;
+- copying the dylib to `/var/jb`;
+- killing/restarting `mediaserverd`;
+- respring;
+- userspace reboot;
+- Camera/WhatsApp testing;
+- callback reachability work.
+
+## Frame gate
+
+Frame access:
+
+**NO**
+
+Frame substitution:
+
+**PROHIBITED**
+
+No future work may progress to reachability or substitution without a new explicit Supervisor order after audit of this build/package.
 
 ## Provenance
 
-The research report documents names, filters, symbols, dependencies, public APIs and relationships only.
+The implementation is original to VCAM PRO.
 
-No proprietary dylib, closed implementation, converted disassembly, credentials, backend, anti-debug logic or commercial component has been copied into VCAM PRO.
-
-See:
-
-`docs/research/CENTRAL_INJECTION_IOS15.md`
-
-for the full FACT / INFERENCE / UNKNOWN evidence map and source list.
+No reference repository was modified and no proprietary implementation was copied.
 
 ## Public release
 
 **NO**
 
-No merge or public release is authorized by this research phase.
+No merge, release, deployment, or device installation is authorized by this build workstream.
