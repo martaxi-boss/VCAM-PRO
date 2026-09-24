@@ -42,7 +42,7 @@ Existing Stage A/B/C1 production source remained unchanged.
 
 Latest functional tested head:
 
-`82f3a1a13e9a9baa79f2b7528e3f096f8eef9804`
+`3fcd802f54c874fb49825448fbe16b1826605181`
 
 Final documentation/state reconciliation is validated again by pull_request CI on the final branch head.
 
@@ -235,26 +235,47 @@ In every case:
 
 ## 11. RequirePresent rejection
 
-The ordinary H.264 fixture decodes with color metadata present, so it cannot prove missing-metadata rejection.
+The ordinary encoded H.264 fixture decodes with complete color metadata on the GitHub-hosted macOS runner, even when source-buffer color attachments are removed before writing. A diagnostic run observed:
 
-The production pump therefore factors its already-used frame-processing path into a private helper called by `pumpOnce()`. A test-only friend invokes that same private path with an in-memory 420v PreparedFrame with no:
-- color primaries
-- transfer function
-- YCbCr matrix
+- color primaries present = 1
+- transfer function present = 1
+- YCbCr matrix present = 1
+
+Therefore D1 uses a separate deterministic **test-only passthrough local MOV fixture** for the negative RequirePresent path.
+
+That fixture is created with:
+
+- 420v CVPixelBuffers;
+- no color primaries attachment;
+- no transfer-function attachment;
+- no YCbCr-matrix attachment;
+- `AVAssetWriterInput(outputSettings:nil, sourceFormatHint:...)`;
+- CMSampleBuffer append without an H.264 encode step;
+- no download and no network.
+
+The fixture is then opened through the real `LocalVideoReader`, and the test calls the real `FramePipelinePump::pumpOnce()`.
+
+Run #14 observed from the decoded source frame:
+
+- color primaries present = 0
+- transfer function present = 0
+- YCbCr matrix present = 0
 
 Target policy:
 
 `ColorMetadataPolicy::RequirePresent`
 
-Observed result:
-- NormalizationRejected
-- MissingRequiredColorMetadata
-- TransformRequirement::None
-- queue unchanged
+Observed pipeline result:
 
-No public API was added for this test seam.
+- `FramePipelinePumpStatus::NormalizationRejected`;
+- `NormalizationStatus::MissingRequiredColorMetadata`;
+- `TransformRequirement::None`;
+- queue unchanged;
+- no output frame published.
 
-A short test-only JPEG fixture exploration was added and then removed again because it was redundant; final proof relies on the deterministic in-memory missing-metadata frame.
+This is a full local-file reader -> pump -> normalizer admission -> no-publish proof for the missing-metadata path.
+
+No test-only production API or friend access is required.
 
 ---
 
@@ -338,9 +359,9 @@ Coverage:
 
 ## 16. Regression matrix
 
-Canonical functional Run #4:
+Canonical functional pull_request Run #14:
 
-`36072914281`
+`36073999128`
 
 Stage A:
 **13 / 13 PASS**
@@ -365,30 +386,43 @@ Initial implementation:
 
 `e78c0aef4917acd7784be86575a5bf1948db8754`
 
-Run #1:
-`36072570380`
+Run #1 / `36072570380`:
 
-Result:
-- A/B/C1 PASS
-- D1 compiled
-- 18 / 19 D1 tests PASS
-- RequirePresent missing-metadata fixture assumption failed because H.264 decode contained metadata
+- A/B/C1 PASS;
+- D1 compiled;
+- 18 / 19 D1 tests PASS;
+- the initial RequirePresent negative fixture assumption failed because decoded H.264 carried color metadata.
 
-Deterministic D1-local fix:
+Early D1-local remediation/exploration commits:
 
-`1cd867a00f26a6124c6693a69d03c642068b949b`
+- `1cd867a00f26a6124c6693a69d03c642068b949b`;
+- `bc0c580a42d51b37fe6f5ca8286b690c73b673bb`;
+- `82f3a1a13e9a9baa79f2b7528e3f096f8eef9804`.
 
-Run #2:
-`36072732048` — SUCCESS
+Run #4 / `36072914281` reached 19 / 19 using a deterministic composition-boundary missing-metadata frame.
 
-Additional test-only fixture exploration:
-- `bc0c580a42d51b37fe6f5ca8286b690c73b673bb`
-- `82f3a1a13e9a9baa79f2b7528e3f096f8eef9804`
+A stricter end-to-end remediation then required the negative case to pass through the real local reader and `pumpOnce()`:
 
-The redundant metadata-sparse file fixture was removed; the deterministic in-memory test remains the final proof.
+- `b28704bb3f84416c0dbe6eca914d54b9b2c7b2b6` — switched the RequirePresent test toward the real local pipeline;
+- `c174227eb2e55fca2167a399c9b0701d2387eddc` — removed the superseded in-memory helper;
+- `c097b923e64c22ab3bd5528930076b1db6505f82` — recorded that H.264 decode still returned primaries/transfer/matrix as present;
+- `3fcd802f54c874fb49825448fbe16b1826605181` — added a passthrough 420v local MOV fixture without color tags.
 
-Run #4:
-`36072914281` — SUCCESS
+Final functional pull_request Run #14 / `36073999128`:
+
+**SUCCESS**
+
+Results:
+
+- Stage A: 13 / 13 PASS;
+- Stage B: 10 / 10 PASS;
+- Stage C1 queue: 18 / 18 PASS;
+- Stage C1 normalizer: 17 / 17 PASS;
+- Stage D1: 19 / 19 PASS;
+- RequirePresent missing-metadata local pipeline: PASS;
+- iOS arm64 compile: PASS;
+- minimum iOS: 15.0;
+- negative checks: PASS.
 
 No history rewrite was used.
 
@@ -430,11 +464,11 @@ Functional artifact:
 
 Artifact ID:
 
-`10838264071`
+`10839920201`
 
 Digest:
 
-`sha256:c3e8cda4cecb97483a22cf6d600957d7db16080762301de07ba193c11761cf29`
+`sha256:af147e51d89ab3fb2e9f84ae1bdd66b5de1d4701e51fa4180a202b69305786b4`
 
 CI-only; not a release.
 
