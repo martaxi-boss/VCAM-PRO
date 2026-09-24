@@ -1,0 +1,177 @@
+name: mediaserverd load probe build
+
+on:
+  push:
+    branches:
+      - builder/mediaserverd-load-probe-build-001
+    paths:
+      - "proofs/mediaserverd_load_probe/**"
+      - ".github/workflows/mediaserverd-load-probe-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build and validate load-only probe
+    runs-on: macos-latest
+    timeout-minutes: 25
+    env:
+      THEOS_SHA: dd5c14bb9d91311e221d51b5bfb8c9e5948156db
+
+    steps:
+      - name: Checkout VCAM PRO
+        uses: actions/checkout@v4
+
+      - name: Configure build environment
+        run: |
+          set -euo pipefail
+          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
+
+      - name: Record build environment
+        run: |
+          set -euo pipefail
+          sw_vers
+          uname -a
+          uname -m
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-path
+          clang --version
+
+      - name: Install build dependencies
+        run: |
+          set -euo pipefail
+          brew install ldid xz dpkg
+
+      - name: Install pinned Theos
+        run: |
+          set -euo pipefail
+          git clone https://github.com/theos/theos.git "$THEOS"
+          git -C "$THEOS" checkout "$THEOS_SHA"
+          git -C "$THEOS" submodule update --init --recursive
+          test "$(git -C "$THEOS" rev-parse HEAD)" = "$THEOS_SHA"
+          echo "THEOS_HEAD=$(git -C "$THEOS" rev-parse HEAD)"
+
+      - name: Static source and filter validation
+        working-directory: proofs/mediaserverd_load_probe
+        run: |
+          set -euo pipefail
+
+          if grep -En '%hook|MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer|VTDecompression|IOSurface|UIImagePicker|socket[[:space:]]*\(|connect[[:space:]]*\(|send[[:space:]]*\(|recv[[:space:]]*\(' LoadProbe.c; then
+            echo "Forbidden functional API or hook token found in LoadProbe.c"
+            exit 1
+          fi
+
+          test "$(grep -o 'VCAM_PRO_LOAD_PROBE_001' LoadProbe.c | wc -l | tr -d ' ')" = "1"
+
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+
+          path = Path("VCAMProLoadProbe.plist")
+          with path.open("rb") as f:
+              data = plistlib.load(f)
+
+          expected = {"Filter": {"Executables": ["mediaserverd"]}}
+          if data != expected:
+              raise SystemExit(f"Unexpected injection filter: {data!r}")
+
+          print("Injection filter:", data)
+          PY
+
+      - name: Build rootless arm64 package
+        working-directory: proofs/mediaserverd_load_probe
+        run: |
+          set -euo pipefail
+          make clean package FINALPACKAGE=1
+          find packages -maxdepth 1 -type f -name '*.deb' -print
+
+      - name: Validate package and Mach-O
+        id: validate
+        working-directory: proofs/mediaserverd_load_probe
+        run: |
+          set -euo pipefail
+
+          DEB="$(find packages -maxdepth 1 -type f -name '*.deb' | head -n 1)"
+          test -n "$DEB"
+          test "$(find packages -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" = "1"
+
+          echo "=== PACKAGE METADATA ==="
+          dpkg-deb -f "$DEB" Package Version Architecture Depends
+          test "$(dpkg-deb -f "$DEB" Package)" = "com.vcampro.loadprobe"
+          test "$(dpkg-deb -f "$DEB" Version)" = "0.0.1"
+          test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64"
+
+          echo "=== INSTALLED FILES ==="
+          dpkg-deb -c "$DEB"
+
+          CONTROL_DIR="$RUNNER_TEMP/vcampro-control"
+          EXTRACT_DIR="$RUNNER_TEMP/vcampro-extract"
+          rm -rf "$CONTROL_DIR" "$EXTRACT_DIR"
+          mkdir -p "$CONTROL_DIR" "$EXTRACT_DIR"
+          dpkg-deb -e "$DEB" "$CONTROL_DIR"
+          dpkg-deb -x "$DEB" "$EXTRACT_DIR"
+
+          echo "=== CONTROL FILES ==="
+          find "$CONTROL_DIR" -maxdepth 1 -type f -print | sort
+
+          for script in preinst postinst prerm postrm extrainst_; do
+            if [ -f "$CONTROL_DIR/$script" ]; then
+              echo "=== $script ==="
+              cat "$CONTROL_DIR/$script"
+              if grep -Eqi 'killall|mediaserverd|SpringBoard|launchctl[[:space:]].*reboot|userspace|reboot' "$CONTROL_DIR/$script"; then
+                echo "Forbidden automatic restart behavior in $script"
+                exit 1
+              fi
+            fi
+          done
+
+          DYLIB="$EXTRACT_DIR/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.dylib"
+          FILTER="$EXTRACT_DIR/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.plist"
+          test -f "$DYLIB"
+          test -f "$FILTER"
+
+          echo "=== MACH-O FILE ==="
+          file "$DYLIB"
+
+          echo "=== MACH-O ARCHITECTURES ==="
+          ARCHS="$(lipo -archs "$DYLIB")"
+          echo "$ARCHS"
+          test "$ARCHS" = "arm64"
+
+          echo "=== MACH-O DEPENDENCIES ==="
+          otool -L "$DYLIB"
+          if otool -L "$DYLIB" | grep -E 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|UIKit'; then
+            echo "Forbidden camera/media framework dependency present"
+            exit 1
+          fi
+
+          echo "=== UNDEFINED SYMBOLS ==="
+          nm -u "$DYLIB"
+          if nm -u "$DYLIB" | grep -E 'MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer|VTDecompression|IOSurface|UIImagePicker'; then
+            echo "Forbidden hook or camera/media symbol present"
+            exit 1
+          fi
+
+          echo "=== MARKER ==="
+          strings "$DYLIB" | grep -F 'VCAM_PRO_LOAD_PROBE_001'
+
+          echo "=== HOOK SYMBOL CHECK ==="
+          if nm "$DYLIB" | grep -E 'MSHookFunction|MSHookMessageEx'; then
+            echo "Hook symbol present"
+            exit 1
+          fi
+
+          echo "=== PACKAGE SHA-256 ==="
+          shasum -a 256 "$DEB"
+
+          echo "deb_path=$GITHUB_WORKSPACE/proofs/mediaserverd_load_probe/$DEB" >> "$GITHUB_OUTPUT"
+
+      - name: Upload .deb build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-mediaserverd-load-probe-deb
+          path: ${{ steps.validate.outputs.deb_path }}
+          if-no-files-found: error
+          retention-days: 14
