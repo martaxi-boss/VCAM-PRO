@@ -1,0 +1,9 @@
+Package: com.vcampro.loadprobe
+Name: VCAM PRO Load Probe
+Version: 0.0.1
+Architecture: iphoneos-arm64
+Description: Build-only load marker probe for supervised mediaserverd research. No hooks, frame access, or device deployment.
+Maintainer: VCAM PRO
+Author: VCAM PRO
+Section: Development
+Depends: firmware (>= 15.0), mobilesubstrate
