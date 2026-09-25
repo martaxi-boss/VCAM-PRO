@@ -84,6 +84,8 @@ public:
     ProducerWakeupEventResult start();
     ProducerWakeupEventResult stop() noexcept;
 
+    ProducerWakeupEventResult failPlatform() noexcept;
+
     ProducerWakeupEventResult handleWakeup(
         std::uint64_t lifecycleToken,
         frame_engine::MonotonicHostTimeNs nowHostTimeNs);
