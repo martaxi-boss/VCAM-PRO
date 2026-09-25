@@ -416,3 +416,26 @@ Stage D2 found no production defect in the tested non-device invariants.
 The evidence supports only non-device host/build validation. It does not advance Gate 1 and does not prove the target-device runtime.
 
 **DEVICE GATE = HOLD — AWAITING PHYSICAL DEVICE**
+
+---
+
+## Current reference / device-policy superseding note — 2026-09-25
+
+The historical statements above remain part of this proof record and describe the state when this proof was executed. In particular, statements that `IOS-15-USB` was empty and that the target device was not used are preserved as historical facts for this proof.
+
+Subsequently, `martaxi-boss/IOS-15-USB` was populated as a historical READ-ONLY archive. Current reference HEAD:
+
+`a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d`
+
+Current project policy is:
+
+- **STATIC FACTS -> GitHub/reference artifacts**
+- **RUNTIME FACTS -> real iPhone only**
+- **Gate 1 — LOAD**
+- **Gate 2 — PASSIVE CONTRACT OBSERVATION**, only after Gate 1 PASS
+- **Gate 3 — MINIMAL SAFE SUBSTITUTION**, only after Gate 2 PASS, with mandatory fail-open
+
+Real-device preparation has begun, but Gate 1 load in `mediaserverd` remains **NOT YET PROVEN**.
+
+This note does not change this proof's original result, does not convert host/build evidence into device evidence, and does not authorize substitution.
+

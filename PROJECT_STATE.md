@@ -2,14 +2,14 @@
 
 ## Current phase
 
-- **PHASE:** CENTRAL INJECTION — LOAD PROOF PREPARATION
-- **FUNCTIONAL IMPLEMENTATION:** MINIMAL LOAD-ONLY PROBE
-- **BUILD:** PASS
-- **DEVICE PROOF:** NOT STARTED
-- **DEVICE GATE:** HOLD — AWAITING PHYSICAL DEVICE
+- **PHASE:** CENTRAL INJECTION — DEVICE GATE 1 PREPARATION
+- **FUNCTIONAL IMPLEMENTATION:** FRAME ENGINE STAGE D1 IMPLEMENTED; STAGE D2 VALIDATION PASS
+- **LOAD-ONLY PROBE:** BUILT / STATIC VALIDATION PASS
+- **DEVICE WORK:** STARTED — PREFLIGHT / LEGACY BASELINE PREPARATION
+- **GATE 1 — LOAD:** PENDING
+- **GATE 2 — PASSIVE CONTRACT OBSERVATION:** BLOCKED ON GATE 1 PASS
+- **GATE 3 — MINIMAL SAFE SUBSTITUTION:** BLOCKED ON GATE 2 PASS
 - **FRAME ENGINE CONTRACT:** DEFINED
-- **PARALLEL WORKSTREAM:** FRAME ENGINE STAGE D2 VALIDATION
-- **FRAME ENGINE IMPLEMENTATION:** STAGE D1 — LOCAL PRODUCER PIPELINE COMPOSITION
 - **FRAME ENGINE STAGE A BUILD:** PASS
 - **FRAME ENGINE STAGE B BUILD:** PASS
 - **FRAME ENGINE STAGE C1 BUILD:** PASS
@@ -32,8 +32,9 @@
 - **CAMERA TIMING:** UNKNOWN / NOT STARTED
 - **CVPIXELBUFFERPOOL:** NOT STARTED / DEFERRED TO MEASUREMENT
 - **MEDIASERVERD LOAD:** NOT YET PROVEN
-- **FRAME SUBSTITUTION:** PROHIBITED
-- **IOS 15.8.8 RUNTIME:** NOT YET PROVEN
+- **FRAME ACCESS:** NO RUNTIME CONTRACT PROOF
+- **FRAME SUBSTITUTION:** PROHIBITED UNTIL GATES 1 AND 2 PASS
+- **IOS 15.8.8 RUNTIME:** PARTIAL DEVICE PREPARATION ONLY / CENTRAL LOAD NOT PROVEN
 - **A9 720P30 DEVICE PERFORMANCE:** NOT YET MEASURED
 - **PUBLIC RELEASE:** NO
 
@@ -47,25 +48,82 @@
 - rootless
 - ElleKit-compatible tweak loading
 
-No runtime PASS may be recorded until the relevant behavior is tested on the real target device under a separate Supervisor-approved order.
+Runtime claims require evidence from the real target device. Static facts must be taken from GitHub/reference artifacts instead of rediscovered manually on the phone.
 
-## Approved implementation baseline
+## Current repository baseline
 
-Approved `main` used for this workstream:
+Current reconciled starting `main` for Reference Baseline + Device Proof Policy 005:
 
-`bf1913f8d8fd3c02d791b483a1ecd60a25924e6f`
+`d476caacc4f557843f9551533c2fcbe7c5d40baa`
 
-Build workstream:
+Reference repositories are READ ONLY at:
 
-`builder/mediaserverd-load-probe-build-001`
-
-Reference repositories remained READ ONLY at:
-
-| Repository | Observed state |
+| Repository | Current reference state |
 | --- | --- |
 | `martaxi-boss/MotionCam-iOS` | `main` @ `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` |
-| `martaxi-boss/IOS-15-USB` | EMPTY; no branch / no HEAD |
+| `martaxi-boss/IOS-15-USB` | historical archive @ `a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d` |
 | `martaxi-boss/IOS-16-USB-4k` | `main` @ `cc20d787070c67565173d4a46c218e2549cecc93` |
+
+## IOS-15-USB current reference
+
+`IOS-15-USB` is no longer empty. At the current reference HEAD it is a 31-file historical READ-ONLY archive.
+
+Static archive evidence establishes, among other facts:
+
+- historical package `com.vcam.universal`, version `1.0.0`;
+- architecture `iphoneos-arm64`;
+- dependency `mobilesubstrate`;
+- rootless package/payload layout;
+- arm64 Mach-O with minimum iOS 14.0 and SDK 16.4;
+- filter data explicitly naming `mediaserverd`;
+- CoreMedia/CoreVideo/VideoToolbox dependencies;
+- static `CMSampleBuffer` / `CVPixelBuffer` API evidence;
+- `MSHookFunction` / `MSHookMessageEx` symbol evidence;
+- Darwin notification primitive evidence.
+
+These facts are historical/static only. They do **not** prove current iOS 15.8.8 load, the real callback contract, threading/lifetime/timing behavior, or safe substitution.
+
+No proprietary binary/code from the archive may be incorporated into VCAM PRO.
+
+## Device proof policy
+
+### STATIC FACTS -> GitHub/reference artifacts
+
+Use package metadata, extracted files, plists, Mach-O, imports/dependencies, strings, symbols, disassembly and source repositories.
+
+### RUNTIME FACTS -> real iPhone only
+
+Use the target device for actual load, PID/process identity, callback reachability, real threading/frequency/lifetime, buffer format/timing, stability, substitution/fail-open and target-device performance.
+
+Avoid long manual NewTerm investigations that merely rediscover preserved static evidence.
+
+## Simplified device gates
+
+### Gate 1 — LOAD
+
+Prove that the audited VCAM PRO load probe loads in `mediaserverd` on the normative target.
+
+PASS requires runtime evidence tied to `mediaserverd`. No callback hook is required.
+
+**CURRENT: PENDING**
+
+### Gate 2 — PASSIVE CONTRACT OBSERVATION
+
+Only after Gate 1 PASS.
+
+Passively establish the actual target callback/contract and runtime properties not available from static evidence.
+
+No substitution.
+
+**CURRENT: BLOCKED**
+
+### Gate 3 — MINIMAL SAFE SUBSTITUTION
+
+Only after Gate 2 PASS.
+
+Perform the smallest possible virtual-frame substitution with mandatory fail-open to the real camera.
+
+**CURRENT: BLOCKED**
 
 ## Load-only probe
 
@@ -77,7 +135,7 @@ The probe is intentionally limited to a C dylib constructor that:
 
 1. reads process identity;
 2. returns unless the process is exactly `mediaserverd`;
-3. emits one bounded unified-log marker containing the process name and PID.
+3. emits one bounded unified-log marker containing process name and PID.
 
 Marker:
 
@@ -89,102 +147,35 @@ Injection filter:
 
 No hook, camera callback, frame access, IPC, media engine, frame production, frame conversion, or frame substitution exists in this implementation.
 
-## Build result
+Historical build provenance:
 
-Build environment:
+- successful GitHub Actions run ID: `36055302355`;
+- package: `com.vcampro.loadprobe_0.0.1_iphoneos-arm64.deb`;
+- SHA-256: `d97e5be4c96a005d3fc630dfed7aeac837939e4843b912c7686803ad75061f62`;
+- rootless payload paths:
+  - `/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.dylib`
+  - `/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.plist`
 
-- GitHub Actions macOS runner
-- image `macos-26-arm64`
-- Xcode 26.6
-- iPhoneOS26.5 SDK
-- Apple clang 21.0.0
-- Theos @ `dd5c14bb9d91311e221d51b5bfb8c9e5948156db`
-
-Configuration:
-
-- rootless package scheme
-- arm64 only
-- iOS 15.0 minimum deployment target
-- no arm64e
-
-Successful build/validation:
-
-- GitHub Actions Run #3
-- Run ID `36055302355`
-- result: **SUCCESS**
-
-Package:
-
-`com.vcampro.loadprobe_0.0.1_iphoneos-arm64.deb`
-
-Package SHA-256:
-
-`d97e5be4c96a005d3fc630dfed7aeac837939e4843b912c7686803ad75061f62`
-
-Installed paths:
-
-- `/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.dylib`
-- `/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.plist`
-
-Mach-O:
-
-- arm64 only
-- only observed dynamic dependency beyond its own install name: `/usr/lib/libSystem.B.dylib`
-- no AVFoundation/CoreMedia/CoreVideo/VideoToolbox/Photos/UIKit dependency
-- no `MSHookFunction` / `MSHookMessageEx` symbol
-
-Package control archive contains no maintainer/restart script.
-
-Detailed evidence:
+Detailed build evidence:
 
 `docs/proofs/MEDIASERVERD_LOAD_PROBE_001.md`
 
-## Central-injection status
+The successful build does not prove that the dylib loads in `mediaserverd` on iOS 15.8.8.
 
-`mediaserverd` remains:
+## Legacy isolation boundary
 
-**LEADING RESEARCH CANDIDATE / NOT RUNTIME PROVEN**
+`com.vcam.universal` is legacy/reference material, not part of VCAM PRO.
 
-The successful build does not promote it to final architecture and does not prove that the dylib loads in the daemon on iOS 15.8.8.
-
-## Device gate
-
-Device action was **NOT PERFORMED**.
-
-The next device operation, if later authorized, must begin with load proof only.
-
-This branch does not authorize:
-
-- installation on the iPhone;
-- SSH to the iPhone;
-- Sileo/dpkg installation;
-- copying the dylib to `/var/jb`;
-- killing/restarting `mediaserverd`;
-- respring;
-- userspace reboot;
-- Camera/WhatsApp testing;
-- callback reachability work.
-
-## Frame gate
-
-Frame access:
-
-**NO**
-
-Frame substitution:
-
-**PROHIBITED**
-
-No future work may progress to reachability or substitution without a new explicit Supervisor order after audit of this build/package.
+Current device evidence has shown an installed legacy payload that can contaminate Gate 1. Legacy manipulation is limited to what is required for an uncontaminated Gate 1 baseline. Do not use the phone for additional static reverse engineering of the historical package.
 
 ## Provenance
 
-The implementation is original to VCAM PRO.
+VCAM PRO implementation remains original.
 
-No reference repository was modified and no proprietary implementation was copied.
+Reference repositories remain READ ONLY. Static reference concepts may inform experiments, but no proprietary implementation is copied.
 
 ## Public release
 
 **NO**
 
-No merge, release, deployment, or device installation is authorized by this build workstream.
+No public release is authorized. Gate 1 remains pending.

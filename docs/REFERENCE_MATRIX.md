@@ -1,16 +1,34 @@
 # VCAM PRO Reference Matrix
 
-| Repository | Target | Source available | Media source | Injection model | Rootful / rootless | Frame engine evidence | Useful concepts | Rejected / not adopted | Compatibility pending |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| `martaxi-boss/MotionCam-iOS` | README/Makefile indicate iOS 14+ style target; arm64/arm64e build settings | Yes, source available at `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` | Local gallery via `UIImagePickerController`; local decode with `AVAssetReader` | Process-local capture callback substitution; process-local state | Current docs/package path are not VCAM PRO's final rootless design | `CMSampleBuffer`, `CVPixelBuffer`, local reader/playback concepts | Gallery, picker, reader, playback, loop, simple UI | Process-local `g_vcamEnabled`, process-local `MediaManager`, per-app hooks as final architecture, current filter as final filter | Entire central architecture and iOS 15.8.8 target behavior |
-| `martaxi-boss/IOS-15-USB` | No current GitHub target evidence | **No — current repository empty** | Unknown from current repo | Unknown from current repo | Unknown from current repo | Unknown from current repo | Historical hypotheses may guide research only | Any claim that historical package evidence is current GitHub source | Everything; current repo provides no implementation evidence |
-| `martaxi-boss/IOS-16-USB-4k` | Package metadata includes `iphoneos-arm64`, firmware >= 15.0 | Binary/package/static-analysis artifacts at `cc20d787070c67565173d4a46c218e2549cecc93`; no reusable closed implementation | Not adopted as a product decision | Recovered filter/analysis involves `mediaserverd`; static frame-buffer evidence exists | Rootless `/var/jb` layout | CoreMedia/CoreVideo/VideoToolbox, `CVPixelBufferPool`, decode/transfer/rotation evidence | Central-injection research clues, buffer-pool concepts, Darwin notification concept, rootless layout | OBS/PC/USB/Wi-Fi/backend/login/wallet/plans/licensing/anti-debug/obfuscation/commercial components; proprietary binary implementation | All iOS 15.8.8 behavior, internals, threading, lifetime, timing, safety |
-| `martaxi-boss/VCAM-PRO` | iPhone 6s Plus / A9 / arm64 / iOS 15.8.8 / Dopamine / rootless | Documentation only in this phase | Local gallery by design | Central point to be proven; `mediaserverd` only a candidate hypothesis | Rootless target | Dedicated adaptive Media Engine / Frame Engine planned | Original local architecture informed by references | No proprietary/binary implementation or external streaming/backend dependencies | Full build/runtime/device proof |
+Current reference baseline for Device Proof Policy 005.
+
+| Repository | Current reference | Evidence type | Injection / media evidence | Useful concepts | Explicit boundary |
+| --- | --- | --- | --- | --- | --- |
+| `martaxi-boss/MotionCam-iOS` | `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` | Source repository | Process-local capture callback substitution; local gallery; `AVAssetReader`; `CMSampleBuffer` / `CVPixelBuffer` handling | Gallery, picker, local reader/playback/loop, sample/pixel-buffer handling | Process-local hooks/state are not the final central architecture; no automatic iOS 15.8.8 central-runtime claim |
+| `martaxi-boss/IOS-15-USB` | `a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d` | 31-file historical READ-ONLY archive | Historical rootless package `com.vcam.universal` 1.0.0; `iphoneos-arm64`; `mobilesubstrate`; filter names `mediaserverd`; CoreMedia/CoreVideo/VideoToolbox; `CMSampleBufferGetImageBuffer`; `CMSampleBufferCreateReady`; `CVPixelBuffer` APIs; `MSHookFunction`; `MSHookMessageEx`; Darwin-notification primitives | Rootless layout, central-targeting clues, sample/pixel-buffer handling clues, hook/control-plane research evidence | **STATIC/HISTORICAL EVIDENCE ONLY**; does not prove iOS 15.8.8 load, real callback identity, threading/lifetime/timing, safe substitution, or device stability; no proprietary implementation copy |
+| `martaxi-boss/IOS-16-USB-4k` | `cc20d787070c67565173d4a46c218e2549cecc93` | Binary/package/static-analysis artifacts | Rootless layout; recovered `mediaserverd` targeting; CoreMedia/CoreVideo/VideoToolbox; buffer pools; decode/transfer/rotation; Darwin notifications | Central-injection clues, pool/normalization concepts, small-signal control-plane concepts | No iOS 15.8.8 compatibility assumption; no proprietary/commercial implementation copy |
+| `martaxi-boss/VCAM-PRO` | `main` baseline `d476caacc4f557843f9551533c2fcbe7c5d40baa` before this reconciliation | Original implementation + proofs | Frame Engine through Stage D1 with Stage D2 validation; audited load-only `mediaserverd` probe built | Local Frame Engine, bounded ready queue, fail-open architecture, minimal central-load proof | Gate 1 runtime load still pending; Gate 2/3 blocked; no public release |
 
 ## Evidence rule
 
-Reference repositories are READ ONLY.
+Reference repositories are **READ ONLY**.
 
-Their evidence may shape experiments, but it does not automatically become a VCAM PRO compatibility claim.
+**STATIC FACTS -> GitHub/reference artifacts.**
 
-In particular, iOS 16 package evidence must not be promoted to iOS 15.8.8 compatibility until the same concept is verified for iOS 15.8.8 / arm64 / iPhone 6s Plus and validated on the real device.
+Package metadata, extracted payloads, plists, Mach-O metadata, imports/dependencies, strings, symbols, disassembly and source code are resolved from preserved repository evidence.
+
+**RUNTIME FACTS -> real iPhone only.**
+
+Actual dylib load, PID/process identity, callback reachability, threading/frequency/lifetime, real buffer/format/timing behavior, stability, substitution/fail-open behavior and target-device performance require device proof.
+
+**STATIC EVIDENCE != IOS 15.8.8 RUNTIME PROOF.**
+
+**NO PROPRIETARY IMPLEMENTATION COPY.**
+
+## Device gates
+
+1. **GATE 1 — LOAD:** prove VCAM PRO's audited dylib loads in `mediaserverd` on iPhone 6s Plus / iOS 15.8.8 / Dopamine rootless.
+2. **GATE 2 — PASSIVE CONTRACT OBSERVATION:** after Gate 1 PASS, observe the real callback/contract without substitution.
+3. **GATE 3 — MINIMAL SAFE SUBSTITUTION:** after Gate 2 PASS, perform the smallest possible substitution with mandatory fail-open to the real camera.
+
+Gate 1 is currently **NOT PASS**.
