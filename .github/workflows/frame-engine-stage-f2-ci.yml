@@ -63,7 +63,7 @@ jobs:
           grep -q 'DISPATCH_QUEUE_SERIAL'             src/media_engine/ProducerWakeupDriver.mm
 
           # Exactly one production binding to the accepted F1 timed pump.
-          test "$(grep -c 'return pump_\\.pumpOnceAtHostTime('             src/media_engine/ProducerWakeupDriver.mm)" -eq 1
+          test "$(grep -Fc 'return pump_.pumpOnceAtHostTime('             src/media_engine/ProducerWakeupDriver.mm)" -eq 1
 
           if grep -RInE 'sleep|usleep|dispatch_after|NSThread.*sleep|while[[:space:]]*\('               src/frame_engine/MonotonicHostClock.*               src/media_engine/ProducerWakeupController.*               src/media_engine/ProducerWakeupDriver.*; then
             echo "Forbidden Stage F2 busy-wait/blocking primitive found."
