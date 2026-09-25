@@ -102,7 +102,7 @@ jobs:
           xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             tests/media_engine/frame_pipeline_stage_f1_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -o build/host/stage_f1_pipeline_tests
 
           build/host/stage_f1_pipeline_tests             | tee build/host/stage-f1-pipeline-summary.txt
-          grep -q 'Stage F1 timed pipeline tests run: 10, failures: 0'             build/host/stage-f1-pipeline-summary.txt
+          grep -q 'Stage F1 timed pipeline tests run: 12, failures: 0'             build/host/stage-f1-pipeline-summary.txt
 
       - name: Stage A regression
         run: |
