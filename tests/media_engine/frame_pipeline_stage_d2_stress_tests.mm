@@ -118,20 +118,18 @@ bool CreateLocalVideoFixture(const std::string& path,
         }
         [writer startSessionAtSourceTime:kCMTimeZero];
 
-        CVPixelBufferPoolRef pool = adaptor.pixelBufferPool;
-        if (pool == nullptr) {
-            return false;
-        }
-
         for (int index = 0; index < frameCount; ++index) {
             if (!WaitForWriterInput(input)) {
                 return false;
             }
 
             CVPixelBufferRef pixelBuffer = nullptr;
-            if (CVPixelBufferPoolCreatePixelBuffer(
+            if (CVPixelBufferCreate(
                     kCFAllocatorDefault,
-                    pool,
+                    width,
+                    height,
+                    kCVPixelFormatType_32BGRA,
+                    (__bridge CFDictionaryRef)attributes,
                     &pixelBuffer) != kCVReturnSuccess ||
                 pixelBuffer == nullptr) {
                 return false;
