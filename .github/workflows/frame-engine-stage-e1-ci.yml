@@ -155,6 +155,56 @@ jobs:
             "$RUNNER_TEMP/rotation.log"
           echo "VTPIXELROTATION_IOS15_UNGUARDED_COMPILE=BLOCKED_AS_EXPECTED"
 
+      - name: Compile and link exact iOS 15 CoreVideo vImage API preflight
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+          COMMON="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -Wall -Wextra -Werror -Werror=unguarded-availability-new"
+
+          cat > "$RUNNER_TEMP/vimage_ios15_probe.mm" <<'EOF'
+          #include <Accelerate/Accelerate.h>
+          #include <CoreVideo/CoreVideo.h>
+
+          int main() {
+              auto p01 = &CVPixelBufferPoolCreate;
+              auto p02 = &CVPixelBufferPoolCreatePixelBuffer;
+              auto p03 = &vImageScale_Planar8;
+              auto p04 = &vImageScale_CbCr8;
+              auto p05 = &vImageRotate90_Planar8;
+              auto p06 = &vImageRotate90_Planar16U;
+              auto p07 = &vImageConvert_420Yp8_CbCr8ToARGB8888;
+              auto p08 = &vImageConvert_ARGB8888To420Yp8_CbCr8;
+              auto p09 = &vImageConvert_YpCbCrToARGB_GenerateConversion;
+              auto p10 = &vImageConvert_ARGBToYpCbCr_GenerateConversion;
+              (void)p01;
+              (void)p02;
+              (void)p03;
+              (void)p04;
+              (void)p05;
+              (void)p06;
+              (void)p07;
+              (void)p08;
+              (void)p09;
+              (void)p10;
+              return 0;
+          }
+          EOF
+
+          "$CXX" $COMMON "$RUNNER_TEMP/vimage_ios15_probe.mm" \
+            -framework Accelerate -framework CoreVideo \
+            -o "$RUNNER_TEMP/vimage_ios15_probe" \
+            > "$RUNNER_TEMP/vimage-ios15.log" 2>&1
+
+          cat "$RUNNER_TEMP/vimage-ios15.log"
+          file "$RUNNER_TEMP/vimage_ios15_probe"
+          xcrun otool -l "$RUNNER_TEMP/vimage_ios15_probe" \
+            | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS' \
+            | tee "$RUNNER_TEMP/vimage-ios15-minos.log"
+          grep -q 'minos 15.0' "$RUNNER_TEMP/vimage-ios15-minos.log"
+
+          echo "VIMAGE_IOS15_API_PROBE=PASS" | tee "$RUNNER_TEMP/vimage-ios15-result.txt"
+
       - name: Record blocker summary
         run: |
           {
@@ -164,6 +214,7 @@ jobs:
             echo "VTPixelTransferSession=PUBLIC_IOS_16_PLUS"
             echo "VTPixelRotationSession=PUBLIC_IOS_16_PLUS"
             echo "NO_PRIVATE_API_BYPASS=ENFORCED"
+            echo "VIMAGE_IOS15_API_PROBE=PASS"
           } | tee "$RUNNER_TEMP/stage-e1-availability-summary.txt"
 
       - name: Upload availability evidence
@@ -175,5 +226,8 @@ jobs:
             ${{ runner.temp }}/corevideo-pool.log
             ${{ runner.temp }}/transfer.log
             ${{ runner.temp }}/rotation.log
+            ${{ runner.temp }}/vimage-ios15.log
+            ${{ runner.temp }}/vimage-ios15-minos.log
+            ${{ runner.temp }}/vimage-ios15-result.txt
           if-no-files-found: error
           retention-days: 14
