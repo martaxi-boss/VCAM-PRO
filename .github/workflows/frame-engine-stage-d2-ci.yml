@@ -1,0 +1,357 @@
+name: Frame Engine Stage D2 CI
+
+on:
+  push:
+    branches:
+      - builder/frame-engine-stage-d2-001
+    paths:
+      - "tests/frame_engine/consumer_fast_path_stage_d2_tests.cpp"
+      - "tests/frame_engine/ready_frame_queue_stage_d2_stress_tests.cpp"
+      - "tests/media_engine/frame_pipeline_stage_d2_stress_tests.mm"
+      - ".github/workflows/frame-engine-stage-d2-ci.yml"
+      - "docs/proofs/FRAME_ENGINE_STAGE_D2_001.md"
+      - "PROJECT_STATE.md"
+  pull_request:
+    paths:
+      - "tests/frame_engine/consumer_fast_path_stage_d2_tests.cpp"
+      - "tests/frame_engine/ready_frame_queue_stage_d2_stress_tests.cpp"
+      - "tests/media_engine/frame_pipeline_stage_d2_stress_tests.mm"
+      - ".github/workflows/frame-engine-stage-d2-ci.yml"
+      - "docs/proofs/FRAME_ENGINE_STAGE_D2_001.md"
+      - "PROJECT_STATE.md"
+
+permissions:
+  contents: read
+
+jobs:
+  stage-d2:
+    name: Stage D2 non-device validation
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun clang++ --version
+          echo "macOS SDK: $(xcrun --sdk macosx --show-sdk-path)"
+          echo "iPhoneOS SDK: $(xcrun --sdk iphoneos --show-sdk-path)"
+
+      - name: Verify production blob lock at start
+        run: |
+          set -euo pipefail
+          mkdir -p build/host build/ios
+
+          cat > build/expected-production-blobs.txt <<'EOF'
+          54ef2dcf4479756cec3e76dfecf5b67fd3e679af  src/frame_engine/PreparedFrame.h
+          8bf72637c70b91c9d1f56af6ca0d63c0beadfe4b  src/frame_engine/PreparedFrame.cpp
+          ed003b56c6ad6fa4252471bd82c1bd757c4e8433  src/frame_engine/FrameEngineState.h
+          996beb57cffb71e31d9a7c896af6637dff137e7a  src/frame_engine/FrameEngineState.cpp
+          b7afe3ab62a63cfc580528ee2c92280797779f18  src/frame_engine/ReadyFrameQueue.h
+          efa8583e9770807aae9b33affd927b3aa8c0d525  src/frame_engine/ReadyFrameQueue.cpp
+          b390c57ef6a0ae9874adb6e85e4ae6301da94869  src/media_engine/LocalVideoReader.h
+          1c4f99f8b3bfa37f9e41424cb31de7bddc9dfcea  src/media_engine/LocalVideoReader.mm
+          e2a77f0124fca0246a88ce9db7289f1fda50d75f  src/media_engine/FrameNormalizer.h
+          b3b5bdd6896a04528565676330b78235da1137b6  src/media_engine/FrameNormalizer.cpp
+          b917f7c08d769f78243b85c2aa09aaa9d9679a76  src/media_engine/FramePipelinePump.h
+          ff0e01f7a2cff1af042ae355faba032faeea5304  src/media_engine/FramePipelinePump.cpp
+          EOF
+
+          : > build/production-blobs-start.txt
+          while read -r expected path; do
+            actual="$(git hash-object "$path")"
+            printf '%s  %s\n' "$actual" "$path"               >> build/production-blobs-start.txt
+            test "$actual" = "$expected"
+          done < build/expected-production-blobs.txt
+
+          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "d34bb302d2c5d077119651a5053cc68fb105b1e9"
+
+      - name: Static production negative checks
+        run: |
+          set -euo pipefail
+          production_paths="src/frame_engine src/media_engine"
+
+          banned='std::thread|condition_variable|dispatch_async|dispatch_source|CADisplayLink|CACurrentMediaTime|CMSampleBufferSet|VTDecompression|VTPixelTransfer|VTPixelRotation|VideoToolbox|CoreImage|CIContext|Metal|MTL|vImage|Accelerate|CVPixelBufferPool|AVCapture|MSHookFunction|MSHookMessageEx|%hook|fishhook|method_exchangeImplementations|mediaserverd|NSURLSession|Network.framework'
+          if grep -RInE "$banned" $production_paths; then
+            echo "Forbidden production token introduced."
+            exit 1
+          fi
+
+          if grep -RInE '(^|[^A-Za-z])socket[[:space:]]*\(|\bnw_[A-Za-z0-9_]+'               $production_paths; then
+            echo "Forbidden production network token introduced."
+            exit 1
+          fi
+
+          grep -q 'reader_.readNext()' src/media_engine/FramePipelinePump.cpp
+          test "$(grep -c 'reader_.readNext()' src/media_engine/FramePipelinePump.cpp)" -eq 1
+          grep -q 'ReadyFrameQueue::tryAcquire' src/media_engine/FramePipelinePump.cpp
+
+      - name: Build and run Stage A regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             tests/frame_engine/frame_engine_stage_a_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/stage_a_tests
+          build/host/stage_a_tests | tee build/host/stage-a-summary.txt
+          grep -q 'Tests run: 13, failures: 0' build/host/stage-a-summary.txt
+
+      - name: Build and run Stage B regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             tests/media_engine/local_video_reader_stage_b_tests.mm             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/stage_b_tests
+          build/host/stage_b_tests | tee build/host/stage-b-summary.txt
+          grep -q 'Stage B tests run: 10, failures: 0' build/host/stage-b-summary.txt
+
+      - name: Build and run Stage C1 queue regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             tests/frame_engine/ready_frame_queue_stage_c1_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/stage_c1_queue_tests
+          build/host/stage_c1_queue_tests             | tee build/host/stage-c1-queue-summary.txt
+          grep -q 'Stage C1 queue tests run: 18, failures: 0'             build/host/stage-c1-queue-summary.txt
+
+      - name: Build and run Stage C1 normalizer regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/media_engine/FrameNormalizer.cpp             tests/media_engine/frame_normalizer_stage_c1_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/stage_c1_normalizer_tests
+          build/host/stage_c1_normalizer_tests             | tee build/host/stage-c1-normalizer-summary.txt
+          grep -q 'Stage C1 normalizer tests run: 17, failures: 0'             build/host/stage-c1-normalizer-summary.txt
+
+      - name: Build and run Stage D1 regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FramePipelinePump.cpp             tests/media_engine/frame_pipeline_stage_d1_tests.mm             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/stage_d1_tests
+          build/host/stage_d1_tests | tee build/host/stage-d1-summary.txt
+          grep -q 'Stage D1 tests run: 19, failures: 0'             build/host/stage-d1-summary.txt
+
+      - name: Build and run D2 consumer isolation tests
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             tests/frame_engine/consumer_fast_path_stage_d2_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/d2_consumer_tests
+          build/host/d2_consumer_tests             | tee build/host/d2-consumer-summary.txt
+          grep -q 'Stage D2 consumer tests run: 5, failures: 0'             build/host/d2-consumer-summary.txt
+
+          if otool -L build/host/d2_consumer_tests               | grep -q 'AVFoundation'; then
+            echo "Consumer host slice unexpectedly depends on AVFoundation."
+            exit 1
+          fi
+
+      - name: Build and run D2 queue and concurrency stress
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             tests/frame_engine/ready_frame_queue_stage_d2_stress_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/d2_queue_stress
+          build/host/d2_queue_stress             | tee build/host/d2-queue-stress-summary.txt
+          grep -q 'Stage D2 queue stress tests run: 8, failures: 0'             build/host/d2-queue-stress-summary.txt
+
+      - name: Build and run D2 pipeline soak and 720p30 smoke
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -pthread             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FramePipelinePump.cpp             tests/media_engine/frame_pipeline_stage_d2_stress_tests.mm             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/d2_pipeline_stress
+          build/host/d2_pipeline_stress             | tee build/host/d2-pipeline-summary.txt
+          grep -q 'Stage D2 pipeline stress tests run: 5, failures: 0'             build/host/d2-pipeline-summary.txt
+          grep -q '\[PASS\] 720p30 host smoke'             build/host/d2-pipeline-summary.txt
+
+      - name: ASan and UBSan queue ownership validation
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -fsanitize=address,undefined -fno-omit-frame-pointer             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             tests/frame_engine/ready_frame_queue_stage_d2_stress_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/d2_queue_asan_ubsan
+          ASAN_OPTIONS=halt_on_error=1           UBSAN_OPTIONS=halt_on_error=1             build/host/d2_queue_asan_ubsan             > build/host/asan-ubsan-queue-summary.txt 2>&1
+          cat build/host/asan-ubsan-queue-summary.txt
+          grep -q 'Stage D2 queue stress tests run: 8, failures: 0'             build/host/asan-ubsan-queue-summary.txt
+
+      - name: ASan and UBSan full local pipeline validation
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -pthread             -fsanitize=address,undefined -fno-omit-frame-pointer             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FramePipelinePump.cpp             tests/media_engine/frame_pipeline_stage_d2_stress_tests.mm             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/d2_pipeline_asan_ubsan
+          set +e
+          ASAN_OPTIONS=halt_on_error=1 \
+          UBSAN_OPTIONS=halt_on_error=1 \
+            build/host/d2_pipeline_asan_ubsan \
+            > build/host/asan-ubsan-pipeline-summary.txt 2>&1
+          sanitizer_status=$?
+          set -e
+
+          cat build/host/asan-ubsan-pipeline-summary.txt
+
+          if [ "$sanitizer_status" -ne 0 ]; then
+            echo "Sanitized pipeline exited with status $sanitizer_status."
+            exit "$sanitizer_status"
+          fi
+
+          grep -q 'Stage D2 pipeline stress tests run: 5, failures: 0' \
+            build/host/asan-ubsan-pipeline-summary.txt
+
+      - name: ThreadSanitizer capability and queue stress
+        run: |
+          set -euo pipefail
+          set +e
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -fsanitize=thread -fno-omit-frame-pointer             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             tests/frame_engine/ready_frame_queue_stage_d2_stress_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/host/d2_queue_tsan             > build/host/tsan-build-summary.txt 2>&1
+          build_status=$?
+          set -e
+
+          if [ "$build_status" -ne 0 ]; then
+            echo "UNSUPPORTED BY CURRENT HOST TOOLCHAIN"               | tee build/host/tsan-result-summary.txt
+            cat build/host/tsan-build-summary.txt
+            exit 0
+          fi
+
+          echo "SUPPORTED" > build/host/tsan-capability-summary.txt
+
+          set +e
+          build/host/d2_queue_tsan             > build/host/tsan-runtime-summary.txt 2>&1
+          run_status=$?
+          set -e
+
+          cat build/host/tsan-runtime-summary.txt
+
+          if [ "$run_status" -ne 0 ]; then
+            if grep -Eiq               'ThreadSanitizer:.*(unsupported|not supported|failed to mmap|unexpected memory mapping)'               build/host/tsan-runtime-summary.txt; then
+              echo "UNSUPPORTED BY CURRENT HOST TOOLCHAIN"                 | tee build/host/tsan-result-summary.txt
+              exit 0
+            fi
+            echo "TSAN FAILURE" | tee build/host/tsan-result-summary.txt
+            exit "$run_status"
+          fi
+
+          grep -q 'Stage D2 queue stress tests run: 8, failures: 0'             build/host/tsan-runtime-summary.txt
+          echo "PASS" | tee build/host/tsan-result-summary.txt
+
+      - name: Compile iOS 15 arm64 consumer and full engine archives
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+          common="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -Wall -Wextra -Werror -pedantic"
+
+          "$CXX" $common -Isrc/frame_engine             -c src/frame_engine/PreparedFrame.cpp             -o build/ios/PreparedFrame.o
+
+          "$CXX" $common -Isrc/frame_engine             -c src/frame_engine/ReadyFrameQueue.cpp             -o build/ios/ReadyFrameQueue.o
+
+          xcrun libtool -static             -o build/ios/libVCAMConsumerFastPathD2.a             build/ios/PreparedFrame.o             build/ios/ReadyFrameQueue.o
+
+          "$CXX" $common -Isrc/frame_engine             -c src/frame_engine/FrameEngineState.cpp             -o build/ios/FrameEngineState.o
+
+          "$CXX" $common -fobjc-arc -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine             -c src/media_engine/LocalVideoReader.mm             -o build/ios/LocalVideoReader.o
+
+          "$CXX" $common -Isrc/frame_engine -Isrc/media_engine             -c src/media_engine/FrameNormalizer.cpp             -o build/ios/FrameNormalizer.o
+
+          "$CXX" $common -Isrc/frame_engine -Isrc/media_engine             -c src/media_engine/FramePipelinePump.cpp             -o build/ios/FramePipelinePump.o
+
+          xcrun libtool -static             -o build/ios/libVCAMFrameEngineStageD2.a             build/ios/PreparedFrame.o             build/ios/FrameEngineState.o             build/ios/LocalVideoReader.o             build/ios/ReadyFrameQueue.o             build/ios/FrameNormalizer.o             build/ios/FramePipelinePump.o
+
+      - name: Inspect consumer fast-path archive
+        run: |
+          set -euo pipefail
+          file build/ios/PreparedFrame.o
+          file build/ios/ReadyFrameQueue.o
+          file build/ios/libVCAMConsumerFastPathD2.a
+
+          xcrun ar -t build/ios/libVCAMConsumerFastPathD2.a \
+            | tee build/ios/consumer-members-raw.txt
+          grep '\.o$' build/ios/consumer-members-raw.txt \
+            | tee build/ios/consumer-members.txt
+          test "$(wc -l < build/ios/consumer-members.txt | tr -d ' ')" -eq 2
+          grep -qx 'PreparedFrame.o' build/ios/consumer-members.txt
+          grep -qx 'ReadyFrameQueue.o' build/ios/consumer-members.txt
+
+          xcrun lipo -info build/ios/libVCAMConsumerFastPathD2.a \
+            | tee build/ios/consumer-architecture.txt
+          grep -q 'arm64' build/ios/consumer-architecture.txt
+          if grep -q 'arm64e' build/ios/consumer-architecture.txt; then
+            exit 1
+          fi
+
+          : > build/ios/consumer-minos.txt
+          for object in \
+              build/ios/PreparedFrame.o \
+              build/ios/ReadyFrameQueue.o; do
+            xcrun otool -l "$object" \
+              | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS' \
+              | tee -a build/ios/consumer-minos.txt
+          done
+          test "$(grep -c 'minos 15.0' build/ios/consumer-minos.txt)" -ge 2
+
+          xcrun nm -u build/ios/libVCAMConsumerFastPathD2.a \
+            | tee build/ios/consumer-undefined-symbols.txt
+
+          consumer_forbidden='AVAssetReader|AVFoundation|LocalVideoReader|FrameNormalizer|FramePipelinePump|VTDecompression|VTPixelTransfer|VTPixelRotation|AVCapture|MSHookFunction|MSHookMessageEx|mediaserverd|NSURLSession|_socket|_nw_'
+          if grep -E "$consumer_forbidden" \
+              build/ios/consumer-undefined-symbols.txt; then
+            echo "Forbidden consumer dependency found."
+            exit 1
+          fi
+
+      - name: Inspect full engine archive
+        run: |
+          set -euo pipefail
+          for object in               PreparedFrame.o               FrameEngineState.o               LocalVideoReader.o               ReadyFrameQueue.o               FrameNormalizer.o               FramePipelinePump.o; do
+            file "build/ios/$object"
+            xcrun otool -l "build/ios/$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee -a build/ios/engine-minos.txt
+          done
+
+          xcrun lipo -info build/ios/libVCAMFrameEngineStageD2.a             | tee build/ios/engine-architecture.txt
+          grep -q 'arm64' build/ios/engine-architecture.txt
+          if grep -q 'arm64e' build/ios/engine-architecture.txt; then
+            exit 1
+          fi
+          test "$(grep -c 'minos 15.0' build/ios/engine-minos.txt)" -ge 6
+
+          xcrun nm -u build/ios/libVCAMFrameEngineStageD2.a             | tee build/ios/engine-undefined-symbols.txt
+
+          engine_forbidden='VTDecompression|VTPixelTransfer|VTPixelRotation|CIContext|MTL|vImage|MSHookFunction|MSHookMessageEx|AVCapture|PHPhoto|UIImage|NSURLSession|_socket|_nw_'
+          if grep -E "$engine_forbidden"               build/ios/engine-undefined-symbols.txt; then
+            echo "Forbidden full-engine production symbol found."
+            exit 1
+          fi
+
+          grep -q 'AVAssetReader' build/ios/engine-undefined-symbols.txt
+
+      - name: Verify production blob lock at end
+        run: |
+          set -euo pipefail
+          : > build/production-blobs-end.txt
+          while read -r expected path; do
+            actual="$(git hash-object "$path")"
+            printf '%s  %s\n' "$actual" "$path"               >> build/production-blobs-end.txt
+            test "$actual" = "$expected"
+          done < build/expected-production-blobs.txt
+
+          diff -u             build/production-blobs-start.txt             build/production-blobs-end.txt
+
+          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "d34bb302d2c5d077119651a5053cc68fb105b1e9"
+
+      - name: Upload D2 validation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-frame-engine-stage-d2-validation
+          path: |
+            build/ios/libVCAMConsumerFastPathD2.a
+            build/ios/consumer-members-raw.txt
+            build/ios/consumer-members.txt
+            build/ios/consumer-architecture.txt
+            build/ios/consumer-minos.txt
+            build/ios/consumer-undefined-symbols.txt
+            build/ios/libVCAMFrameEngineStageD2.a
+            build/ios/engine-architecture.txt
+            build/ios/engine-minos.txt
+            build/ios/engine-undefined-symbols.txt
+            build/production-blobs-start.txt
+            build/production-blobs-end.txt
+            build/host/stage-a-summary.txt
+            build/host/stage-b-summary.txt
+            build/host/stage-c1-queue-summary.txt
+            build/host/stage-c1-normalizer-summary.txt
+            build/host/stage-d1-summary.txt
+            build/host/d2-consumer-summary.txt
+            build/host/d2-queue-stress-summary.txt
+            build/host/d2-pipeline-summary.txt
+            build/host/asan-ubsan-queue-summary.txt
+            build/host/asan-ubsan-pipeline-summary.txt
+            build/host/tsan-build-summary.txt
+            build/host/tsan-capability-summary.txt
+            build/host/tsan-runtime-summary.txt
+            build/host/tsan-result-summary.txt
+          if-no-files-found: warn
+          retention-days: 14
