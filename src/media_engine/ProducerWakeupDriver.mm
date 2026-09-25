@@ -107,7 +107,7 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
             return false;
         }
 
-        __block bool success = false;
+        bool success = false;
         auto operation = [this, &success]() {
             const auto result = controller_->start();
             success =
@@ -148,7 +148,7 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
             return ProducerWakeupDriverState::Stopped;
         }
 
-        __block ProducerWakeupDriverState value =
+        ProducerWakeupDriverState value =
             ProducerWakeupDriverState::Stopped;
 
         auto operation = [this, &value]() {
@@ -171,7 +171,7 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
             return 0;
         }
 
-        __block std::uint64_t value = 0;
+        std::uint64_t value = 0;
 
         auto operation = [this, &value]() {
             value = controller_->lifecycleToken();
