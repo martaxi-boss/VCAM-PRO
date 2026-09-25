@@ -1,9 +1,13 @@
-name: Frame Engine Stage E1 API Availability Preflight
+name: Frame Engine Stage E1 CI
 
 on:
   push:
     branches:
       - builder/frame-engine-stage-e1-transform-001
+    paths:
+      - ".github/workflows/frame-engine-stage-e1-ci.yml"
+      - "docs/proofs/FRAME_ENGINE_STAGE_E1_001.md"
+  pull_request:
     paths:
       - ".github/workflows/frame-engine-stage-e1-ci.yml"
       - "docs/proofs/FRAME_ENGINE_STAGE_E1_001.md"
