@@ -108,8 +108,52 @@ FramePipelinePumpResult FramePipelinePump::processFrame(
     result.transformRequirement = normalized.requirement;
 
     if (normalized.status == NormalizationStatus::TransformRequired) {
-        result.status = FramePipelinePumpStatus::TransformRequired;
-        return result;
+        if (!transformCallback_) {
+            // Stage D1/D2 compatibility constructor: preserve the historical
+            // pre-transform behavior for those regression suites. Stage E1
+            // production callers supply a FrameTransformer explicitly.
+            result.status = FramePipelinePumpStatus::TransformRequired;
+            return result;
+        }
+
+        FrameTransformResult transformed = transformCallback_(
+            frame,
+            geometry,
+            target_,
+            generation,
+            epoch);
+        result.transformStatus = transformed.status;
+
+        if (transformed.status != FrameTransformStatus::Transformed ||
+            !transformed.frame.has_value()) {
+            result.status = FramePipelinePumpStatus::TransformFailed;
+            return result;
+        }
+
+        SourceGeometry normalizedGeometry;
+        normalizedGeometry.naturalSize = CGSizeMake(
+            static_cast<CGFloat>(target_.width),
+            static_cast<CGFloat>(target_.height));
+        normalizedGeometry.preferredTransform =
+            CGAffineTransformIdentity;
+
+        NormalizationResult validated = normalizer_.prepare(
+            *transformed.frame,
+            normalizedGeometry,
+            target_,
+            generation,
+            epoch);
+
+        if (validated.status !=
+                NormalizationStatus::ReadyPassthrough ||
+            !validated.frame.has_value()) {
+            result.normalizationStatus = validated.status;
+            result.status = FramePipelinePumpStatus::TransformFailed;
+            return result;
+        }
+
+        result.normalizationStatus = validated.status;
+        normalized = std::move(validated);
     }
 
     if (normalized.status != NormalizationStatus::ReadyPassthrough ||
