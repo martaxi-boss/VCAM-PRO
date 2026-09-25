@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <new>
 #include <numeric>
 #include <utility>
 #include <vector>
@@ -1015,6 +1016,26 @@ FrameTransformer::FrameTransformer()
 FrameTransformer::~FrameTransformer() = default;
 
 FrameTransformResult FrameTransformer::transform(
+    const PreparedFrame& source,
+    const SourceGeometry& geometry,
+    const NormalizationTarget& target,
+    std::uint64_t currentMediaGeneration,
+    std::uint64_t currentTimelineEpoch) {
+    try {
+        return transformImpl(
+            source,
+            geometry,
+            target,
+            currentMediaGeneration,
+            currentTimelineEpoch);
+    } catch (const std::bad_alloc&) {
+        FrameTransformResult result;
+        result.status = FrameTransformStatus::AllocationFailure;
+        return result;
+    }
+}
+
+FrameTransformResult FrameTransformer::transformImpl(
     const PreparedFrame& source,
     const SourceGeometry& geometry,
     const NormalizationTarget& target,
