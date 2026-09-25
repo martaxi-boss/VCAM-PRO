@@ -336,6 +336,13 @@ bool TestPassthroughPacingAndNoReadAhead() {
     CHECK(!CMTIME_IS_VALID(
         due.frameTiming->presentationTimestamp));
     CHECK(source.readCalls == 2);
+    CHECK(queue.size() == 1);
+
+    const auto afterDue =
+        pump.pumpOnceAtHostTime(*early.dueHostTimeNs);
+    CHECK(afterDue.status == FramePipelinePumpStatus::EndOfStream);
+    CHECK(source.readCalls == 3);
+    CHECK(queue.size() == 1);
     return true;
 }
 
