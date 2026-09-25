@@ -77,7 +77,11 @@ PreparedFrame MakeFrame(
             "Unable to create Stage E1 pipeline fixture.");
     }
 
-    CHECK(CVPixelBufferGetPlaneCount(pixelBuffer) == 2);
+    if (CVPixelBufferGetPlaneCount(pixelBuffer) != 2) {
+        CVPixelBufferRelease(pixelBuffer);
+        throw std::runtime_error(
+            "Stage E1 pipeline fixture is not bi-planar.");
+    }
 
     if (CVPixelBufferLockBaseAddress(pixelBuffer, 0) !=
         kCVReturnSuccess) {
