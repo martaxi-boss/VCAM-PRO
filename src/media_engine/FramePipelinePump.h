@@ -108,7 +108,7 @@ public:
     FramePipelinePumpResult pumpOnce();
 
     // Stage F1 serial-producer API. nowHostTimeNs is supplied by the caller
-    // in monotonic nanoseconds. This method never sleeps or creates a timer.
+    // in monotonic nanoseconds. This method never blocks or owns a timer.
     FramePipelinePumpResult pumpOnceAtHostTime(
         frame_engine::MonotonicHostTimeNs nowHostTimeNs);
 
