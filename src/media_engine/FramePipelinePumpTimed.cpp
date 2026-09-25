@@ -74,10 +74,17 @@ FramePipelinePumpResult FramePipelinePump::pumpOnceAtHostTime(
             true);
     }
 
-    ReadResult read =
-        timedReadCallback_
-            ? timedReadCallback_()
-            : reader_.readNext();
+    ReadResult read;
+    try {
+        read =
+            timedReadCallback_
+                ? timedReadCallback_()
+                : reader_.readNext();
+    } catch (const std::bad_alloc&) {
+        FramePipelinePumpResult result;
+        result.status = FramePipelinePumpStatus::AllocationFailed;
+        return result;
+    }
 
     switch (read.kind) {
         case ReadResultKind::EndOfStream:
@@ -131,6 +138,15 @@ FramePipelinePumpResult FramePipelinePump::pumpOnceAtHostTime(
         state_.timelineEpoch());
 
     if (!prepared.frame.has_value()) {
+        if (prepared.result.normalizationStatus ==
+            NormalizationStatus::GenerationMismatch) {
+            prepared.result.status =
+                FramePipelinePumpStatus::GenerationMismatch;
+        } else if (prepared.result.normalizationStatus ==
+                   NormalizationStatus::TimelineMismatch) {
+            prepared.result.status =
+                FramePipelinePumpStatus::TimelineMismatch;
+        }
         return prepared.result;
     }
 
