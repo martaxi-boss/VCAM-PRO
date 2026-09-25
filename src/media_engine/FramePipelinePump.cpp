@@ -1,5 +1,6 @@
 #include "FramePipelinePump.h"
 
+#include <new>
 #include <utility>
 
 namespace vcam::media_engine {
@@ -85,101 +86,132 @@ FramePipelinePumpResult FramePipelinePump::pumpOnce() {
         state_.timelineEpoch());
 }
 
-FramePipelinePumpResult FramePipelinePump::processFrame(
+FramePipelinePump::PreparedPipelineResult
+FramePipelinePump::prepareFrame(
     frame_engine::PreparedFrame frame,
     const SourceVideoInfo& info,
     std::uint64_t generation,
     std::uint64_t epoch) {
-    FramePipelinePumpResult result;
-    result.readResult = ReadResultKind::Frame;
+    PreparedPipelineResult prepared;
+    prepared.result.readResult = ReadResultKind::Frame;
 
-    SourceGeometry geometry;
-    geometry.naturalSize = info.naturalSize;
-    geometry.preferredTransform = info.preferredTransform;
+    try {
+        SourceGeometry geometry;
+        geometry.naturalSize = info.naturalSize;
+        geometry.preferredTransform = info.preferredTransform;
 
-    NormalizationResult normalized = normalizer_.prepare(
-        frame,
-        geometry,
-        target_,
-        generation,
-        epoch);
-
-    result.normalizationStatus = normalized.status;
-    result.transformRequirement = normalized.requirement;
-
-    if (normalized.status == NormalizationStatus::TransformRequired) {
-        if (!transformCallback_) {
-            // Stage D1/D2 compatibility constructor: preserve the historical
-            // pre-transform behavior for those regression suites. Stage E1
-            // production callers supply a FrameTransformer explicitly.
-            result.status = FramePipelinePumpStatus::TransformRequired;
-            return result;
-        }
-
-        FrameTransformResult transformed = transformCallback_(
+        NormalizationResult normalized = normalizer_.prepare(
             frame,
             geometry,
             target_,
             generation,
             epoch);
-        result.transformStatus = transformed.status;
 
-        if (transformed.status != FrameTransformStatus::Transformed ||
-            !transformed.frame.has_value()) {
-            result.status = FramePipelinePumpStatus::TransformFailed;
-            return result;
+        prepared.result.normalizationStatus = normalized.status;
+        prepared.result.transformRequirement = normalized.requirement;
+
+        if (normalized.status == NormalizationStatus::TransformRequired) {
+            if (!transformCallback_) {
+                // Stage D1/D2 compatibility path. Historical constructors
+                // intentionally stop before transform work.
+                prepared.result.status =
+                    FramePipelinePumpStatus::TransformRequired;
+                return prepared;
+            }
+
+            FrameTransformResult transformed = transformCallback_(
+                frame,
+                geometry,
+                target_,
+                generation,
+                epoch);
+            prepared.result.transformStatus = transformed.status;
+
+            if (transformed.status != FrameTransformStatus::Transformed ||
+                !transformed.frame.has_value()) {
+                prepared.result.status =
+                    FramePipelinePumpStatus::TransformFailed;
+                return prepared;
+            }
+
+            const frame_engine::PreparedFrame& validated =
+                *transformed.frame;
+
+            const bool exactTarget =
+                validated.validity() ==
+                    frame_engine::FrameValidity::Ready &&
+                validated.isInternallyConsistent() &&
+                validated.identity().mediaGeneration == generation &&
+                validated.identity().timelineEpoch == epoch &&
+                validated.width() == target_.width &&
+                validated.height() == target_.height &&
+                validated.pixelFormat() == target_.pixelFormat &&
+                validated.orientation() ==
+                    frame_engine::OrientationState::Normalized;
+
+            if (!exactTarget) {
+                prepared.result.status =
+                    FramePipelinePumpStatus::TransformFailed;
+                return prepared;
+            }
+
+            prepared.result.normalizationStatus =
+                NormalizationStatus::ReadyPassthrough;
+            normalized.status = NormalizationStatus::ReadyPassthrough;
+            normalized.requirement = TransformRequirement::None;
+            normalized.frame.emplace(std::move(*transformed.frame));
         }
 
-        const frame_engine::PreparedFrame& validated =
-            *transformed.frame;
-
-        const bool exactTarget =
-            validated.validity() == frame_engine::FrameValidity::Ready &&
-            validated.isInternallyConsistent() &&
-            validated.identity().mediaGeneration == generation &&
-            validated.identity().timelineEpoch == epoch &&
-            validated.width() == target_.width &&
-            validated.height() == target_.height &&
-            validated.pixelFormat() == target_.pixelFormat &&
-            validated.orientation() ==
-                frame_engine::OrientationState::Normalized;
-
-        if (!exactTarget) {
-            result.status = FramePipelinePumpStatus::TransformFailed;
-            return result;
+        if (normalized.status != NormalizationStatus::ReadyPassthrough ||
+            !normalized.frame.has_value()) {
+            prepared.result.status =
+                FramePipelinePumpStatus::NormalizationRejected;
+            return prepared;
         }
 
-        result.normalizationStatus =
-            NormalizationStatus::ReadyPassthrough;
-        normalized.status = NormalizationStatus::ReadyPassthrough;
-        normalized.requirement = TransformRequirement::None;
-        normalized.frame.emplace(std::move(*transformed.frame));
+        prepared.result.frameIdentity = normalized.frame->identity();
+        prepared.result.frameTiming = normalized.frame->timing();
+        prepared.frame.emplace(std::move(*normalized.frame));
+        return prepared;
+    } catch (const std::bad_alloc&) {
+        prepared.result.status =
+            FramePipelinePumpStatus::AllocationFailed;
+        prepared.frame.reset();
+        return prepared;
     }
+}
 
-    if (normalized.status != NormalizationStatus::ReadyPassthrough ||
-        !normalized.frame.has_value()) {
-        result.status = FramePipelinePumpStatus::NormalizationRejected;
-        return result;
+FramePipelinePumpResult FramePipelinePump::processFrame(
+    frame_engine::PreparedFrame frame,
+    const SourceVideoInfo& info,
+    std::uint64_t generation,
+    std::uint64_t epoch) {
+    PreparedPipelineResult prepared = prepareFrame(
+        std::move(frame),
+        info,
+        generation,
+        epoch);
+
+    if (!prepared.frame.has_value()) {
+        return prepared.result;
     }
-
-    result.frameIdentity = normalized.frame->identity();
-    result.frameTiming = normalized.frame->timing();
 
     frame_engine::QueueContext queueContext;
     queueContext.currentMediaGeneration = generation;
     queueContext.currentTimelineEpoch = epoch;
     queueContext.minimumSequence = std::nullopt;
 
-    result.publishResult =
-        queue_.publish(std::move(*normalized.frame), queueContext);
+    prepared.result.publishResult =
+        queue_.publish(std::move(*prepared.frame), queueContext);
 
-    if (result.publishResult == frame_engine::PublishResult::Published) {
-        result.status = FramePipelinePumpStatus::Published;
+    if (prepared.result.publishResult ==
+        frame_engine::PublishResult::Published) {
+        prepared.result.status = FramePipelinePumpStatus::Published;
     } else {
-        result.status = FramePipelinePumpStatus::QueueDropped;
+        prepared.result.status = FramePipelinePumpStatus::QueueDropped;
     }
 
-    return result;
+    return prepared.result;
 }
 
 const NormalizationTarget& FramePipelinePump::target() const noexcept {

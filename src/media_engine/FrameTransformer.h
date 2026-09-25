@@ -18,6 +18,7 @@ enum class FrameTransformStatus : std::uint8_t {
     UnsupportedGeometry,
     UnsupportedColorConversion,
     PoolFailure,
+    AllocationFailure,
     TransformFailure,
 };
 
@@ -55,6 +56,13 @@ public:
     FrameTransformerStats stats() const noexcept;
 
 private:
+    FrameTransformResult transformImpl(
+        const frame_engine::PreparedFrame& source,
+        const SourceGeometry& geometry,
+        const NormalizationTarget& target,
+        std::uint64_t currentMediaGeneration,
+        std::uint64_t currentTimelineEpoch);
+
     struct Impl;
     std::unique_ptr<Impl> impl_;
 };
