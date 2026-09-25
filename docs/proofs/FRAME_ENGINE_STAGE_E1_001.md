@@ -2,7 +2,7 @@
 
 ## Status
 
-**IMPLEMENTED — IOS15 ACCELERATE/vIMAGE BACKEND READY FOR SUPERVISOR AUDIT**
+**STAGE E1 VIMAGE IMPLEMENTATION — READY FOR SUPERVISOR AUDIT**
 
 Task:
 
@@ -12,6 +12,14 @@ Base `main`:
 
 `d476caacc4f557843f9551533c2fcbe7c5d40baa`
 
+Previous blocker head:
+
+`49e7d1e6b8f573568958d8edf171b24e46cce4eb`
+
+Validated implementation head before this proof update:
+
+`7fec50bc2ff3c1b831635d6f00f03b9c089eb50c`
+
 Workstream:
 
 `builder/frame-engine-stage-e1-transform-001`
@@ -20,424 +28,512 @@ PR:
 
 `#10`
 
-Production-validation head before proof finalization:
+The exact final branch HEAD after this proof update is reported by immutable PR metadata and the Builder return. A Git commit cannot embed its own final SHA in its own content without changing that SHA.
 
-`7fec50bc2ff3c1b831635d6f00f03b9c089eb50c`
+---
 
-The exact final branch HEAD is reported by PR metadata and the Builder return. A Git commit cannot embed its own final SHA without changing that SHA.
+## 1. PRE-IMPLEMENTATION STATIC FINDING — VIDEOTOOLBOX
 
-## Pre-implementation static finding — VideoToolbox session APIs
+The original Stage E1 packet requested public:
 
-The first Stage E1 packet required public `VTPixelTransferSession` and `VTPixelRotationSession` while keeping:
+- `VTPixelTransferSession`;
+- `VTPixelRotationSession`.
 
-- arm64;
-- `IPHONEOS_DEPLOYMENT_TARGET=15.0`;
-- no private API;
-- no availability bypass.
+A bounded Apple-SDK availability proof was executed before production implementation.
 
-GitHub Actions run `36187915166` established that the current public Apple SDK declares:
+Pre-implementation proof:
 
-- `VTPixelTransferSessionRef` as iOS 16.0+;
-- `VTPixelRotationSessionRef` as iOS 16.0+.
+- GitHub Actions run: `36187915166`
+- Xcode: `26.6`
+- iPhoneOS SDK: `26.5`
+- target architecture: `arm64`
+- deployment target: `iOS 15.0`
+- compiler policy: `-Werror -Werror=unguarded-availability-new`
 
-Direct arm64 / iOS 15.0 probes with:
+The public SDK marks:
 
-`-Werror=unguarded-availability-new`
+- `VTPixelTransferSession` as iOS 16.0+;
+- `VTPixelRotationSession` as iOS 16.0+.
 
-were rejected by clang as expected.
+Direct iOS 15.0 compile probes were rejected by clang exactly because those APIs are unavailable before iOS 16.
 
-This finding remains valid provenance. VCAM PRO does not use, weak-link, dynamically resolve, or bypass those iOS16+ APIs for the iOS 15 product baseline.
+This finding remains valid and is intentionally preserved.
 
-## Supervisor adaptation
+No weak-link bypass, dynamic symbol lookup, private API, deployment-target increase, or proprietary implementation copy was used.
+
+---
+
+## 2. SUPERVISOR ADAPTATION — IOS15 BACKEND
 
 The accepted iOS 15 backend is:
 
-`CVPixelBufferPool + Accelerate/vImage`
+```text
+CoreVideo CVPixelBufferPool
++
+Accelerate / vImage
+```
 
-The implementation is original VCAM PRO code and does not reproduce a historical binary/disassembly implementation.
+The iOS16 VideoToolbox session APIs remain reference techniques only and are not used by the iOS15 production implementation.
 
-## Exact iOS 15 public API preflight
+---
 
-Run:
+## 3. EXACT IOS15 VIMAGE COMPATIBILITY PROOF
 
-`36189396244`
+Before production mutation, the following public APIs were compiled and linked together for:
 
-Result:
+- `arm64`
+- `-miphoneos-version-min=15.0`
+- `-Werror`
+- `-Werror=unguarded-availability-new`
+- public Accelerate and CoreVideo frameworks
 
-**SUCCESS**
+Exact API set:
 
-The probe compiled and linked an arm64 Mach-O with:
+1. `CVPixelBufferPoolCreate`
+2. `CVPixelBufferPoolCreatePixelBuffer`
+3. `vImageScale_Planar8`
+4. `vImageScale_CbCr8`
+5. `vImageRotate90_Planar8`
+6. `vImageRotate90_Planar16U`
+7. `vImageConvert_420Yp8_CbCr8ToARGB8888`
+8. `vImageConvert_ARGB8888To420Yp8_CbCr8`
+9. `vImageConvert_YpCbCrToARGB_GenerateConversion`
+10. `vImageConvert_ARGBToYpCbCr_GenerateConversion`
 
-`minos 15.0`
+Pre-implementation vImage probe:
 
-and referenced exactly:
+- run: `36189396244`
+- result: **SUCCESS**
+- architecture: **arm64**
+- minimum iOS: **15.0**
+- result marker: **VIMAGE_IOS15_API_PROBE=PASS**
 
-- `CVPixelBufferPoolCreate`
-- `CVPixelBufferPoolCreatePixelBuffer`
-- `vImageScale_Planar8`
-- `vImageScale_CbCr8`
-- `vImageRotate90_Planar8`
-- `vImageRotate90_Planar16U`
-- `vImageConvert_420Yp8_CbCr8ToARGB8888`
-- `vImageConvert_ARGB8888To420Yp8_CbCr8`
-- `vImageConvert_YpCbCrToARGB_GenerateConversion`
-- `vImageConvert_ARGBToYpCbCr_GenerateConversion`
+The full Stage E1 validation run repeated the same probe successfully.
 
-Result:
+---
 
-**VIMAGE_IOS15_API_PROBE = PASS**
+## 4. PRODUCTION IMPLEMENTATION
 
-## Production implementation
-
-Added:
+Changed production files:
 
 - `src/media_engine/FrameTransformer.h`
 - `src/media_engine/FrameTransformer.mm`
-
-Updated:
-
 - `src/media_engine/FramePipelinePump.h`
 - `src/media_engine/FramePipelinePump.cpp`
 
-The production transformer:
+Existing contracts preserved:
 
-- consumes `PreparedFrame`, `SourceGeometry`, and `NormalizationTarget`;
+- `PreparedFrame`
+- `FrameNormalizer`
+- `ReadyFrameQueue`
+- existing historical D1/D2 pump behavior through the legacy constructor path
+
+### FrameTransformer
+
+The original VCAM PRO transformer:
+
+- accepts a `PreparedFrame`;
+- consumes `SourceGeometry`;
+- consumes `NormalizationTarget`;
 - validates media generation and timeline epoch;
-- never mutates the source pixel buffer;
-- emits structured transform status;
-- produces a new `PreparedFrame` only after complete success;
-- marks successful geometry as `OrientationState::Normalized`;
-- preserves FrameIdentity and existing producer timing fields;
-- does not invent presentation scheduling.
+- never mutates the source frame;
+- returns a new `PreparedFrame` only after complete success;
+- returns structured transform status on failure.
 
-## Reusable CVPixelBufferPool
+Structured result states include:
 
-Transformed output is allocated from a reusable `CVPixelBufferPool`.
+- transformed;
+- invalid frame;
+- generation mismatch;
+- timeline mismatch;
+- unsupported target;
+- unsupported geometry;
+- unsupported color conversion;
+- pool failure;
+- transform failure.
 
-Pool key:
+### Reusable CVPixelBufferPool
 
-- target width;
-- target height;
-- target pixel format.
+Production output uses reusable `CVPixelBufferPool` resources.
+
+Pool keys derive from:
+
+- width;
+- height;
+- pixel format.
+
+Supported production targets remain:
+
+- `420v`;
+- `420f`.
 
 Pool attributes include:
 
 `kCVPixelBufferIOSurfacePropertiesKey`
 
-The output pool is reused while the material target is unchanged and rebuilt when width, height, or pixel format changes.
+No resolution/model hardcodes are used.
 
-Additional bounded reusable resources include:
+Compatible frames reuse the pool. Material target changes rebuild the relevant pool.
 
-- rotation pixel-buffer pool;
-- range-conversion input pool;
-- planar scaling scratch storage;
-- ARGB range-conversion scratch storage;
-- generated vImage YCbCr/ARGB conversion descriptors.
-
-There is no unbounded resource cache.
-
-## NV12 same-format fast path
+### Direct NV12 same-format path
 
 For:
 
-- 420v -> 420v
-- 420f -> 420f
+- `420v -> 420v`
+- `420f -> 420f`
 
-the implementation stays in bi-planar NV12.
+the implementation does not route through ARGB.
 
-Luma uses:
+Luma scaling uses:
 
 `vImageScale_Planar8`
 
-Interleaved CbCr uses:
+Interleaved CbCr scaling uses:
 
 `vImageScale_CbCr8`
 
-The same-format path does not perform an ARGB conversion.
+### Center crop / scale
 
-## Center crop / scale
-
-The implementation:
+The scale path:
 
 - preserves source aspect ratio;
-- computes deterministic center crop;
-- emits the exact requested output size;
-- rejects odd or invalid 4:2:0 target geometry;
-- aligns crop origin and crop dimensions to chroma boundaries;
-- never silently stretches the source.
+- produces exact requested output dimensions;
+- computes a deterministic centered crop;
+- enforces even 4:2:0 geometry;
+- aligns crop origin to chroma boundaries;
+- rejects invalid geometry instead of producing corrupted chroma;
+- never silently stretches.
 
-## Cardinal rotation
+### Cardinal rotation
 
-The linear component of `preferredTransform` is interpreted independently from normal translation.
-
-Supported non-mirrored cardinal cases:
+Supported non-mirrored cardinal transforms:
 
 - 0 degrees;
 - 90 degrees;
 - 180 degrees;
 - 270 degrees.
 
+Translation components from normal AVAssetTrack preferred transforms do not cause mirror classification.
+
+The linear transform is validated for determinant/orientation.
+
 Rejected:
 
 - mirrored transforms;
-- shear/non-unit transforms;
-- non-cardinal arbitrary rotation.
+- shear/non-cardinal transforms.
 
-Rotation implementation:
+Producer-side rotation uses:
 
-- Y plane -> `vImageRotate90_Planar8`;
-- CbCr plane -> `vImageRotate90_Planar16U`.
+- `vImageRotate90_Planar8` for luma;
+- `vImageRotate90_Planar16U` for each interleaved CbCr pair as one 16-bit unit.
 
-The CbCr plane is treated as 16-bit elements so each interleaved chroma pair remains intact.
+90/270 swaps logical dimensions before crop/scale.
 
-For 90/270 degrees the rotated logical width/height are swapped before crop/scale.
+Successful output is:
 
-## 420v / 420f range conversion
+`OrientationState::Normalized`
 
-The implementation does not relabel FourCC values.
+### 420v / 420f range conversion
 
-When source and target NV12 range differ:
+The implementation does not relabel the FourCC.
 
-1. the already-rotated/cropped/scaled NV12 source is converted to reusable ARGB scratch with:
-   - `vImageConvert_420Yp8_CbCr8ToARGB8888`;
-2. ARGB is converted to the target NV12 range with:
-   - `vImageConvert_ARGB8888To420Yp8_CbCr8`.
+Range conversion uses:
 
-Reusable conversion descriptors are generated with:
-
+- `vImageConvert_420Yp8_CbCr8ToARGB8888`;
+- `vImageConvert_ARGB8888To420Yp8_CbCr8`;
 - `vImageConvert_YpCbCrToARGB_GenerateConversion`;
 - `vImageConvert_ARGBToYpCbCr_GenerateConversion`.
 
-Recognized matrices:
+The conversion descriptors and ARGB scratch storage are reused.
+
+Recognized matrix bases:
 
 - ITU-R 601;
 - ITU-R 709.
 
-If a range conversion requires a matrix and the source matrix metadata is absent/unrecognized, the transformer returns:
+If a required matrix basis is absent or unsupported, the transform returns:
 
 `UnsupportedColorConversion`
 
 and publishes nothing.
 
-## Metadata
+The normal same-format NV12 path does not pay the ARGB conversion cost.
 
-When present, the following PreparedFrame metadata remains preserved:
+### Resource reuse
+
+Bounded reusable state includes:
+
+- destination CVPixelBufferPool;
+- rotation CVPixelBufferPool;
+- conversion-input CVPixelBufferPool;
+- luma/chroma scale scratch;
+- ARGB conversion scratch;
+- vImage conversion descriptors.
+
+No unbounded cache exists.
+
+### Metadata
+
+When present, the implementation preserves:
 
 - `kCVImageBufferColorPrimariesKey`;
 - `kCVImageBufferTransferFunctionKey`;
 - `kCVImageBufferYCbCrMatrixKey`;
-- propagating PreparedFrame attachments.
+- applicable propagating PreparedFrame attachments.
 
-Relevant propagating attachments are also applied to the destination `CVPixelBuffer`.
+Metadata is applied to the destination `CVPixelBuffer` and retained in the returned PreparedFrame contract.
 
-Missing color metadata is not fabricated.
+Missing metadata is not invented.
 
-## Frame contract
+### Identity and timing
 
 A successful transform preserves:
 
-- `FrameIdentity.sequence`;
-- `mediaGeneration`;
-- `timelineEpoch`;
-- `loopIteration`;
-- `sourcePTS`;
-- `duration`;
-- unresolved `presentationTimestamp`;
-- unresolved `producedAtHostTime`.
+- sequence;
+- mediaGeneration;
+- timelineEpoch;
+- loopIteration;
+- sourcePTS;
+- duration.
 
-No scheduler/pacing is implemented in Stage E1.
+Stage E1 does not fabricate unresolved presentation scheduling fields.
 
-## Pipeline integration
+---
+
+## 5. PIPELINE INTEGRATION
 
 `FramePipelinePump` now supports a Stage E1 transform-enabled constructor.
 
 Flow:
 
-`Reader -> FrameNormalizer`
+```text
+Reader
+  -> FrameNormalizer
+       -> ReadyPassthrough
+            -> publish
+       -> TransformRequired
+            -> FrameTransformer
+            -> exact target revalidation
+            -> publish
+```
 
-Ready passthrough:
+Transform failure returns:
 
-`ReadyPassthrough -> publish`
+`FramePipelinePumpStatus::TransformFailed`
 
-Transform-required:
+and publishes no frame.
 
-`TransformRequired -> FrameTransformer -> post-transform normalization validation -> publish`
+The existing pre-Stage-E1 constructor retains the historical `TransformRequired` behavior so Stage D1/D2 regression sources preserve their original semantics.
 
-Transform failure:
+Consumer fast path remains:
 
-`TransformFailed -> publish nothing`
+`ReadyFrameQueue::tryAcquire()`
 
-The original constructor is retained so historical D1/D2 regression suites preserve their original pre-Stage-E1 semantics.
+No decode, vImage transform, Accelerate work, file I/O, hook code, or networking was added to the consumer path.
 
-No transform work was added to `ReadyFrameQueue::tryAcquire()`.
+---
 
-## Focused Stage E1 tests
+## 6. TESTS
 
-Added:
+New tests:
 
 - `tests/media_engine/frame_transformer_stage_e1_tests.mm`
 - `tests/media_engine/frame_pipeline_stage_e1_tests.mm`
 
-Transformer tests:
+Transformer suite:
 
-**27 / 27 PASS**
+**27 tests / 0 failures**
 
-Pipeline integration tests:
+Pipeline integration suite:
 
-**3 / 3 PASS**
+**3 tests / 0 failures**
 
-Total focused Stage E1 tests:
+Total Stage E1:
 
-**30 / 30 PASS**
+**30 tests / 0 failures**
 
 Coverage includes:
 
 - passthrough regression;
 - same-format 420v scale;
 - same-format 420f scale;
-- center crop semantics;
+- center crop / aspect preservation;
 - exact output dimensions;
-- directional 90-degree rotation;
-- directional 180-degree rotation;
-- directional 270-degree rotation;
-- mirrored transform rejection;
-- non-cardinal transform rejection;
-- odd/invalid 4:2:0 target rejection;
+- directional-pattern 90-degree rotation;
+- directional-pattern 180-degree rotation;
+- directional-pattern 270-degree rotation;
+- mirror rejection;
+- non-cardinal rejection;
+- odd 4:2:0 target rejection;
 - 420v -> 420f;
 - 420f -> 420v;
-- range conversion verified as pixel conversion, not FourCC relabel;
+- range conversion proven not to be FourCC relabel only;
 - FrameIdentity preservation;
 - sourcePTS/duration preservation;
-- no presentation-time fabrication;
+- no scheduling-field fabrication;
 - color metadata propagation;
 - attachment propagation;
 - stale generation rejection;
 - stale epoch rejection;
-- missing-matrix range conversion rejection;
-- output-pool reuse;
+- missing matrix rejection for range conversion;
+- output pool reuse;
 - target-change resource rebuild;
-- rotation-pool reuse;
+- rotation resource reuse;
 - conversion-resource reuse;
-- source immutability;
-- normalized successful output;
-- transform failure publishes no frame;
-- transform-enabled pump publishes only a validated complete frame;
-- passthrough does not allocate transform resources.
+- source non-mutation;
+- normalized output;
+- transform-enabled pipeline publish;
+- transform failure publishes nothing;
+- passthrough avoids transformer resource construction.
 
-## Full Stage E1 CI
+---
 
-Implementation validation run:
+## 7. REGRESSION VALIDATION
+
+Full Stage E1 validation run on implementation head:
 
 `36190345037`
-
-Head:
-
-`7fec50bc2ff3c1b831635d6f00f03b9c089eb50c`
 
 Conclusion:
 
 **SUCCESS**
 
-Artifact:
+Passed:
 
-`vcam-frame-engine-stage-e1-validation`
-
-Artifact ID:
-
-`10887832355`
-
-Artifact digest:
-
-`sha256:c5da3880536a3259cc39fe0d80bd1c12415041c9db5e2389a378353a7d81d584`
-
-CI passed:
-
-- exact vImage iOS15 public API probe;
-- Stage E1 transformer tests;
-- Stage E1 pipeline tests;
 - Stage A regression;
 - Stage B regression;
 - Stage C1 queue regression;
 - Stage C1 normalizer regression;
-- Stage D1 regression test source;
-- Stage D2 consumer regression;
+- Stage D1 regression;
+- Stage D2 consumer regression/isolation;
 - Stage D2 queue/concurrency regression;
 - Stage D2 pipeline regression;
-- ASan/UBSan queue regression;
+- Stage D2 720p30 host smoke;
+- ASan/UBSan queue ownership regression;
 - ASan/UBSan pipeline regression;
-- ThreadSanitizer gate;
-- arm64 / iOS 15.0 production compile;
-- consumer fast-path isolation;
-- producer undefined-symbol/dependency inspection.
+- ThreadSanitizer queue regression.
 
-## Historical workflows
+The historical Stage D2 workflow itself was not weakened or rewritten.
 
-Historical stage workflows are not rewritten to erase their original stage boundaries.
+Stage E1 reruns the relevant historical regression test sources against the current implementation as required.
 
-In particular, the Stage D1 historical workflow can reject new transform-era production through its original negative checks. Stage E1 CI therefore runs the relevant Stage D1 regression test source against the new implementation directly.
+---
 
-The historical D2 workflow is left unchanged. Stage E1 CI independently revalidates D2 consumer, queue and pipeline regression sources plus consumer isolation.
+## 8. IOS15 ARM64 BUILD PROOF
 
-## iOS 15 arm64 build proof
+The production Stage E1 archive was compiled with:
 
-The Stage E1 production slice compiles with:
+- architecture: **arm64**
+- deployment target: **iOS 15.0**
+- `-Werror`
+- `-Werror=unguarded-availability-new`
 
-- architecture: `arm64`;
-- minimum deployment target: `iOS 15.0`;
-- `-Werror=unguarded-availability-new`.
+Artifacts include:
 
-The built producer archive contains the expected public CoreVideo/vImage undefined symbols and no iOS16 VideoToolbox session symbols.
+- `libVCAMConsumerFastPathE1.a`
+- `libVCAMFrameEngineStageE1.a`
+
+Object inspection confirmed minimum iOS:
+
+**15.0**
 
 No arm64e requirement was introduced.
 
-## Consumer fast-path isolation
+Expected producer undefined symbols include public:
 
-The consumer-only archive remains:
+- CVPixelBufferPool APIs;
+- Accelerate/vImage scale APIs;
+- Accelerate/vImage rotation APIs;
+- Accelerate/vImage conversion APIs.
+
+Forbidden dependency checks cover:
+
+- UIKit;
+- Photos;
+- private/injector hook primitives;
+- AVCapture;
+- VTPixelTransferSession;
+- VTPixelRotationSession;
+- network/backend symbols.
+
+No private API/availability bypass is used.
+
+---
+
+## 9. CONSUMER FAST-PATH ISOLATION
+
+The consumer-only archive contains only:
 
 - `PreparedFrame`;
 - `ReadyFrameQueue`.
 
-Its source and undefined symbols show no dependency on:
+The consumer isolation check rejects:
 
-- AVFoundation;
 - AVAssetReader;
+- AVFoundation;
 - Accelerate/vImage;
 - FrameTransformer;
 - VideoToolbox transform APIs;
 - injector/hook code;
+- mediaserverd dependencies;
 - network code.
 
-Producer transformation remains outside `ReadyFrameQueue::tryAcquire()`.
+Result:
 
-## What is proven
+**PASS**
 
-This stage proves, in host/build scope:
+Producer transform work remains outside `ReadyFrameQueue::tryAcquire()`.
 
-- public vImage/CoreVideo primitives compile and link for arm64/iOS 15.0;
-- original FrameTransformer production code builds for that target;
-- bounded reusable output and scratch resources are implemented;
-- same-format NV12 transform path avoids ARGB conversion;
-- center crop/scale behavior is exercised;
-- 0/90/180/270 handling is implemented, with pattern verification for rotated cases;
-- mirror/non-cardinal geometry is rejected;
-- real 420v/420f range conversion is exercised;
-- color metadata/attachments propagate;
-- FramePipelinePump publishes transformed frames only after complete transform and validation;
-- transform failures publish no frame;
-- Stage A-D2 regression sources pass in Stage E1 CI;
-- consumer fast-path isolation remains intact.
+---
 
-## Runtime-only / future proof
+## 10. CI ARTIFACT
 
-Stage E1 does not prove:
+Implementation validation artifact:
 
-- A9 runtime performance;
-- sustained target-device memory pressure;
-- target-device vImage throughput;
-- real central callback format/dimensions/timing;
-- cross-process data plane;
-- injector behavior;
-- real-camera substitution.
+- name: `vcam-frame-engine-stage-e1-validation`
+- artifact ID: `10887832355`
+- run: `36190345037`
+- validated implementation head: `7fec50bc2ff3c1b831635d6f00f03b9c089eb50c`
+- artifact digest: `sha256:c5da3880536a3259cc39fe0d80bd1c12415041c9db5e2389a378353a7d81d584`
+
+The final documentation head is required to rerun this same Stage E1 validation workflow before promotion.
+
+---
+
+## 11. WHAT THIS PROVES
+
+Stage E1 static/build/host evidence proves:
+
+- the required public vImage/CoreVideo API set is available to arm64/iOS 15.0 compilation;
+- the VCAM PRO FrameTransformer is implemented;
+- reusable output/resource pools are implemented;
+- same-format NV12 direct scale/crop is implemented;
+- cardinal rotations are implemented;
+- video/full range conversion is implemented with recognized matrix basis;
+- metadata/attachment propagation is implemented;
+- producer pipeline integration is implemented;
+- transform failure publishes nothing;
+- prior regression suites remain green inside Stage E1 validation;
+- consumer fast-path isolation remains intact;
+- Stage E1 production objects compile for arm64 / minimum iOS 15.0.
+
+---
+
+## 12. RUNTIME-ONLY FACTS STILL OUTSTANDING
+
+This Stage E1 work does **not** establish:
+
+- A9 throughput;
+- thermal behavior;
+- device memory pressure;
+- exact target-device vImage performance;
+- mediaserverd load;
+- private callback reachability;
+- camera callback lifetime/timing;
+- central substitution behavior;
+- cross-process transport.
+
+Those are separate runtime/device gates.
 
 Explicitly:
 
@@ -448,16 +544,34 @@ Explicitly:
 - **NOT final cross-process data plane**
 - **NOT final injector**
 
-## Final stage conclusion
+---
 
-The iOS16 VideoToolbox session blocker remains preserved as a pre-implementation static finding.
+## 13. FINAL STAGE E1 STATE
 
-For iOS 15, VCAM PRO Stage E1 now uses:
+Backend:
 
-**CoreVideo CVPixelBufferPool + public Accelerate/vImage**
+**CoreVideo CVPixelBufferPool + Accelerate/vImage**
 
-No private API or availability bypass was used.
+VT iOS15 compatibility finding:
 
-Final status:
+**PRESERVED — VT session families are iOS16+**
 
-**STAGE_E1_VIMAGE_READY_FOR_SUPERVISOR_AUDIT**
+Stage E1 implementation:
+
+**IMPLEMENTED**
+
+Host/static/build validation:
+
+**PASS on implementation head; final documentation head must rerun CI**
+
+Device action:
+
+**NONE**
+
+Reference repository mutation:
+
+**NONE**
+
+Merge:
+
+**NO**
