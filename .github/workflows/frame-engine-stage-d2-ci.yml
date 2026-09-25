@@ -69,7 +69,7 @@ jobs:
             test "$actual" = "$expected"
           done < build/expected-production-blobs.txt
 
-          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "d34bb302d2c5d077119651a5053cc68fb105b1e9"
+          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "4c443797f9f2f6f637a06a4a9e9537c97f6ded15"
 
       - name: Static production negative checks
         run: |
@@ -320,7 +320,7 @@ jobs:
 
           diff -u             build/production-blobs-start.txt             build/production-blobs-end.txt
 
-          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "d34bb302d2c5d077119651a5053cc68fb105b1e9"
+          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "4c443797f9f2f6f637a06a4a9e9537c97f6ded15"
 
       - name: Upload D2 validation artifacts
         uses: actions/upload-artifact@v4
