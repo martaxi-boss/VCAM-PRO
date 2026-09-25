@@ -74,7 +74,10 @@ FramePipelinePumpResult FramePipelinePump::pumpOnceAtHostTime(
             true);
     }
 
-    ReadResult read = reader_.readNext();
+    ReadResult read =
+        timedReadCallback_
+            ? timedReadCallback_()
+            : reader_.readNext();
 
     switch (read.kind) {
         case ReadResultKind::EndOfStream:
@@ -111,7 +114,10 @@ FramePipelinePumpResult FramePipelinePump::pumpOnceAtHostTime(
         return result;
     }
 
-    const std::optional<SourceVideoInfo> info = reader_.sourceInfo();
+    const std::optional<SourceVideoInfo> info =
+        timedSourceInfoCallback_
+            ? timedSourceInfoCallback_()
+            : reader_.sourceInfo();
     if (!info.has_value()) {
         result.status = FramePipelinePumpStatus::NormalizationRejected;
         result.normalizationStatus = NormalizationStatus::UnsupportedTarget;
