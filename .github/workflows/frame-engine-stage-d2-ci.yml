@@ -248,27 +248,37 @@ jobs:
           file build/ios/ReadyFrameQueue.o
           file build/ios/libVCAMConsumerFastPathD2.a
 
-          xcrun ar -t build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-members-raw.txt
-          grep '\.o$' build/ios/consumer-members-raw.txt             | tee build/ios/consumer-members.txt
+          xcrun ar -t build/ios/libVCAMConsumerFastPathD2.a \
+            | tee build/ios/consumer-members-raw.txt
+          grep '\.o$' build/ios/consumer-members-raw.txt \
+            | tee build/ios/consumer-members.txt
           test "$(wc -l < build/ios/consumer-members.txt | tr -d ' ')" -eq 2
           grep -qx 'PreparedFrame.o' build/ios/consumer-members.txt
           grep -qx 'ReadyFrameQueue.o' build/ios/consumer-members.txt
 
-          xcrun lipo -info build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-architecture.txt
+          xcrun lipo -info build/ios/libVCAMConsumerFastPathD2.a \
+            | tee build/ios/consumer-architecture.txt
           grep -q 'arm64' build/ios/consumer-architecture.txt
           if grep -q 'arm64e' build/ios/consumer-architecture.txt; then
             exit 1
           fi
 
-          for object in               build/ios/PreparedFrame.o               build/ios/ReadyFrameQueue.o; do
-            xcrun otool -l "$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee -a build/ios/consumer-minos.txt
+          : > build/ios/consumer-minos.txt
+          for object in \
+              build/ios/PreparedFrame.o \
+              build/ios/ReadyFrameQueue.o; do
+            xcrun otool -l "$object" \
+              | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS' \
+              | tee -a build/ios/consumer-minos.txt
           done
           test "$(grep -c 'minos 15.0' build/ios/consumer-minos.txt)" -ge 2
 
-          xcrun nm -u build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-undefined-symbols.txt
+          xcrun nm -u build/ios/libVCAMConsumerFastPathD2.a \
+            | tee build/ios/consumer-undefined-symbols.txt
 
           consumer_forbidden='AVAssetReader|AVFoundation|LocalVideoReader|FrameNormalizer|FramePipelinePump|VTDecompression|VTPixelTransfer|VTPixelRotation|AVCapture|MSHookFunction|MSHookMessageEx|mediaserverd|NSURLSession|_socket|_nw_'
-          if grep -E "$consumer_forbidden"               build/ios/consumer-undefined-symbols.txt; then
+          if grep -E "$consumer_forbidden" \
+              build/ios/consumer-undefined-symbols.txt; then
             echo "Forbidden consumer dependency found."
             exit 1
           fi
