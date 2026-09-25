@@ -1,0 +1,175 @@
+name: Frame Engine Stage E1 API Availability Preflight
+
+on:
+  push:
+    branches:
+      - builder/frame-engine-stage-e1-transform-001
+    paths:
+      - ".github/workflows/frame-engine-stage-e1-ci.yml"
+      - "docs/proofs/FRAME_ENGINE_STAGE_E1_001.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  availability:
+    name: iOS 15 public VideoToolbox availability
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Report toolchain
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun clang++ --version
+          xcrun --sdk iphoneos --show-sdk-path
+
+      - name: Inspect public SDK availability annotations
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          TRANSFER="$SDKROOT/System/Library/Frameworks/VideoToolbox.framework/Headers/VTPixelTransferSession.h"
+          ROTATION="$SDKROOT/System/Library/Frameworks/VideoToolbox.framework/Headers/VTPixelRotationSession.h"
+
+          test -f "$TRANSFER"
+          test -f "$ROTATION"
+
+          python3 - "$TRANSFER" "$ROTATION" <<'PY'
+          import pathlib
+          import re
+          import sys
+
+          transfer = pathlib.Path(sys.argv[1]).read_text()
+          rotation = pathlib.Path(sys.argv[2]).read_text()
+
+          def snippet(text, token, window=900):
+              index = text.find(token)
+              if index < 0:
+                  raise SystemExit(f"missing SDK declaration: {token}")
+              return text[index:index + window]
+
+          transfer_snippet = snippet(transfer, "VTPixelTransferSessionCreate")
+          rotation_create = snippet(rotation, "VTPixelRotationSessionCreate")
+          rotation_apply = snippet(rotation, "VTPixelRotationSessionRotateImage")
+
+          print("=== VTPixelTransferSessionCreate ===")
+          print(transfer_snippet)
+          print("=== VTPixelRotationSessionCreate ===")
+          print(rotation_create)
+          print("=== VTPixelRotationSessionRotateImage ===")
+          print(rotation_apply)
+
+          for name, value in [
+              ("VTPixelTransferSessionCreate", transfer_snippet),
+              ("VTPixelRotationSessionCreate", rotation_create),
+              ("VTPixelRotationSessionRotateImage", rotation_apply),
+          ]:
+              if not re.search(r"ios\s*\(16\.0\)", value):
+                  raise SystemExit(
+                      f"{name} is not annotated iOS 16.0 in this SDK; "
+                      "Stage E1 packet must be re-evaluated."
+                  )
+
+          print("VTPIXELTRANSFER_IOS15_PUBLIC=NO")
+          print("VTPIXELROTATION_IOS15_PUBLIC=NO")
+          PY
+
+      - name: Compile iOS 15 availability probes
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+          COMMON="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -Wall -Wextra -Werror -Werror=unguarded-availability-new -fsyntax-only"
+
+          cat > "$RUNNER_TEMP/corevideo_pool_probe.mm" <<'EOF'
+          #include <CoreVideo/CoreVideo.h>
+          void probe_pool() {
+              CVPixelBufferPoolRef pool = nullptr;
+              CFDictionaryRef attrs = nullptr;
+              (void)CVPixelBufferPoolCreate(kCFAllocatorDefault, nullptr, attrs, &pool);
+              if (pool != nullptr) {
+                  CFRelease(pool);
+              }
+          }
+          EOF
+
+          "$CXX" $COMMON "$RUNNER_TEMP/corevideo_pool_probe.mm" \
+            > "$RUNNER_TEMP/corevideo-pool.log" 2>&1
+          cat "$RUNNER_TEMP/corevideo-pool.log"
+          echo "CVPIXELBUFFERPOOL_IOS15_COMPILE=PASS"
+
+          cat > "$RUNNER_TEMP/transfer_probe.mm" <<'EOF'
+          #include <VideoToolbox/VideoToolbox.h>
+          void probe_transfer() {
+              VTPixelTransferSessionRef session = nullptr;
+              (void)VTPixelTransferSessionCreate(kCFAllocatorDefault, &session);
+              if (session != nullptr) {
+                  VTPixelTransferSessionInvalidate(session);
+                  CFRelease(session);
+              }
+          }
+          EOF
+
+          set +e
+          "$CXX" $COMMON "$RUNNER_TEMP/transfer_probe.mm" \
+            > "$RUNNER_TEMP/transfer.log" 2>&1
+          transfer_status=$?
+          set -e
+          cat "$RUNNER_TEMP/transfer.log"
+          test "$transfer_status" -ne 0
+          grep -Eq 'only available on iOS 16\.0 or newer|unguarded availability|available in iOS 16\.0' \
+            "$RUNNER_TEMP/transfer.log"
+          echo "VTPIXELTRANSFER_IOS15_UNGUARDED_COMPILE=BLOCKED_AS_EXPECTED"
+
+          cat > "$RUNNER_TEMP/rotation_probe.mm" <<'EOF'
+          #include <VideoToolbox/VideoToolbox.h>
+          void probe_rotation(CVPixelBufferRef source, CVPixelBufferRef destination) {
+              VTPixelRotationSessionRef session = nullptr;
+              (void)VTPixelRotationSessionCreate(kCFAllocatorDefault, &session);
+              if (session != nullptr) {
+                  (void)VTPixelRotationSessionRotateImage(session, source, destination);
+                  VTPixelRotationSessionInvalidate(session);
+                  CFRelease(session);
+              }
+          }
+          EOF
+
+          set +e
+          "$CXX" $COMMON "$RUNNER_TEMP/rotation_probe.mm" \
+            > "$RUNNER_TEMP/rotation.log" 2>&1
+          rotation_status=$?
+          set -e
+          cat "$RUNNER_TEMP/rotation.log"
+          test "$rotation_status" -ne 0
+          grep -Eq 'only available on iOS 16\.0 or newer|unguarded availability|available in iOS 16\.0' \
+            "$RUNNER_TEMP/rotation.log"
+          echo "VTPIXELROTATION_IOS15_UNGUARDED_COMPILE=BLOCKED_AS_EXPECTED"
+
+      - name: Record blocker summary
+        run: |
+          {
+            echo "STAGE_E1_STATIC_AVAILABILITY_BLOCKER=PASS"
+            echo "TARGET=arm64 / IPHONEOS_DEPLOYMENT_TARGET=15.0"
+            echo "CVPIXELBUFFERPOOL=AVAILABLE_TO_COMPILE"
+            echo "VTPixelTransferSession=PUBLIC_IOS_16_PLUS"
+            echo "VTPixelRotationSession=PUBLIC_IOS_16_PLUS"
+            echo "NO_PRIVATE_API_BYPASS=ENFORCED"
+          } | tee "$RUNNER_TEMP/stage-e1-availability-summary.txt"
+
+      - name: Upload availability evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-frame-engine-stage-e1-api-availability
+          path: |
+            ${{ runner.temp }}/stage-e1-availability-summary.txt
+            ${{ runner.temp }}/corevideo-pool.log
+            ${{ runner.temp }}/transfer.log
+            ${{ runner.temp }}/rotation.log
+          if-no-files-found: error
+          retention-days: 14
