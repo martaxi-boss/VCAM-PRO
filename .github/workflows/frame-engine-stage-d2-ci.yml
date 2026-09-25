@@ -249,99 +249,7 @@ jobs:
           file build/ios/libVCAMConsumerFastPathD2.a
 
           xcrun ar -t build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-members-raw.txt
-          grep '\.o
-          xcrun lipo -info build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-architecture.txt
-          grep -q 'arm64' build/ios/consumer-architecture.txt
-          if grep -q 'arm64e' build/ios/consumer-architecture.txt; then
-            exit 1
-          fi
-
-          for object in               build/ios/PreparedFrame.o               build/ios/ReadyFrameQueue.o; do
-            xcrun otool -l "$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee -a build/ios/consumer-minos.txt
-          done
-          test "$(grep -c 'minos 15.0' build/ios/consumer-minos.txt)" -ge 2
-
-          xcrun nm -u build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-undefined-symbols.txt
-
-          consumer_forbidden='AVAssetReader|AVFoundation|LocalVideoReader|FrameNormalizer|FramePipelinePump|VTDecompression|VTPixelTransfer|VTPixelRotation|AVCapture|MSHookFunction|MSHookMessageEx|mediaserverd|NSURLSession|_socket|_nw_'
-          if grep -E "$consumer_forbidden"               build/ios/consumer-undefined-symbols.txt; then
-            echo "Forbidden consumer dependency found."
-            exit 1
-          fi
-
-      - name: Inspect full engine archive
-        run: |
-          set -euo pipefail
-          for object in               PreparedFrame.o               FrameEngineState.o               LocalVideoReader.o               ReadyFrameQueue.o               FrameNormalizer.o               FramePipelinePump.o; do
-            file "build/ios/$object"
-            xcrun otool -l "build/ios/$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee -a build/ios/engine-minos.txt
-          done
-
-          xcrun lipo -info build/ios/libVCAMFrameEngineStageD2.a             | tee build/ios/engine-architecture.txt
-          grep -q 'arm64' build/ios/engine-architecture.txt
-          if grep -q 'arm64e' build/ios/engine-architecture.txt; then
-            exit 1
-          fi
-          test "$(grep -c 'minos 15.0' build/ios/engine-minos.txt)" -ge 6
-
-          xcrun nm -u build/ios/libVCAMFrameEngineStageD2.a             | tee build/ios/engine-undefined-symbols.txt
-
-          engine_forbidden='VTDecompression|VTPixelTransfer|VTPixelRotation|CIContext|MTL|vImage|MSHookFunction|MSHookMessageEx|AVCapture|PHPhoto|UIImage|NSURLSession|_socket|_nw_'
-          if grep -E "$engine_forbidden"               build/ios/engine-undefined-symbols.txt; then
-            echo "Forbidden full-engine production symbol found."
-            exit 1
-          fi
-
-          grep -q 'AVAssetReader' build/ios/engine-undefined-symbols.txt
-
-      - name: Verify production blob lock at end
-        run: |
-          set -euo pipefail
-          : > build/production-blobs-end.txt
-          while read -r expected path; do
-            actual="$(git hash-object "$path")"
-            printf '%s  %s\n' "$actual" "$path"               >> build/production-blobs-end.txt
-            test "$actual" = "$expected"
-          done < build/expected-production-blobs.txt
-
-          diff -u             build/production-blobs-start.txt             build/production-blobs-end.txt
-
-          test "$(git hash-object docs/design/FRAME_ENGINE_CONTRACT_001.md)" =             "d34bb302d2c5d077119651a5053cc68fb105b1e9"
-
-      - name: Upload D2 validation artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: vcam-frame-engine-stage-d2-validation
-          path: |
-            build/ios/libVCAMConsumerFastPathD2.a
-            build/ios/consumer-members-raw.txt
-            build/ios/consumer-members.txt
-            build/ios/consumer-architecture.txt
-            build/ios/consumer-minos.txt
-            build/ios/consumer-undefined-symbols.txt
-            build/ios/libVCAMFrameEngineStageD2.a
-            build/ios/engine-architecture.txt
-            build/ios/engine-minos.txt
-            build/ios/engine-undefined-symbols.txt
-            build/production-blobs-start.txt
-            build/production-blobs-end.txt
-            build/host/stage-a-summary.txt
-            build/host/stage-b-summary.txt
-            build/host/stage-c1-queue-summary.txt
-            build/host/stage-c1-normalizer-summary.txt
-            build/host/stage-d1-summary.txt
-            build/host/d2-consumer-summary.txt
-            build/host/d2-queue-stress-summary.txt
-            build/host/d2-pipeline-summary.txt
-            build/host/asan-ubsan-queue-summary.txt
-            build/host/asan-ubsan-pipeline-summary.txt
-            build/host/tsan-build-summary.txt
-            build/host/tsan-capability-summary.txt
-            build/host/tsan-runtime-summary.txt
-            build/host/tsan-result-summary.txt
-          if-no-files-found: warn
-          retention-days: 14
- build/ios/consumer-members-raw.txt             | tee build/ios/consumer-members.txt
+          grep '\.o$' build/ios/consumer-members-raw.txt             | tee build/ios/consumer-members.txt
           test "$(wc -l < build/ios/consumer-members.txt | tr -d ' ')" -eq 2
           grep -qx 'PreparedFrame.o' build/ios/consumer-members.txt
           grep -qx 'ReadyFrameQueue.o' build/ios/consumer-members.txt
@@ -410,6 +318,7 @@ jobs:
           name: vcam-frame-engine-stage-d2-validation
           path: |
             build/ios/libVCAMConsumerFastPathD2.a
+            build/ios/consumer-members-raw.txt
             build/ios/consumer-members.txt
             build/ios/consumer-architecture.txt
             build/ios/consumer-minos.txt
