@@ -720,6 +720,81 @@ bool TestTransformFailurePublishesNothing() {
     return true;
 }
 
+
+bool TestGenerationMismatchIsExplicit() {
+    FrameEngineState state;
+    CHECK(PrimeState(state));
+
+    LocalVideoReader reader(state);
+    FrameNormalizer normalizer;
+    FrameTransformer transformer;
+    FrameTimelineScheduler scheduler(0);
+    ReadyFrameQueue queue(2);
+
+    FramePipelinePump pump(
+        state,
+        reader,
+        normalizer,
+        transformer,
+        scheduler,
+        queue,
+        Target());
+
+    FakeTimedSource source(SourceInfo());
+    source.add(MakeFrame(
+        0,
+        state.mediaGeneration() + 1,
+        state.timelineEpoch(),
+        0,
+        kCMTimeZero,
+        CMTimeMake(1, 30)));
+    InstallSource(pump, source);
+
+    const auto result = pump.pumpOnceAtHostTime(100);
+    CHECK(result.status == FramePipelinePumpStatus::GenerationMismatch);
+    CHECK(result.normalizationStatus ==
+          NormalizationStatus::GenerationMismatch);
+    CHECK(queue.size() == 0);
+    return true;
+}
+
+bool TestTimelineMismatchIsExplicit() {
+    FrameEngineState state;
+    CHECK(PrimeState(state));
+
+    LocalVideoReader reader(state);
+    FrameNormalizer normalizer;
+    FrameTransformer transformer;
+    FrameTimelineScheduler scheduler(0);
+    ReadyFrameQueue queue(2);
+
+    FramePipelinePump pump(
+        state,
+        reader,
+        normalizer,
+        transformer,
+        scheduler,
+        queue,
+        Target());
+
+    FakeTimedSource source(SourceInfo());
+    source.add(MakeFrame(
+        0,
+        state.mediaGeneration(),
+        state.timelineEpoch() + 1,
+        0,
+        kCMTimeZero,
+        CMTimeMake(1, 30)));
+    InstallSource(pump, source);
+
+    const auto result = pump.pumpOnceAtHostTime(100);
+    CHECK(result.status == FramePipelinePumpStatus::TimelineMismatch);
+    CHECK(result.normalizationStatus ==
+          NormalizationStatus::TimelineMismatch);
+    CHECK(queue.size() == 0);
+    return true;
+}
+
 bool TestSerialProducerContractRejectsReentry() {
     FrameEngineState state;
     CHECK(PrimeState(state));
@@ -848,6 +923,12 @@ int main() {
     Run(
         "transform failure publishes nothing",
         TestTransformFailurePublishesNothing);
+    Run(
+        "generation mismatch explicit",
+        TestGenerationMismatchIsExplicit);
+    Run(
+        "timeline mismatch explicit",
+        TestTimelineMismatchIsExplicit);
     Run(
         "serial producer reentry rejected",
         TestSerialProducerContractRejectsReentry);
