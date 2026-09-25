@@ -12,8 +12,11 @@ namespace vcam::frame_engine {
 // Stage F1 public host-time contract.
 //
 // All host times used by FrameTimelineScheduler are explicit monotonic
-// nanoseconds supplied by the caller. The scheduler never samples a clock, blocks internally,
-// creates threads, or owns a timer.
+// nanoseconds supplied by the caller. The scheduler never samples a clock,
+// blocks internally, creates threads, or owns a timer.
+//
+// The scheduler is mutable single-producer state. Concurrent calls are not
+// supported; the Stage F1 timed pump provides fail-fast re-entry detection.
 using MonotonicHostTimeNs = std::uint64_t;
 
 enum class TimelineScheduleStatus : std::uint8_t {
