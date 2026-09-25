@@ -130,30 +130,30 @@ FramePipelinePumpResult FramePipelinePump::processFrame(
             return result;
         }
 
-        SourceGeometry normalizedGeometry;
-        normalizedGeometry.naturalSize = CGSizeMake(
-            static_cast<CGFloat>(target_.width),
-            static_cast<CGFloat>(target_.height));
-        normalizedGeometry.preferredTransform =
-            CGAffineTransformIdentity;
+        const frame_engine::PreparedFrame& validated =
+            *transformed.frame;
 
-        NormalizationResult validated = normalizer_.prepare(
-            *transformed.frame,
-            normalizedGeometry,
-            target_,
-            generation,
-            epoch);
+        const bool exactTarget =
+            validated.validity() == frame_engine::FrameValidity::Ready &&
+            validated.isInternallyConsistent() &&
+            validated.identity().mediaGeneration == generation &&
+            validated.identity().timelineEpoch == epoch &&
+            validated.width() == target_.width &&
+            validated.height() == target_.height &&
+            validated.pixelFormat() == target_.pixelFormat &&
+            validated.orientation() ==
+                frame_engine::OrientationState::Normalized;
 
-        if (validated.status !=
-                NormalizationStatus::ReadyPassthrough ||
-            !validated.frame.has_value()) {
-            result.normalizationStatus = validated.status;
+        if (!exactTarget) {
             result.status = FramePipelinePumpStatus::TransformFailed;
             return result;
         }
 
-        result.normalizationStatus = validated.status;
-        normalized = std::move(validated);
+        result.normalizationStatus =
+            NormalizationStatus::ReadyPassthrough;
+        normalized.status = NormalizationStatus::ReadyPassthrough;
+        normalized.requirement = TransformRequirement::None;
+        normalized.frame.emplace(std::move(*transformed.frame));
     }
 
     if (normalized.status != NormalizationStatus::ReadyPassthrough ||
