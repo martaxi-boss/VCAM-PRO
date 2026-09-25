@@ -18,7 +18,7 @@ Previous blocker head:
 
 Validated implementation head before this proof update:
 
-`7fec50bc2ff3c1b831635d6f00f03b9c089eb50c`
+`cd34e0dfaafbb90074e3ed64892c2c7f32c5e35b`
 
 Workstream:
 
@@ -491,12 +491,12 @@ Producer transform work remains outside `ReadyFrameQueue::tryAcquire()`.
 Implementation validation artifact:
 
 - name: `vcam-frame-engine-stage-e1-validation`
-- artifact ID: `10887832355`
-- run: `36190345037`
-- validated implementation head: `7fec50bc2ff3c1b831635d6f00f03b9c089eb50c`
-- artifact digest: `sha256:c5da3880536a3259cc39fe0d80bd1c12415041c9db5e2389a378353a7d81d584`
+- artifact ID: `10887879164`
+- run: `36191436743`
+- validated implementation head: `cd34e0dfaafbb90074e3ed64892c2c7f32c5e35b`
+- artifact digest: `sha256:a73e2fe181d5d487ebea655b198bdeeee6beb8281ad3bb8bbd8ee10bc64e1af8`
 
-The final documentation head is required to rerun this same Stage E1 validation workflow before promotion.
+The implementation head above passed the complete Stage E1 validation workflow. The documentation-only commit containing this record must rerun the same workflow before promotion; its terminal run is reported in the Builder return.
 
 ---
 
