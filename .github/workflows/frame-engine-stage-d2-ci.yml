@@ -165,9 +165,23 @@ jobs:
         run: |
           set -euo pipefail
           xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -pthread             -fsanitize=address,undefined -fno-omit-frame-pointer             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FramePipelinePump.cpp             tests/media_engine/frame_pipeline_stage_d2_stress_tests.mm             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -framework CoreGraphics             -o build/host/d2_pipeline_asan_ubsan
-          ASAN_OPTIONS=halt_on_error=1           UBSAN_OPTIONS=halt_on_error=1             build/host/d2_pipeline_asan_ubsan             > build/host/asan-ubsan-pipeline-summary.txt 2>&1
+          set +e
+          ASAN_OPTIONS=halt_on_error=1 \
+          UBSAN_OPTIONS=halt_on_error=1 \
+            build/host/d2_pipeline_asan_ubsan \
+            > build/host/asan-ubsan-pipeline-summary.txt 2>&1
+          sanitizer_status=$?
+          set -e
+
           cat build/host/asan-ubsan-pipeline-summary.txt
-          grep -q 'Stage D2 pipeline stress tests run: 5, failures: 0'             build/host/asan-ubsan-pipeline-summary.txt
+
+          if [ "$sanitizer_status" -ne 0 ]; then
+            echo "Sanitized pipeline exited with status $sanitizer_status."
+            exit "$sanitizer_status"
+          fi
+
+          grep -q 'Stage D2 pipeline stress tests run: 5, failures: 0' \
+            build/host/asan-ubsan-pipeline-summary.txt
 
       - name: ThreadSanitizer capability and queue stress
         run: |
