@@ -249,8 +249,7 @@ jobs:
           file build/ios/libVCAMConsumerFastPathD2.a
 
           xcrun ar -t build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-members-raw.txt
-          grep -v '^__.SYMDEF
-
+          grep '\.o
           xcrun lipo -info build/ios/libVCAMConsumerFastPathD2.a             | tee build/ios/consumer-architecture.txt
           grep -q 'arm64' build/ios/consumer-architecture.txt
           if grep -q 'arm64e' build/ios/consumer-architecture.txt; then
