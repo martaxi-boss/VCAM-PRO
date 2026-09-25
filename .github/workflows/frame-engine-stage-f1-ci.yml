@@ -76,6 +76,13 @@ jobs:
             exit 1
           fi
 
+          grep -q 'FrameTransformStatus::AllocationFailure' \
+            src/media_engine/FrameTransformer.mm
+          grep -q 'catch (const std::bad_alloc&)' \
+            src/media_engine/FrameTransformer.mm
+          grep -q 'FramePipelinePumpStatus::AllocationFailed' \
+            src/media_engine/FramePipelinePump.cpp
+
           # Historical D1 textual invariants remain intact.
           test "$(grep -c 'reader_.readNext()' src/media_engine/FramePipelinePump.cpp)" -eq 1
           test "$(grep -c 'normalizer_.prepare(' src/media_engine/FramePipelinePump.cpp)" -eq 1
