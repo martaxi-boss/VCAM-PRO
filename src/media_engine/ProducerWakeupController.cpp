@@ -59,6 +59,10 @@ ProducerWakeupEventResult ProducerWakeupController::stop() noexcept {
         ProducerWakeupEventStatus::BecameIdle);
 }
 
+ProducerWakeupEventResult ProducerWakeupController::failPlatform() noexcept {
+    return stopFatal(std::nullopt);
+}
+
 ProducerWakeupEventResult ProducerWakeupController::handleWakeup(
     std::uint64_t lifecycleToken,
     frame_engine::MonotonicHostTimeNs nowHostTimeNs) {
