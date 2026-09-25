@@ -27,7 +27,17 @@ Canonical validation run for that head:
 - artifact ID: `10858420273`
 - artifact digest: `sha256:018703cbb0eb1a3097f8251d38568c34c609e24f552c4d814dd664b5dd1cc01a`
 
-A later documentation-reconciliation / PR run on the same production blobs is required before Supervisor merge review.
+Final PR validation after documentation/state reconciliation:
+
+- GitHub Actions Run ID: `36121381148`
+- event: `pull_request`
+- head: `1249b5073096527c74e33fbb7b06da43acf9df57`
+- result: **SUCCESS**
+- artifact name: `vcam-frame-engine-stage-d2-validation`
+- artifact ID: `10858126450`
+- artifact digest: `sha256:2826553506b1b907d64ad1c59c5ae5645a66fbeaa41eb72049dbb5f914579c4d`
+
+The same head also received successful Stage A, Stage B, Stage C1, and Stage D1 pull-request workflows.
 
 ## Production blob lock
 
