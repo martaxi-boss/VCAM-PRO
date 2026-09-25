@@ -2,9 +2,9 @@
 
 ## Status
 
-**DESIGN ONLY / NO FUNCTIONAL IMPLEMENTATION**
+**DESIGN CONTRACT — IMPLEMENTATION NOW EXISTS THROUGH STAGE D1 / STAGE D2 VALIDATION**
 
-**DEVICE GATE: HOLD — AWAITING PHYSICAL DEVICE**
+**DEVICE GATE 1: RUNTIME PREPARATION STARTED / LOAD NOT YET PROVEN**
 
 This document defines the contract for the future Local Media Engine and Frame Engine. It does not implement either component and does not change the central-injection runtime gate.
 
@@ -68,7 +68,25 @@ Workstream:
 
 **builder/frame-engine-contract-001**
 
-Device runtime work is not part of this task.
+Device runtime work was not part of the original Contract 001 task. Current runtime work is governed by the device-proof policy below.
+
+### 2.1 Current evidence and device-proof policy — 2026-09-25
+
+**STATIC FACTS -> GitHub/reference artifacts.**
+
+Do not use the target iPhone to rediscover package metadata, extracted payloads, plists, Mach-O metadata, imports/dependencies, strings, symbols, disassembly or source-repository facts.
+
+**RUNTIME FACTS -> real iPhone only.**
+
+Use the device for actual dylib load/PID identity, callback reachability, threading/frequency/lifetime, real buffer/format/timing behavior, stability, substitution/fail-open behavior and target-device performance.
+
+Current device gates:
+
+1. **Gate 1 — LOAD**: prove the audited VCAM PRO load probe loads in `mediaserverd`.
+2. **Gate 2 — PASSIVE CONTRACT OBSERVATION**: after Gate 1 PASS, observe the real callback/contract without substitution.
+3. **Gate 3 — MINIMAL SAFE SUBSTITUTION**: after Gate 2 PASS, perform the smallest possible substitution with mandatory fail-open.
+
+Gate 1 remains pending.
 
 ---
 
@@ -89,13 +107,28 @@ Files reviewed:
 
 READ ONLY:
 
-**martaxi-boss/IOS-15-USB**
+**martaxi-boss/IOS-15-USB @ a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d**
 
-Current GitHub state:
+Current state:
 
-**EMPTY REPOSITORY**
+**31-FILE HISTORICAL ARCHIVE / STATIC REFERENCE**
 
-No current source may be inferred from this repository.
+The archive preserves the original historical package, extracted payload, recovered dylib/plists, hashes, package metadata, Mach-O metadata, dynamic dependencies, strings, symbols, disassembly and audit documentation.
+
+Relevant static evidence includes:
+
+- `com.vcam.universal` 1.0.0;
+- `iphoneos-arm64`;
+- `mobilesubstrate`;
+- arm64 Mach-O, minimum iOS 14.0, SDK 16.4;
+- rootless package/payload layout;
+- a filter explicitly naming `mediaserverd`;
+- CoreMedia/CoreVideo/VideoToolbox;
+- `CMSampleBuffer` / `CVPixelBuffer` APIs;
+- `MSHookFunction` / `MSHookMessageEx`;
+- Darwin-notification primitives.
+
+This is static/historical evidence only. It does not prove iOS 15.8.8 runtime load, the actual callback contract, threading/lifetime/timing, or safe substitution. No proprietary implementation may be copied.
 
 ### 3.3 IOS-16-USB-4k
 
@@ -1076,11 +1109,11 @@ A Media Engine failure is represented as unavailable virtual output, not a synth
 
 ## 17. Unknowns requiring device proof
 
-The physical iPhone is currently unavailable.
+Real-device work has started, but the central load proof is still pending.
 
 Device gate:
 
-**HOLD — AWAITING PHYSICAL DEVICE**
+**GATE 1 — LOAD: NOT YET PROVEN**
 
 The following remain UNKNOWN and must not be filled by inference:
 
@@ -1155,14 +1188,14 @@ Prove:
 - decoder work is outside future injector path;
 - failure produces no virtual output.
 
-### Stage E — physical-device gates when device becomes available
+### Stage E — physical-device gates
 
 Separate from Frame Engine work:
 
-1. finish mediaserverd load proof;
-2. later passive reachability/consumer-contract observation;
-3. measure dimensions/formats/timing/lifetime;
-4. feed measured values back into Frame Engine configuration.
+1. **Gate 1 — LOAD:** prove the audited VCAM PRO dylib loads in `mediaserverd`;
+2. **Gate 2 — PASSIVE CONTRACT OBSERVATION:** after Gate 1 PASS, establish the real callback/contract with no substitution;
+3. feed measured dimensions/formats/timing/lifetime back into Frame Engine configuration;
+4. **Gate 3 — MINIMAL SAFE SUBSTITUTION:** after Gate 2 PASS, perform the smallest possible substitution with mandatory fail-open.
 
 ### Stage F — consumer adapter only after proof
 
@@ -1208,7 +1241,7 @@ IOS-16-USB-4k was consulted only as static conceptual evidence for:
 
 No proprietary source was reconstructed or copied.
 
-The current IOS-15-USB GitHub repository is empty and supplies no current implementation evidence.
+The current IOS-15-USB repository is a historical static archive at `a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d`. It supplies reference evidence only and no reusable proprietary implementation.
 
 ---
 
@@ -1293,9 +1326,9 @@ The following official Apple documentation was consulted for API semantics and d
 
 **FRAME ENGINE CONTRACT: DEFINED**
 
-**FRAME ENGINE IMPLEMENTATION: NOT STARTED**
+**FRAME ENGINE IMPLEMENTATION: STAGE D1 IMPLEMENTED / STAGE D2 VALIDATION PASS**
 
-**DEVICE GATE: HOLD — AWAITING PHYSICAL DEVICE**
+**DEVICE GATE 1: RUNTIME PREPARATION STARTED / LOAD NOT YET PROVEN**
 
 **MEDIASERVERD LOAD: NOT YET PROVEN**
 

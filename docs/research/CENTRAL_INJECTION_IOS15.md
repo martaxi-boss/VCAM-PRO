@@ -27,7 +27,7 @@ No item in this report is a device-runtime PASS.
 
 ---
 
-## 1. Exact evidence baseline
+## 1. Exact evidence baseline — historical research baseline
 
 ### VCAM PRO
 
@@ -52,6 +52,18 @@ The research branch was created exactly from that commit:
 - `martaxi-boss/IOS-16-USB-4k` — `main` @ `cc20d787070c67565173d4a46c218e2549cecc93`
 
 All three are READ ONLY.
+
+### Current superseding reference note — 2026-09-25
+
+The reference list immediately above is the exact historical baseline for this research task and is intentionally preserved.
+
+`IOS-15-USB` was subsequently populated as a historical READ-ONLY archive. Current reference HEAD:
+
+`a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d`
+
+Current archive evidence is static/historical reference evidence. It includes the preserved `com.vcam.universal` 1.0.0 package, `iphoneos-arm64`, `mobilesubstrate`, rootless payload layout, an injection filter naming `mediaserverd`, CoreMedia/CoreVideo/VideoToolbox dependencies, `CMSampleBuffer` / `CVPixelBuffer` API evidence, hook primitive symbols and Darwin-notification primitives.
+
+It does not prove current iOS 15.8.8 load, the actual target callback, threading/lifetime/timing, or safe substitution.
 
 ### Official upstream snapshots consulted
 
@@ -238,17 +250,17 @@ MotionCam does not prove what private central callback `mediaserverd` exposes on
 
 ---
 
-## 4. IOS-15-USB evidence boundary
+## 4. IOS-15-USB evidence boundary — historical research baseline
 
 Reference: `martaxi-boss/IOS-15-USB`.
 
 **FACT**
 
-Current GitHub state is:
+GitHub state at the time of this research was:
 
 **EMPTY REPOSITORY**
 
-There is no current branch, HEAD, source tree, package metadata, binary, or documentation in the repository.
+At that historical baseline there was no branch, HEAD, source tree, package metadata, binary, or documentation in the repository.
 
 Any Owner-provided information about an older package remains:
 
@@ -258,7 +270,31 @@ Any Owner-provided information about an older package remains:
 
 Historical claims can help formulate questions about iOS 15, arm64, rootless operation, `mediaserverd`, `CMSampleBuffer`, `CVPixelBuffer`, or central injection.
 
-They cannot prove any current implementation detail or compatibility result.
+They could not prove any implementation detail or compatibility result at that historical baseline.
+
+### Current superseding IOS-15-USB archive evidence
+
+Current HEAD:
+
+`a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d`
+
+The repository now supplies valid static historical evidence:
+
+- package `com.vcam.universal` 1.0.0;
+- architecture `iphoneos-arm64`;
+- dependency `mobilesubstrate`;
+- arm64 Mach-O, minimum iOS 14.0, SDK 16.4;
+- rootless filesystem/package layout;
+- filter data explicitly naming `mediaserverd`;
+- CoreMedia/CoreVideo/VideoToolbox dependencies;
+- `CMSampleBufferGetImageBuffer` / `CMSampleBufferCreateReady`;
+- `CVPixelBuffer` APIs;
+- `MSHookFunction` / `MSHookMessageEx`;
+- Darwin-notification primitives.
+
+These facts strengthen the static research case for `mediaserverd` and frame/buffer-oriented investigation. They still do not identify the real iOS 15.8.8 callback contract or establish runtime compatibility.
+
+**STATIC EVIDENCE != IOS 15.8.8 RUNTIME PROOF.**
 
 ---
 
@@ -517,6 +553,26 @@ Frame substitution remains prohibited until all of the following have been prove
 - a deterministic fail-open path has been demonstrated;
 - Supervisor explicitly authorizes the next proof.
 
+### Current normative device-proof policy — 2026-09-25
+
+The detailed research gates above preserve the original research progression. Current execution policy is simplified and normative:
+
+**STATIC FACTS -> GitHub/reference artifacts**
+
+Do not use the iPhone to rediscover package metadata, extracted payloads, plists, Mach-O metadata, imports/dependencies, strings, symbols, disassembly or source facts.
+
+**RUNTIME FACTS -> real iPhone only**
+
+Use the target device for actual dylib load/PID identity, callback reachability, threading/frequency/lifetime, real buffer/format/timing behavior, stability, substitution/fail-open behavior and performance.
+
+Current device gates:
+
+1. **GATE 1 — LOAD**: prove the audited VCAM PRO load probe loads in `mediaserverd`. No callback hook required.
+2. **GATE 2 — PASSIVE CONTRACT OBSERVATION**: only after Gate 1 PASS; characterize the real callback/contract without substitution.
+3. **GATE 3 — MINIMAL SAFE SUBSTITUTION**: only after Gate 2 PASS; perform the smallest possible virtual-frame substitution with mandatory fail-open.
+
+Gate 1 is currently **NOT PASS**.
+
 ### Recovery rule
 
 If the candidate daemon crashes, restarts unexpectedly, or camera behavior changes:
@@ -565,7 +621,7 @@ Stop the next phase before frame substitution if any of the following is true:
 - proof requires broad, unfiltered injection merely to “see what happens”;
 - fail-open cannot be demonstrated;
 - device state cannot be safely recovered;
-- a conclusion depends only on the empty IOS-15-USB repository or on historical unverified claims.
+- a conclusion depends only on historical claims without support from current archived/static evidence or the required real-device runtime proof.
 
 ---
 
@@ -639,7 +695,8 @@ The future implementation must be original.
 
 - **[R1]** `martaxi-boss/MotionCam-iOS` @ `5ede3a1973a01cb13fe7f3ab562b47513feec1b1` — `Tweak.xm`, `MediaManager.m`, `VCam.plist`
 - **[R2]** `martaxi-boss/IOS-16-USB-4k` @ `cc20d787070c67565173d4a46c218e2549cecc93` — package metadata, recovered filter, Mach-O dependency/symbol/metadata/string analysis
-- **[R3]** `martaxi-boss/IOS-15-USB` — current GitHub repository empty
+- **[R3-historical]** `martaxi-boss/IOS-15-USB` — repository was empty at the original research baseline
+- **[R3-current]** `martaxi-boss/IOS-15-USB` @ `a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d` — current historical archive/static evidence
 
 ---
 
@@ -666,3 +723,14 @@ Current Dopamine + ElleKit upstream sources provide a rootless arm64 process/twe
 The exact iOS 15.8.8 frame callback and its threading/lifetime/format/timing contract are not yet known.
 
 Therefore the next authorized functional phase, if approved by the Supervisor, should be a **LOAD / REACHABILITY / PASSIVE OBSERVATION PROOF only**. Frame substitution must remain prohibited until that proof passes and the unknown contracts are resolved.
+
+
+## Current research-policy reconciliation — 2026-09-25
+
+The populated IOS-15-USB archive strengthens static evidence that a historical iOS 15-oriented package targeted `mediaserverd` and used CoreMedia/CoreVideo/VideoToolbox, sample/pixel-buffer APIs, hook primitives and Darwin notifications.
+
+It still does not identify the actual iOS 15.8.8 callback or prove runtime load/safety.
+
+Therefore the current progression is strictly:
+
+**Gate 1 LOAD -> Gate 2 PASSIVE CONTRACT OBSERVATION -> Gate 3 MINIMAL SAFE FAIL-OPEN SUBSTITUTION.**

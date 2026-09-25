@@ -2,15 +2,37 @@
 
 ## Scope
 
-This document records the current GitHub evidence used to define VCAM PRO's research direction. It does not transfer implementation, ownership, licensing, or compatibility claims from a reference project.
+This document preserves the GitHub evidence used at the time of the VCAM PRO foundation research. It does not transfer implementation, ownership, licensing, or compatibility claims from a reference project.
 
-Observed references:
+Historical foundation baseline:
 
 - MotionCam-iOS: `5ede3a1973a01cb13fe7f3ab562b47513feec1b1`
 - IOS-15-USB: **EMPTY REPOSITORY**
 - IOS-16-USB-4k: `cc20d787070c67565173d4a46c218e2549cecc93`
 
-## Detailed comparison
+## Current superseding reference note — 2026-09-25
+
+The baseline above is preserved as historical evidence. At that time `IOS-15-USB` was empty.
+
+The repository was subsequently populated as a historical READ-ONLY archive. Current reference HEAD:
+
+`a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d`
+
+The current archive contains 31 preserved files and provides static historical evidence for `com.vcam.universal` 1.0.0, `iphoneos-arm64`, `mobilesubstrate`, rootless layout, a `mediaserverd`-targeting filter, CoreMedia/CoreVideo/VideoToolbox use, sample/pixel-buffer APIs, Darwin notifications and hook primitives.
+
+This superseding evidence does **not** prove iOS 15.8.8 runtime compatibility, the actual callback contract, threading/lifetime/timing, or safe substitution. No proprietary implementation may be copied into VCAM PRO.
+
+The historical performance labels “Gate 1 = stable 720p30” and “Gate 2 = 1080p30” below are not the current device-gate numbering. Current device gates are:
+
+1. **Gate 1 — LOAD**
+2. **Gate 2 — PASSIVE CONTRACT OBSERVATION**
+3. **Gate 3 — MINIMAL SAFE SUBSTITUTION**
+
+**STATIC FACTS -> GitHub/reference artifacts.**
+
+**RUNTIME FACTS -> real iPhone only.**
+
+## Historical foundation comparison
 
 | Dimension | MotionCam-iOS | IOS-15-USB | IOS-16-USB-4k | VCAM PRO decision |
 | --- | --- | --- | --- | --- |
@@ -52,9 +74,9 @@ Observed references:
 - hooks only per application/process;
 - current filter as the final VCAM PRO architecture.
 
-## IOS-15-USB
+## IOS-15-USB — historical foundation baseline
 
-Current GitHub evidence:
+GitHub evidence at the time of this foundation comparison:
 
 **EMPTY REPOSITORY**
 
@@ -72,7 +94,27 @@ Permitted research hypotheses only:
 - `CVPixelBuffer`;
 - central injection.
 
-These are not facts about the current GitHub repository.
+These were not facts about the repository at that historical baseline.
+
+### Current IOS-15-USB superseding evidence
+
+Current archive HEAD:
+
+`a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d`
+
+Current static evidence includes:
+
+- historical package `com.vcam.universal` 1.0.0 / `iphoneos-arm64` / `mobilesubstrate`;
+- rootless package/payload layout;
+- arm64 Mach-O, minimum iOS 14.0, SDK 16.4;
+- filter entries naming `mediaserverd`;
+- CoreMedia/CoreVideo/VideoToolbox;
+- `CMSampleBufferGetImageBuffer` and `CMSampleBufferCreateReady`;
+- `CVPixelBuffer` APIs;
+- `MSHookFunction` and `MSHookMessageEx`;
+- Darwin-notification primitives.
+
+**STATIC EVIDENCE != IOS 15.8.8 RUNTIME PROOF.**
 
 ## IOS-16-USB-4k
 
@@ -134,7 +176,7 @@ Priority:
 
 **STABILITY > LATENCY > QUALITY > MAXIMUM RESOLUTION**
 
-## Research conclusion
+## Historical foundation research conclusion
 
 The foundation directs the next supervised phase to:
 
@@ -146,3 +188,18 @@ The foundation directs the next supervised phase to:
 6. keep the injector minimal and fail open to the real camera.
 
 No functional implementation begins until the Supervisor audits this foundation.
+
+
+## Current policy superseding the foundation phase
+
+VCAM PRO now has original Frame Engine implementation through Stage D1 with Stage D2 validation and a built load-only `mediaserverd` probe.
+
+Current device work has started, but **Gate 1 is not PASS**.
+
+The normative progression is:
+
+1. Gate 1 — prove the audited VCAM PRO dylib loads in `mediaserverd`;
+2. Gate 2 — after Gate 1 PASS, passively observe the real callback/contract with no substitution;
+3. Gate 3 — after Gate 2 PASS, perform the smallest safe substitution with mandatory fail-open.
+
+The historical foundation evidence above remains intact as chronology; this section supplies the current reference/device-proof policy.
