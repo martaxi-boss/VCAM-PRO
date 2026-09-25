@@ -2,10 +2,12 @@
 
 #include "FrameEngineState.h"
 #include "FrameNormalizer.h"
+#include "FrameTransformer.h"
 #include "LocalVideoReader.h"
 #include "ReadyFrameQueue.h"
 
 #include <cstdint>
+#include <functional>
 #include <optional>
 
 namespace vcam::media_engine {
@@ -14,6 +16,7 @@ namespace vcam::media_engine {
 enum class FramePipelinePumpStatus : std::uint8_t {
     Published = 0,
     TransformRequired,
+    TransformFailed,
     QueueDropped,
     EndOfStream,
     LoopRestarted,
@@ -34,6 +37,8 @@ struct FramePipelinePumpResult {
         NormalizationStatus::InvalidFrame;
     TransformRequirement transformRequirement =
         TransformRequirement::None;
+    FrameTransformStatus transformStatus =
+        FrameTransformStatus::TransformFailure;
 
     frame_engine::PublishResult publishResult =
         frame_engine::PublishResult::DroppedInvalid;
@@ -51,11 +56,37 @@ public:
         frame_engine::ReadyFrameQueue& queue,
         const NormalizationTarget& target);
 
+    FramePipelinePump(
+        frame_engine::FrameEngineState& state,
+        LocalVideoReader& reader,
+        FrameNormalizer& normalizer,
+        FrameTransformer& transformer,
+        frame_engine::ReadyFrameQueue& queue,
+        const NormalizationTarget& target)
+        : FramePipelinePump(state, reader, normalizer, queue, target) {
+        transformCallback_ =
+            [&transformer](
+                const frame_engine::PreparedFrame& source,
+                const SourceGeometry& geometry,
+                const NormalizationTarget& transformTarget,
+                std::uint64_t generation,
+                std::uint64_t epoch) {
+                return transformer.transform(
+                    source,
+                    geometry,
+                    transformTarget,
+                    generation,
+                    epoch);
+            };
+    }
+
     FramePipelinePumpResult pumpOnce();
 
     const NormalizationTarget& target() const noexcept;
 
 private:
+    friend class FramePipelinePumpStageE1TestAccess;
+
     FramePipelinePumpResult processFrame(
         frame_engine::PreparedFrame frame,
         const SourceVideoInfo& info,
@@ -67,6 +98,15 @@ private:
     FrameNormalizer& normalizer_;
     frame_engine::ReadyFrameQueue& queue_;
     NormalizationTarget target_;
+
+    using TransformCallback = std::function<
+        FrameTransformResult(
+            const frame_engine::PreparedFrame&,
+            const SourceGeometry&,
+            const NormalizationTarget&,
+            std::uint64_t,
+            std::uint64_t)>;
+    TransformCallback transformCallback_;
 };
 
 }  // namespace vcam::media_engine

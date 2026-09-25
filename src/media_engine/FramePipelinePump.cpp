@@ -108,8 +108,52 @@ FramePipelinePumpResult FramePipelinePump::processFrame(
     result.transformRequirement = normalized.requirement;
 
     if (normalized.status == NormalizationStatus::TransformRequired) {
-        result.status = FramePipelinePumpStatus::TransformRequired;
-        return result;
+        if (!transformCallback_) {
+            // Stage D1/D2 compatibility constructor: preserve the historical
+            // pre-transform behavior for those regression suites. Stage E1
+            // production callers supply a FrameTransformer explicitly.
+            result.status = FramePipelinePumpStatus::TransformRequired;
+            return result;
+        }
+
+        FrameTransformResult transformed = transformCallback_(
+            frame,
+            geometry,
+            target_,
+            generation,
+            epoch);
+        result.transformStatus = transformed.status;
+
+        if (transformed.status != FrameTransformStatus::Transformed ||
+            !transformed.frame.has_value()) {
+            result.status = FramePipelinePumpStatus::TransformFailed;
+            return result;
+        }
+
+        const frame_engine::PreparedFrame& validated =
+            *transformed.frame;
+
+        const bool exactTarget =
+            validated.validity() == frame_engine::FrameValidity::Ready &&
+            validated.isInternallyConsistent() &&
+            validated.identity().mediaGeneration == generation &&
+            validated.identity().timelineEpoch == epoch &&
+            validated.width() == target_.width &&
+            validated.height() == target_.height &&
+            validated.pixelFormat() == target_.pixelFormat &&
+            validated.orientation() ==
+                frame_engine::OrientationState::Normalized;
+
+        if (!exactTarget) {
+            result.status = FramePipelinePumpStatus::TransformFailed;
+            return result;
+        }
+
+        result.normalizationStatus =
+            NormalizationStatus::ReadyPassthrough;
+        normalized.status = NormalizationStatus::ReadyPassthrough;
+        normalized.requirement = TransformRequirement::None;
+        normalized.frame.emplace(std::move(*transformed.frame));
     }
 
     if (normalized.status != NormalizationStatus::ReadyPassthrough ||
