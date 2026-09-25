@@ -2,7 +2,7 @@
 
 ## Status
 
-**STAGE F1 IMPLEMENTED — READY FOR FINAL CI / SUPERVISOR AUDIT**
+**STAGE F1 IMPLEMENTED — READY FOR SUPERVISOR AUDIT**
 
 Task:
 
@@ -16,7 +16,7 @@ Accepted parent:
 
 Validated F1 implementation head before this proof-only commit:
 
-`990af3ba403243ae308a8cfa90dcd10cc7cbe46d`
+`90fdfe94f37b3c6e28cc5affb05111803339d111`
 
 The final F1 PR head is reported by immutable PR metadata and the Builder return. A Git commit cannot embed its own final SHA without changing that SHA.
 
@@ -247,6 +247,7 @@ Consumer queue synchronization remains independent.
 
 Stage F1 adds structured allocation handling on normal producer paths:
 
+- timed source/read allocation failure is converted into `AllocationFailed`;
 - `FramePipelinePump::prepareFrame` converts recoverable `std::bad_alloc` into `AllocationFailed`;
 - one-frame pending storage converts `std::bad_alloc` into `AllocationFailed`;
 - timed publication copy converts `std::bad_alloc` into `AllocationFailed`;
@@ -286,7 +287,7 @@ Timed pipeline tests:
 
 Result:
 
-**10 / 10 PASS**
+**12 / 12 PASS**
 
 Coverage includes:
 
@@ -299,6 +300,8 @@ Coverage includes:
 - late frame drop publishes nothing;
 - low-latency obsolete queue cleanup;
 - already leased old frame remains valid across cleanup;
+- generation mismatch returns explicit producer status;
+- timeline/epoch mismatch returns explicit producer status;
 - generation reset invalidates pending;
 - epoch reset invalidates pending;
 - transformed-frame pacing;
@@ -374,17 +377,17 @@ Undefined-symbol inspection confirms the scheduler owns no clock/thread/timer pr
 Implementation validation:
 
 - workflow: `Frame Engine Stage F1 CI`
-- run: `36194167388`
-- head: `990af3ba403243ae308a8cfa90dcd10cc7cbe46d`
+- run: `36194479155`
+- head: `90fdfe94f37b3c6e28cc5affb05111803339d111`
 - conclusion: **SUCCESS**
 
 Artifact:
 
 - name: `vcam-frame-engine-stage-f1-validation`
-- artifact ID: `10889431031`
-- digest: `sha256:0d337a49212e3773ce9307baece1e9d9a5695115a20cef3fe8b33d9872d3de61`
+- artifact ID: `10889745816`
+- digest: `sha256:6027c4a86efc59f41958bae60aeeab0c54e481bc215538ce515e1619b6cdaadf`
 
-The proof-only commit containing this record must rerun the same F1 CI before promotion. Its terminal run is reported in the Builder return.
+The documentation-only head containing this final record reruns the same F1 CI before promotion. Its terminal run is reported in the Builder return.
 
 ## What remains runtime / later-stage work
 
