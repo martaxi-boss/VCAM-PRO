@@ -85,6 +85,8 @@ public:
     const NormalizationTarget& target() const noexcept;
 
 private:
+    friend class FramePipelinePumpStageE1TestAccess;
+
     FramePipelinePumpResult processFrame(
         frame_engine::PreparedFrame frame,
         const SourceVideoInfo& info,
