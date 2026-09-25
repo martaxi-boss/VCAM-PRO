@@ -177,7 +177,13 @@ private:
             const NormalizationTarget&,
             std::uint64_t,
             std::uint64_t)>;
+    using TimedReadCallback = std::function<ReadResult()>;
+    using TimedSourceInfoCallback =
+        std::function<std::optional<SourceVideoInfo>()>;
+
     TransformCallback transformCallback_;
+    TimedReadCallback timedReadCallback_;
+    TimedSourceInfoCallback timedSourceInfoCallback_;
 
     frame_engine::FrameTimelineScheduler* scheduler_ = nullptr;
     std::optional<frame_engine::PreparedFrame> pendingTimedFrame_;
