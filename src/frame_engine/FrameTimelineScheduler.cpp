@@ -194,26 +194,29 @@ bool FrameTimelineScheduler::nonNegativeDeltaToNanoseconds(
         return false;
     }
 
-    const __int128 scaled =
-        static_cast<__int128>(delta.value) *
-        static_cast<__int128>(kNanosecondsPerSecond);
+    const std::uint64_t value =
+        static_cast<std::uint64_t>(delta.value);
+    const std::uint64_t scale =
+        static_cast<std::uint64_t>(delta.timescale);
 
-    if (scaled < 0) {
+    const std::uint64_t wholeSeconds = value / scale;
+    const std::uint64_t remainder = value % scale;
+
+    if (wholeSeconds >
+        std::numeric_limits<MonotonicHostTimeNs>::max() /
+            kNanosecondsPerSecond) {
         return false;
     }
 
-    const __int128 nanoseconds =
-        scaled / static_cast<__int128>(delta.timescale);
+    const MonotonicHostTimeNs wholeNs =
+        wholeSeconds * kNanosecondsPerSecond;
 
-    if (nanoseconds < 0 ||
-        nanoseconds >
-            static_cast<__int128>(
-                std::numeric_limits<MonotonicHostTimeNs>::max())) {
-        return false;
-    }
+    // remainder < timescale <= INT32_MAX, so remainder * 1e9 fits
+    // in uint64_t without relying on non-standard integer extensions.
+    const MonotonicHostTimeNs fractionalNs =
+        (remainder * kNanosecondsPerSecond) / scale;
 
-    *result = static_cast<MonotonicHostTimeNs>(nanoseconds);
-    return true;
+    return checkedAdd(wholeNs, fractionalNs, result);
 }
 
 bool FrameTimelineScheduler::positiveDurationToNanoseconds(
@@ -225,25 +228,32 @@ bool FrameTimelineScheduler::positiveDurationToNanoseconds(
         return false;
     }
 
-    const __int128 scaled =
-        static_cast<__int128>(duration.value) *
-        static_cast<__int128>(kNanosecondsPerSecond);
+    const std::uint64_t value =
+        static_cast<std::uint64_t>(duration.value);
+    const std::uint64_t scale =
+        static_cast<std::uint64_t>(duration.timescale);
 
-    if (scaled <= 0) {
+    const std::uint64_t wholeSeconds = value / scale;
+    const std::uint64_t remainder = value % scale;
+
+    if (wholeSeconds >
+        std::numeric_limits<MonotonicHostTimeNs>::max() /
+            kNanosecondsPerSecond) {
         return false;
     }
 
-    const __int128 nanoseconds =
-        scaled / static_cast<__int128>(duration.timescale);
+    const MonotonicHostTimeNs wholeNs =
+        wholeSeconds * kNanosecondsPerSecond;
+    const MonotonicHostTimeNs fractionalNs =
+        (remainder * kNanosecondsPerSecond) / scale;
 
-    if (nanoseconds <= 0 ||
-        nanoseconds >
-            static_cast<__int128>(
-                std::numeric_limits<MonotonicHostTimeNs>::max())) {
+    MonotonicHostTimeNs converted = 0;
+    if (!checkedAdd(wholeNs, fractionalNs, &converted) ||
+        converted == 0) {
         return false;
     }
 
-    *result = static_cast<MonotonicHostTimeNs>(nanoseconds);
+    *result = converted;
     return true;
 }
 
