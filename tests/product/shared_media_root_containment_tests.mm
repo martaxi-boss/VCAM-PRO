@@ -247,7 +247,8 @@ bool TestSymlinkRootBlocksStaging() {
     const std::size_t before =
         EntryCount(external);
 
-    SharedMediaStager stager(media);
+    SharedMediaStager stager(
+        media + "/");
     std::string staged;
     std::string error;
 
