@@ -1,0 +1,9 @@
+Package: com.vcampro.gate1proofrunner
+Name: VCAM PRO Gate 1
+Version: 0.2.0
+Architecture: iphoneos-arm64
+Description: Automated one-shot VCAM PRO Gate 1 load proof tooling for Dopamine/rootless iOS 15.
+Maintainer: VCAM PRO
+Author: VCAM PRO
+Section: Development
+Depends: firmware (>= 15.0), mobilesubstrate
