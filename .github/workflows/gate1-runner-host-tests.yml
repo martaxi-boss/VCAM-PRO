@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - builder/gate1-automated-device-proof-runner-001
-    paths:
-      - "proofs/gate1_device_runner/core/**"
-      - "proofs/gate1_device_runner/tests/**"
-      - ".github/workflows/gate1-runner-host-tests.yml"
   workflow_dispatch:
 
 permissions:
