@@ -157,9 +157,11 @@ jobs:
         id: package
         run: |
           set -euo pipefail
-          DEB="$(find build/gate1-remediation-a -maxdepth 1 -name '*.deb' -type f | head -n 1)"
-          test -n "$DEB"
-          test "$(find build/gate1-remediation-a -maxdepth 1 -name '*.deb' -type f | wc -l | tr -d ' ')" = "1"
+          OUT=build/gate1-remediation-c
+          DEB="$OUT/com.vcampro.gate1proofrunner_0.2.1_iphoneos-arm64.deb"
+          test -f "$DEB"
+          test "$(find "$OUT" -maxdepth 1 -name '*.deb' -type f | wc -l | tr -d ' ')" = "1"
+          ! find "$OUT" -maxdepth 1 -name '*0.2.0*.deb' -type f | grep .
 
           test "$(dpkg-deb -f "$DEB" Package)" = "com.vcampro.gate1proofrunner"
           test "$(dpkg-deb -f "$DEB" Version)" = "0.2.1"
@@ -168,7 +170,14 @@ jobs:
           ! dpkg-deb -f "$DEB" Depends | grep -F 'uikittools'
           echo "UIKITTOOLS_ABSENT=PASS"
 
-          dpkg-deb -c "$DEB" | tee build/gate1-remediation-a/package-contents.txt
+          dpkg-deb -c "$DEB" | tee build/gate1-remediation-c/package-contents.txt
+          if grep -E '\./Library/MobileSubstrate/|\./usr/lib/|\./Applications/' \
+            build/gate1-remediation-c/package-contents.txt; then
+            echo "Rootful payload path found"
+            exit 1
+          fi
+          echo "ROOTLESS_PAYLOAD=PASS"
+          echo "PACKAGE_0_2_0_SUPERSEDED=PASS"
 
           EXTRACT="$RUNNER_TEMP/gate1-extract"
           CONTROL="$RUNNER_TEMP/gate1-control"
@@ -213,9 +222,10 @@ jobs:
             otool -l "$binary"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | grep -q 'minos 15.0'
           done
 
-          otool -L "$WITNESS" | tee build/gate1-remediation-a/witness-deps.txt
-          otool -L "$COORD" | tee build/gate1-remediation-a/coordinator-deps.txt
-          otool -L "$VIEWER" | tee build/gate1-remediation-a/viewer-deps.txt
+          otool -L "$WITNESS" | tee build/gate1-remediation-c/witness-deps.txt
+          otool -L "$COORD" | tee build/gate1-remediation-c/coordinator-deps.txt
+          otool -L "$HANDOFF" | tee build/gate1-remediation-c/handoff-deps.txt
+          otool -L "$VIEWER" | tee build/gate1-remediation-c/viewer-deps.txt
 
           if otool -L "$WITNESS" "$COORD" "$HANDOFF" "$VIEWER" | grep -E             'PrivateFrameworks|AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Network\.framework|CFNetwork'; then
             echo "Forbidden media/network dependency"
@@ -232,20 +242,30 @@ jobs:
             exit 1
           fi
 
-          shasum -a 256 "$DEB" | tee build/gate1-remediation-a/package-sha256.txt
+          shasum -a 256 "$DEB" | tee build/gate1-remediation-c/package-sha256.txt
+          {
+            echo "Package=com.vcampro.gate1proofrunner"
+            echo "Version=0.2.1"
+            echo "Architecture=iphoneos-arm64"
+            echo "Depends=firmware (>= 15.0), mobilesubstrate"
+            echo "Head=$GITHUB_SHA"
+            echo "Superseded=0.2.0"
+          } | tee build/gate1-remediation-c/package-metadata.txt
           echo "deb=$DEB" >> "$GITHUB_OUTPUT"
 
       - name: Upload Gate 1 proof package
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-gate1-proof-runner-installation-remediation-c
+          name: vcampro-gate1-installation-remediation-c
           path: |
             ${{ steps.package.outputs.deb }}
-            build/gate1-remediation-a/package-contents.txt
-            build/gate1-remediation-a/package-sha256.txt
-            build/gate1-remediation-a/witness-deps.txt
-            build/gate1-remediation-a/coordinator-deps.txt
-            build/gate1-remediation-a/viewer-deps.txt
+            build/gate1-remediation-c/package-contents.txt
+            build/gate1-remediation-c/package-sha256.txt
+            build/gate1-remediation-c/witness-deps.txt
+            build/gate1-remediation-c/coordinator-deps.txt
+            build/gate1-remediation-c/handoff-deps.txt
+            build/gate1-remediation-c/viewer-deps.txt
+            build/gate1-remediation-c/package-metadata.txt
             build/gate1-remediation-c-tests/original.txt
             build/gate1-remediation-c-tests/remediation.txt
           if-no-files-found: error
