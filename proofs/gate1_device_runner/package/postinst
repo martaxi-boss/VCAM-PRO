@@ -1,0 +1,19 @@
+#!/bin/sh
+set +e
+
+COORDINATOR=/var/jb/usr/libexec/vcampro-gate1-coordinator
+APP=/var/jb/Applications/VCAMProGate1.app
+
+rm -f /var/tmp/VCAM_PRO_GATE1_REQUEST.txt >/dev/null 2>&1 || true
+rm -f /var/tmp/VCAM_PRO_GATE1_WITNESS.txt >/dev/null 2>&1 || true
+
+if [ -e "$COORDINATOR" ]; then
+    chown 0:0 "$COORDINATOR" >/dev/null 2>&1 || true
+    chmod 4755 "$COORDINATOR" >/dev/null 2>&1 || true
+fi
+
+if [ -x /var/jb/usr/bin/uicache ]; then
+    /var/jb/usr/bin/uicache -p "$APP" >/dev/null 2>&1 || true
+fi
+
+exit 0
