@@ -1,6 +1,6 @@
 Package: com.vcampro.roothide-install-probe
 Name: VCAM PRO RootHide Installation Probe
-Version: 0.1.0~probe1
+Version: 0.1.0~probe2
 Architecture: iphoneos-arm64
 Depends: mobilesubstrate, firmware (>= 15.0)
 Description: SpringBoard-only RootHide installation/load diagnostic for VCAM PRO. No camera functionality.
