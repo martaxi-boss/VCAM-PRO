@@ -21,7 +21,8 @@ NS_ASSUME_NONNULL_BEGIN
     NS_DESIGNATED_INITIALIZER;
 
 - (instancetype)initWithProductControlOwner:
-    (vcam::product::ProductControlOwner*)owner;
+    (vcam::product::ProductControlOwner*)owner
+    NS_DESIGNATED_INITIALIZER;
 #endif
 
 - (instancetype)initWithNibName:(nullable NSString*)nibNameOrNil

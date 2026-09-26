@@ -5,8 +5,6 @@
 
 #import <UIKit/UIKit.h>
 
-namespace vcam::product {
-
 @interface VCAMProductOverlayWindow : UIWindow
 @end
 
@@ -33,7 +31,7 @@ namespace vcam::product {
 @end
 
 @implementation VCAMProductOverlayController {
-    ProductControlOwner _owner;
+    vcam::product::ProductControlOwner _owner;
     UIButton* _floatingButton;
 }
 
@@ -56,6 +54,7 @@ namespace vcam::product {
         [UIColor
             colorWithWhite:0.1
                      alpha:0.9];
+
     [_floatingButton
         setTitleColor:
             [UIColor whiteColor]
@@ -125,6 +124,8 @@ namespace vcam::product {
 
 static VCAMProductOverlayWindow*
     gOverlayWindow = nil;
+
+namespace vcam::product {
 
 void StartSpringBoardControlHost() {
     dispatch_async(
