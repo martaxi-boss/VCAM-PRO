@@ -1,0 +1,249 @@
+name: VCAM PRO Full Camera Gallery Test DEB CI
+
+on:
+  push:
+    branches:
+      - builder/full-camera-gallery-test-deb-001
+  pull_request:
+    paths:
+      - "src/frame_engine/**"
+      - "src/media_engine/**"
+      - "src/control/**"
+      - "src/product/**"
+      - "product/**"
+      - "tests/product/**"
+      - "tests/media_engine/**"
+      - "tools/run_frame_regressions.sh"
+      - ".github/workflows/full-camera-gallery-test-deb-ci.yml"
+      - "docs/proofs/FULL_CAMERA_GALLERY_TEST_DEB_001.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  full-product:
+    name: Full camera gallery iOS15 product
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Toolchain and packaging tools
+        run: |
+          set -euo pipefail
+          sw_vers
+          xcodebuild -version
+          xcrun clang++ --version
+          command -v dpkg-deb >/dev/null 2>&1 || brew install dpkg
+          mkdir -p build/product-tests build/evidence
+
+      - name: Reference freeze
+        run: |
+          set -euo pipefail
+          test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/main | awk '{print $1}')" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "cc20d787070c67565173d4a46c218e2549cecc93"
+          echo "REFERENCES_FROZEN=PASS" | tee build/evidence/reference-freeze.txt
+
+      - name: Product architecture and forbidden dependency boundaries
+        run: |
+          set -euo pipefail
+
+          test -f src/product/ReferenceCameraHook.mm
+          test -f src/product/CameraConsumerAdapter.cpp
+          test -f src/product/MediaserverdRuntime.mm
+          test -f src/product/ProductControlOwner.mm
+          test -f src/product/SharedControlStore.mm
+          test -f src/product/SharedMediaStager.mm
+          test -f product/VCAMPro.plist
+
+          grep -q 'CMSampleBufferGetImageBuffer' src/product/ReferenceCameraHook.mm
+          grep -q 'MSHookFunction' src/product/ReferenceCameraHook.mm
+          grep -q 'ProcessIs("mediaserverd")' src/product/VCAMProEntry.mm
+          grep -q 'ProcessIs("SpringBoard")' src/product/VCAMProEntry.mm
+          grep -q 'com.vcampro.controlChanged' src/product/SharedControlStore.h
+          grep -q '/var/jb/var/mobile/Library/VCAMPro/Media' src/product/SharedMediaStager.h
+          grep -q 'selectionLimit = 1' src/control/InternalGalleryViewController.mm
+
+          auth_forbidden='VCam Login|Client Login|VCAM ACCOUNT|/api/login|vcampro\.online|auth_token|logged_in|bypass_active|license bypass|fake authentication'
+          if grep -RInEi "$auth_forbidden" src product/VCAMPro.plist product/package; then
+            echo "Forbidden login/auth/bypass production concept found."
+            exit 1
+          fi
+
+          network_forbidden='GET /vcam\.mjpg|OBS|obs-websocket|NSURLSession|Network\.framework|CFNetwork|NWConnection|nw_connection|MJPEG|portal API'
+          if grep -RInEi "$network_forbidden" src product/VCAMPro.plist product/package; then
+            echo "Forbidden network/OBS production dependency found."
+            exit 1
+          fi
+
+          if grep -RInE '(^|[^A-Za-z])socket[[:space:]]*\(|\bnw_[A-Za-z0-9_]+' src/product src/control; then
+            echo "Network socket API found."
+            exit 1
+          fi
+
+          test "$(find src -name 'LocalVideoReader.mm' | wc -l | tr -d ' ')" -eq 1
+          test "$(find src -name 'LocalPhotoReader.mm' | wc -l | tr -d ' ')" -eq 1
+          test "$(find src -name 'FramePipelinePump.cpp' | wc -l | tr -d ' ')" -eq 1
+          test "$(find src -name 'ReadyFrameQueue.cpp' | wc -l | tr -d ' ')" -eq 1
+          test "$(find src -name 'ProducerWakeupDriver.mm' | wc -l | tr -d ' ')" -eq 1
+
+          git diff --exit-code d8928c5d4b5cd471fba15058dbb03e2b6fc56a5c -- proofs/mediaserverd_load_probe
+          if git diff --name-only d8928c5d4b5cd471fba15058dbb03e2b6fc56a5c | grep -E 'proofs/gate1_device_runner|GATE1'; then
+            echo "Gate 1 workstream modified."
+            exit 1
+          fi
+
+          echo "LOGIN_LAYER=ABSENT" | tee build/evidence/boundaries.txt
+          echo "LOGIN_BYPASS=ABSENT" | tee -a build/evidence/boundaries.txt
+          echo "OBS_DEPENDENCY=ABSENT" | tee -a build/evidence/boundaries.txt
+          echo "INTERNAL_GALLERY=IMPLEMENTED" | tee -a build/evidence/boundaries.txt
+          echo "CAMERA_SYSTEM_ADAPTER=IMPLEMENTED" | tee -a build/evidence/boundaries.txt
+
+      - name: Frame Engine A through F2 regression matrix
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+          echo "FRAME_ENGINE_F2_INTEGRATED=PASS" | tee build/evidence/frame-engine.txt
+
+      - name: Internal Gallery 20-case regression
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/product-tests/internal-gallery
+          build/product-tests/internal-gallery | tee build/evidence/internal-gallery.txt
+          grep -q 'Internal gallery tests run: 20, failures: 0' build/evidence/internal-gallery.txt
+
+      - name: Camera consumer adapter tests
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/product/ControlStateCache.cpp             src/product/CameraConsumerAdapter.cpp             tests/product/camera_consumer_adapter_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/product-tests/camera-consumer
+          build/product-tests/camera-consumer | tee build/evidence/camera-consumer.txt
+          grep -q 'Camera consumer tests run: 13, failures: 0' build/evidence/camera-consumer.txt
+
+      - name: Shared control and active F2 lifecycle tests
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/product-tests/full-product
+          build/product-tests/full-product | tee build/evidence/full-product.txt
+          grep -q 'Product integration tests run: 8, failures: 0' build/evidence/full-product.txt
+
+      - name: Maintainer script repeat-safety and install boundaries
+        run: |
+          set -euo pipefail
+          script=product/package/DEBIAN/postinst
+
+          grep -q '^set +e$' "$script"
+          if grep -E 'kill|killall|pkill|launchctl|ldrestart|respring|SpringBoard|mediaserverd|reboot|userspace|MSHook|coordinator|Gate.?1|NSURLSession|curl|wget' "$script"; then
+            echo "Forbidden postinst behavior found."
+            exit 1
+          fi
+
+          sandbox="$(mktemp -d)"
+          VCAM_TEST_ROOT_PREFIX="$sandbox/var/jb" sh "$script"
+          VCAM_TEST_ROOT_PREFIX="$sandbox/var/jb" sh "$script"
+          test -d "$sandbox/var/jb/var/mobile/Library/VCAMPro/Media"
+          test "$(stat -f '%Lp' "$sandbox/var/jb/var/mobile/Library/VCAMPro/Media")" = "755"
+          rm -rf "$sandbox"
+
+          echo "MAINTAINER_SCRIPTS_REPEAT_SAFE=PASS" | tee build/evidence/postinst.txt
+          echo "POSTINST_DOES_NOT_RESTART_CAMERA_STACK=PASS" | tee -a build/evidence/postinst.txt
+
+      - name: Build rootless production dylib and single deb
+        run: |
+          set -euo pipefail
+          product/build_product.sh build/full-camera-gallery
+
+      - name: Inspect final VCAMPro dylib
+        run: |
+          set -euo pipefail
+          dylib=build/full-camera-gallery/ios/VCAMPro.dylib
+
+          xcrun lipo -info "$dylib" | tee build/evidence/dylib-arch.txt
+          grep -q 'arm64' build/evidence/dylib-arch.txt
+          if grep -q 'arm64e' build/evidence/dylib-arch.txt; then exit 1; fi
+
+          xcrun otool -l "$dylib"             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/evidence/dylib-minos.txt
+          grep -q 'minos 15.0' build/evidence/dylib-minos.txt
+
+          xcrun otool -L "$dylib" | tee build/evidence/dylib-loads.txt
+          grep -q '@rpath/CydiaSubstrate.framework/CydiaSubstrate' build/evidence/dylib-loads.txt
+          grep -q 'CoreMedia.framework/CoreMedia' build/evidence/dylib-loads.txt
+          grep -q 'CoreVideo.framework/CoreVideo' build/evidence/dylib-loads.txt
+          grep -q 'UIKit.framework/UIKit' build/evidence/dylib-loads.txt
+
+          xcrun nm -u "$dylib" | tee build/evidence/dylib-undefined.txt
+          grep -q '_MSHookFunction' build/evidence/dylib-undefined.txt
+          grep -q '_CMSampleBufferGetImageBuffer' build/evidence/dylib-undefined.txt
+
+          if xcrun otool -L "$dylib" | grep -E 'CFNetwork|Network\.framework'; then
+            echo "Unexpected network framework linked."
+            exit 1
+          fi
+
+          strings "$dylib" > build/evidence/dylib-strings.txt
+          if grep -Ei 'VCam Login|Client Login|VCAM ACCOUNT|/api/login|vcampro\.online|auth_token|logged_in|bypass_active|GET /vcam\.mjpg|OBS|obs-websocket' build/evidence/dylib-strings.txt; then
+            echo "Forbidden final dylib string found."
+            exit 1
+          fi
+
+          echo "IOS15_ARM64_BUILD=PASS" | tee build/evidence/dylib-result.txt
+
+      - name: Inspect injection plist and package
+        run: |
+          set -euo pipefail
+
+          plutil -lint product/VCAMPro.plist
+          plutil -p product/VCAMPro.plist | tee build/evidence/injection-plist.txt
+          grep -q 'com.apple.mediaserverd' build/evidence/injection-plist.txt
+          grep -q 'com.apple.springboard' build/evidence/injection-plist.txt
+          grep -q 'com.apple.UIKit' build/evidence/injection-plist.txt
+          grep -q '"mediaserverd"' build/evidence/injection-plist.txt
+
+          deb=build/full-camera-gallery/final/com.vcampro.camera_0.1.0_iphoneos-arm64.deb
+          test -f "$deb"
+          test "$(find build/full-camera-gallery/final -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" -eq 1
+
+          test "$(dpkg-deb -f "$deb" Package)" = "com.vcampro.camera"
+          test "$(dpkg-deb -f "$deb" Version)" = "0.1.0"
+          test "$(dpkg-deb -f "$deb" Architecture)" = "iphoneos-arm64"
+          test "$(dpkg-deb -f "$deb" Depends)" = "mobilesubstrate, firmware (>= 15.0)"
+
+          dpkg-deb -c "$deb" | tee build/evidence/deb-tree.txt
+          grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/VCAMPro.dylib' build/evidence/deb-tree.txt
+          grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/VCAMPro.plist' build/evidence/deb-tree.txt
+          grep -q './var/jb/var/mobile/Library/VCAMPro/Media/' build/evidence/deb-tree.txt
+
+          if grep -E './(Library|usr/lib/TweakInject)/' build/evidence/deb-tree.txt | grep -v './var/jb/'; then
+            echo "Rootful payload found."
+            exit 1
+          fi
+
+          if grep -Ei 'gate1|loadprobe|proofrunner|witness|coordinator|0\.2\.0|0\.2\.1' build/evidence/deb-tree.txt; then
+            echo "Proof/Gate package payload leaked into product."
+            exit 1
+          fi
+
+          cat build/full-camera-gallery/final/com.vcampro.camera_0.1.0_iphoneos-arm64.deb.sha256             | tee build/evidence/deb-sha256.txt
+
+          echo "SINGLE_INSTALLABLE_DEB=PASS" | tee build/evidence/package-result.txt
+
+      - name: Upload full product candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-full-camera-gallery-test-deb-001
+          path: |
+            build/full-camera-gallery/final/com.vcampro.camera_0.1.0_iphoneos-arm64.deb
+            build/full-camera-gallery/final/com.vcampro.camera_0.1.0_iphoneos-arm64.deb.sha256
+            build/evidence/**
+            build/regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14

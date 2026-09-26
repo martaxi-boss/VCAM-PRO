@@ -1,7 +1,8 @@
 #!/bin/sh
 set +e
 
-VCAM_ROOT="/var/jb/var/mobile/Library/VCAMPro"
+ROOT_PREFIX="${VCAM_TEST_ROOT_PREFIX:-/var/jb}"
+VCAM_ROOT="$ROOT_PREFIX/var/mobile/Library/VCAMPro"
 VCAM_MEDIA="$VCAM_ROOT/Media"
 
 mkdir -p "$VCAM_MEDIA" 2>/dev/null || true
