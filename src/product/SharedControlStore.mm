@@ -3,6 +3,7 @@
 #import <Foundation/Foundation.h>
 
 #include <notify.h>
+#include <sys/stat.h>
 
 #include <utility>
 
@@ -177,6 +178,11 @@ bool SharedControlStore::save(
             NSStringFromStd(
                 snapshot.mediaPath);
 
+        NSString* storedMediaPath =
+            mediaPath != nil
+                ? mediaPath
+                : @"";
+
         NSDictionary* dict = @{
             @"enabled" :
                 @(snapshot.enabled),
@@ -184,7 +190,7 @@ bool SharedControlStore::save(
                 MediaKindString(
                     snapshot.mediaKind),
             @"mediaPath" :
-                mediaPath ?: @"",
+                storedMediaPath,
             @"selectionGeneration" :
                 @(snapshot.selectionGeneration),
             @"loopEnabled" :
