@@ -205,6 +205,35 @@ bool IsRegularNonSymlink(
         !S_ISLNK(info.st_mode);
 }
 
+enum class MediaRootState : std::uint8_t {
+    Missing = 0,
+    ValidDirectory,
+    Invalid,
+};
+
+MediaRootState InspectMediaRoot(
+    const std::string& path) {
+    if (StandardizedLocalPath(path) == nil) {
+        return MediaRootState::Invalid;
+    }
+
+    struct stat info {};
+    if (lstat(
+            path.c_str(),
+            &info) != 0) {
+        return errno == ENOENT
+            ? MediaRootState::Missing
+            : MediaRootState::Invalid;
+    }
+
+    if (S_ISLNK(info.st_mode) ||
+        !S_ISDIR(info.st_mode)) {
+        return MediaRootState::Invalid;
+    }
+
+    return MediaRootState::ValidDirectory;
+}
+
 }  // namespace
 
 SharedMediaStager::SharedMediaStager(
@@ -255,15 +284,41 @@ bool SharedMediaStager::stageAndValidate(
             return false;
         }
 
-        NSError* directoryError = nil;
-        if (![manager
-                createDirectoryAtPath:directory
-          withIntermediateDirectories:YES
-                           attributes:nil
-                                error:&directoryError]) {
+        const auto initialRootState =
+            InspectMediaRoot(
+                mediaDirectory_);
+
+        if (initialRootState ==
+            MediaRootState::Invalid) {
             if (errorMessage != nullptr) {
                 *errorMessage =
-                    "Unable to create shared VCAM media directory.";
+                    "VCAM media root must be a real directory.";
+            }
+            return false;
+        }
+
+        if (initialRootState ==
+            MediaRootState::Missing) {
+            NSError* directoryError = nil;
+            if (![manager
+                    createDirectoryAtPath:directory
+              withIntermediateDirectories:YES
+                               attributes:nil
+                                    error:&directoryError]) {
+                if (errorMessage != nullptr) {
+                    *errorMessage =
+                        "Unable to create shared VCAM media directory.";
+                }
+                return false;
+            }
+        }
+
+        if (InspectMediaRoot(
+                mediaDirectory_) !=
+            MediaRootState::ValidDirectory) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "VCAM media root must be a real directory.";
             }
             return false;
         }
@@ -294,6 +349,16 @@ bool SharedMediaStager::stageAndValidate(
                 stringByAppendingPathComponent:
                     filename];
 
+        if (InspectMediaRoot(
+                mediaDirectory_) !=
+            MediaRootState::ValidDirectory) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "VCAM media root changed before staging.";
+            }
+            return false;
+        }
+
         NSError* copyError = nil;
         if (![manager
                 copyItemAtPath:sourcePath
@@ -308,6 +373,17 @@ bool SharedMediaStager::stageAndValidate(
 
         const std::string staged =
             StdFromNSString(destination);
+
+        if (InspectMediaRoot(
+                mediaDirectory_) !=
+            MediaRootState::ValidDirectory) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "VCAM media root changed during staging.";
+            }
+            return false;
+        }
+
         chmod(
             staged.c_str(),
             0644);
@@ -317,9 +393,8 @@ bool SharedMediaStager::stageAndValidate(
                 staged,
                 kind,
                 &validationError)) {
-            [manager
-                removeItemAtPath:destination
-                           error:nil];
+            (void)removeOwnedPath(
+                staged);
             if (errorMessage != nullptr) {
                 *errorMessage =
                     validationError.empty()
@@ -375,6 +450,27 @@ bool SharedMediaStager::reconcileOwnedMedia(
     const std::string& activeOwnedPath,
     std::string* errorMessage) const {
     @autoreleasepool {
+        const auto rootState =
+            InspectMediaRoot(
+                mediaDirectory_);
+
+        if (rootState ==
+            MediaRootState::Missing) {
+            if (errorMessage != nullptr) {
+                errorMessage->clear();
+            }
+            return true;
+        }
+
+        if (rootState !=
+            MediaRootState::ValidDirectory) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "VCAM media root must be a real directory.";
+            }
+            return false;
+        }
+
         NSString* directory =
             StandardizedLocalPath(
                 mediaDirectory_);
@@ -534,6 +630,12 @@ bool SharedMediaStager::validate(
 bool SharedMediaStager::isOwnedPath(
     const std::string& path) const {
     @autoreleasepool {
+        if (InspectMediaRoot(
+                mediaDirectory_) !=
+            MediaRootState::ValidDirectory) {
+            return false;
+        }
+
         NSString* root =
             StandardizedLocalPath(
                 mediaDirectory_);
