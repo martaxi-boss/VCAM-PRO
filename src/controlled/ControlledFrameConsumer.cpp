@@ -20,11 +20,12 @@ ControlledPresentedFrame::ControlledPresentedFrame(
               : CVPixelBufferRetain(pixelBuffer)),
       identity_(identity),
       tracker_(std::move(tracker)) {
-    if (pixelBuffer_ != nullptr &&
+    if (pixelBuffer_ == nullptr &&
         tracker_ != nullptr) {
-        tracker_->outstanding.fetch_add(
-            1,
-            std::memory_order_acq_rel);
+        tracker_->outstanding.store(
+            0,
+            std::memory_order_release);
+        tracker_.reset();
     }
 }
 
@@ -142,15 +143,6 @@ ControlledFrameConsumer::tryAcquire() noexcept {
         };
     }
 
-    if (tracker_ != nullptr &&
-        tracker_->outstanding.load(
-            std::memory_order_acquire) != 0) {
-        return {
-            ControlledAcquireKind::LeaseBusy,
-            std::nullopt,
-        };
-    }
-
     if (state_->playbackState() !=
         frame_engine::PlaybackState::Playing) {
         return {
@@ -158,6 +150,33 @@ ControlledFrameConsumer::tryAcquire() noexcept {
             std::nullopt,
         };
     }
+
+    if (tracker_ == nullptr) {
+        return {
+            ControlledAcquireKind::LeaseBusy,
+            std::nullopt,
+        };
+    }
+
+    std::size_t expectedOutstanding = 0;
+    if (!tracker_->outstanding
+             .compare_exchange_strong(
+                 expectedOutstanding,
+                 1,
+                 std::memory_order_acq_rel,
+                 std::memory_order_acquire)) {
+        return {
+            ControlledAcquireKind::LeaseBusy,
+            std::nullopt,
+        };
+    }
+
+    const auto releaseReservation =
+        [this]() noexcept {
+            tracker_->outstanding.store(
+                0,
+                std::memory_order_release);
+        };
 
     const std::uint64_t generation =
         state_->mediaGeneration();
@@ -191,6 +210,7 @@ ControlledFrameConsumer::tryAcquire() noexcept {
     switch (acquired.kind) {
         case frame_engine::
             AcquireResultKind::Empty:
+            releaseReservation();
             return {
                 ControlledAcquireKind::Empty,
                 std::nullopt,
@@ -198,6 +218,7 @@ ControlledFrameConsumer::tryAcquire() noexcept {
 
         case frame_engine::
             AcquireResultKind::NoEligibleFrame:
+            releaseReservation();
             return {
                 ControlledAcquireKind::NoEligibleFrame,
                 std::nullopt,
@@ -205,6 +226,7 @@ ControlledFrameConsumer::tryAcquire() noexcept {
 
         case frame_engine::
             AcquireResultKind::Contended:
+            releaseReservation();
             return {
                 ControlledAcquireKind::Contended,
                 std::nullopt,
@@ -217,6 +239,7 @@ ControlledFrameConsumer::tryAcquire() noexcept {
 
     if (!acquired.lease.has_value() ||
         !acquired.lease->valid()) {
+        releaseReservation();
         return {
             ControlledAcquireKind::NoEligibleFrame,
             std::nullopt,
@@ -230,6 +253,7 @@ ControlledFrameConsumer::tryAcquire() noexcept {
     if (frameLease == nullptr ||
         !frameLease->isValid() ||
         frameLease->pixelBuffer() == nullptr) {
+        releaseReservation();
         return {
             ControlledAcquireKind::NoEligibleFrame,
             std::nullopt,
@@ -246,6 +270,15 @@ ControlledFrameConsumer::tryAcquire() noexcept {
         frameLease->pixelBuffer(),
         frameLease->identity(),
         tracker_);
+
+    if (!result.frame->valid()) {
+        result.frame.reset();
+        return {
+            ControlledAcquireKind::NoEligibleFrame,
+            std::nullopt,
+        };
+    }
+
     return result;
 }
 

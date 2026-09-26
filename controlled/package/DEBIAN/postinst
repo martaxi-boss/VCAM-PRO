@@ -1,0 +1,11 @@
+#!/bin/sh
+set +e
+
+ROOT_PREFIX="${VCAM_TEST_ROOT_PREFIX:-/var/jb}"
+MEDIA_DIR="${ROOT_PREFIX}/var/mobile/Library/VCAMPro/Media"
+
+mkdir -p "${MEDIA_DIR}" >/dev/null 2>&1
+chmod 0755 "${MEDIA_DIR}" >/dev/null 2>&1
+chown mobile:mobile "${MEDIA_DIR}" >/dev/null 2>&1
+
+exit 0
