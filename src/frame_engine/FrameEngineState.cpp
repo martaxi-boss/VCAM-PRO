@@ -39,6 +39,15 @@ void FrameEngineState::selectOrReplaceMedia() {
     beginNewTimelineEpoch();
 }
 
+void FrameEngineState::clearMedia() noexcept {
+    hasMedia_ = false;
+    ++mediaGeneration_;
+    loopIteration_ = 0;
+    playbackState_ = PlaybackState::Empty;
+    readerStatus_ = {};
+    beginNewTimelineEpoch();
+}
+
 bool FrameEngineState::start() {
     if (!hasMedia_ ||
         (playbackState_ != PlaybackState::Ready &&

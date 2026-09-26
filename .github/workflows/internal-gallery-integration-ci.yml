@@ -1,0 +1,108 @@
+name: Internal Gallery Integration CI
+
+on:
+  push:
+    branches:
+      - builder/internal-gallery-integration-001
+  pull_request:
+    paths:
+      - "src/frame_engine/**"
+      - "src/media_engine/**"
+      - "src/control/**"
+      - "tests/media_engine/internal_gallery_integration_tests.mm"
+      - "tools/internal_gallery_harness/**"
+      - ".github/workflows/internal-gallery-integration-ci.yml"
+      - "docs/proofs/INTERNAL_GALLERY_INTEGRATION_001.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  gallery:
+    name: iOS 15 internal gallery integration
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Static architecture boundaries
+        run: |
+          set -euo pipefail
+          mkdir -p build/host build/ios
+          test -f src/media_engine/LocalPhotoReader.mm
+          test -f src/media_engine/InternalGalleryMediaSession.mm
+          test -f src/control/InternalGalleryViewController.mm
+          grep -q 'selectionLimit = 1' src/control/InternalGalleryViewController.mm
+          grep -q 'loadFileRepresentationForTypeIdentifier' src/control/InternalGalleryViewController.mm
+          grep -q 'copyItemAtURL' src/control/InternalGalleryViewController.mm
+          grep -q 'LocalVideoReader' src/media_engine/InternalGalleryMediaSession.mm
+          grep -q 'LocalPhotoReader' src/media_engine/InternalGalleryMediaSession.mm
+          grep -q 'FramePipelinePump' src/media_engine/InternalGalleryMediaSession.mm
+          grep -q 'clearMedia' src/frame_engine/FrameEngineState.cpp
+
+          forbidden='OBS|obs-websocket|NSURLSession|Network\.framework|PrivateFrameworks|MSHookFunction|MSHookMessageEx|%hook|mediaserverd|proofs/gate1_device_runner'
+          if grep -RInE "$forbidden"               src/control               src/media_engine/LocalPhotoReader.*               src/media_engine/InternalGalleryMediaSession.*               tools/internal_gallery_harness; then
+            echo "Forbidden dependency or system-side expansion found."
+            exit 1
+          fi
+
+          if grep -RInE '(^|[^A-Za-z])socket[[:space:]]*\(|\bnw_[A-Za-z0-9_]+'               src/control               src/media_engine/LocalPhotoReader.*               src/media_engine/InternalGalleryMediaSession.*; then
+            echo "Network API found."
+            exit 1
+          fi
+
+          if grep -RInE 'while[[:space:]]*\(|sleep\(|usleep\(|dispatch_after'               src/media_engine/LocalPhotoReader.*               src/media_engine/InternalGalleryMediaSession.*               src/control/InternalGalleryViewController.mm; then
+            echo "Busy polling/blocking loop found."
+            exit 1
+          fi
+
+          git diff --exit-code 31b768989b6623afd0d2edc7e9bf304cc6a54172 -- proofs/mediaserverd_load_probe
+          if git diff --name-only 31b768989b6623afd0d2edc7e9bf304cc6a54172 | grep -E 'proofs/gate1_device_runner|GATE1'; then
+            echo "Gate 1 workstream was modified."
+            exit 1
+          fi
+
+      - name: Build and run 20 gallery tests
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/host/internal_gallery_tests
+          build/host/internal_gallery_tests | tee build/host/internal-gallery-tests.txt
+          grep -q 'Internal gallery tests run: 20, failures: 0' build/host/internal-gallery-tests.txt
+
+      - name: Compile and link iOS 15 arm64 UI harness
+        run: |
+          set -euo pipefail
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+          COMMON="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -Wall -Wextra -Werror -Werror=unguarded-availability-new -pedantic -Wno-deprecated-declarations"
+          "$CXX" $COMMON -fobjc-arc             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/control/InternalGalleryViewController.mm             tools/internal_gallery_harness/main.mm             -framework Accelerate             -framework Foundation             -framework UIKit             -framework PhotosUI             -framework UniformTypeIdentifiers             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/ios/vcam-internal-gallery-harness
+
+          xcrun lipo -info build/ios/vcam-internal-gallery-harness | tee build/ios/gallery-architecture.txt
+          grep -q 'arm64' build/ios/gallery-architecture.txt
+          if grep -q 'arm64e' build/ios/gallery-architecture.txt; then exit 1; fi
+
+          xcrun otool -l build/ios/vcam-internal-gallery-harness             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/ios/gallery-minos.txt
+          grep -q 'minos 15.0' build/ios/gallery-minos.txt
+
+          xcrun nm -u build/ios/vcam-internal-gallery-harness             | tee build/ios/gallery-undefined-symbols.txt
+          if grep -E 'MSHookFunction|MSHookMessageEx|_socket|_nw_|NSURLSession'               build/ios/gallery-undefined-symbols.txt; then
+            echo "Forbidden linked symbol found."
+            exit 1
+          fi
+
+      - name: Upload integration evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcam-internal-gallery-integration-001
+          path: |
+            build/host/internal-gallery-tests.txt
+            build/ios/vcam-internal-gallery-harness
+            build/ios/gallery-architecture.txt
+            build/ios/gallery-minos.txt
+            build/ios/gallery-undefined-symbols.txt
+          if-no-files-found: error
+          retention-days: 14

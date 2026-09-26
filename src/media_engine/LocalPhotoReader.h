@@ -6,28 +6,27 @@
 
 #include <cstdint>
 #include <memory>
-#include <optional>
 #include <string>
 
 namespace vcam::media_engine {
 
-struct LocalVideoReaderConfig {
-    bool loopEnabled = false;
-    OSType outputPixelFormat = 0;
+struct LocalPhotoReaderConfig {
+    std::int32_t cadenceNumerator = 30;
+    std::int32_t cadenceDenominator = 1;
+    OSType outputPixelFormat =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
 };
 
-class LocalVideoReader final : public LocalFrameSource {
+class LocalPhotoReader final : public LocalFrameSource {
 public:
-    explicit LocalVideoReader(frame_engine::FrameEngineState& state);
-    ~LocalVideoReader() override;
+    explicit LocalPhotoReader(frame_engine::FrameEngineState& state);
+    ~LocalPhotoReader() override;
 
-    LocalVideoReader(const LocalVideoReader&) = delete;
-    LocalVideoReader& operator=(const LocalVideoReader&) = delete;
-    LocalVideoReader(LocalVideoReader&&) = delete;
-    LocalVideoReader& operator=(LocalVideoReader&&) = delete;
+    LocalPhotoReader(const LocalPhotoReader&) = delete;
+    LocalPhotoReader& operator=(const LocalPhotoReader&) = delete;
 
     bool open(const std::string& filesystemPath,
-              const LocalVideoReaderConfig& config);
+              const LocalPhotoReaderConfig& config);
 
     bool start() override;
     ReadResult readNext() override;
@@ -35,21 +34,15 @@ public:
 
     bool isOpen() const noexcept;
     bool isStarted() const noexcept;
-    bool loopEnabled() const noexcept;
-    void setLoopEnabled(bool enabled) noexcept;
+    std::uint64_t decodeCount() const noexcept;
+    CVPixelBufferRef decodedPixelBufferForTesting() const noexcept;
 
     std::optional<SourceVideoInfo> sourceInfo() const override;
-    const std::string& fileIdentity() const noexcept;
-
     frame_engine::ReaderErrorCode lastErrorCode() const noexcept;
     const std::string& lastErrorMessage() const noexcept;
 
 private:
     struct Impl;
-
-    bool rebuildReaderForLoop();
-    bool startCurrentReaderWithoutNewTimeline();
-    void cancelCurrentReaderForReplacement();
     void clearLastError() noexcept;
     void setLastError(frame_engine::ReaderErrorCode code,
                       const std::string& message);
