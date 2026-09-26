@@ -1,4 +1,5 @@
 #include "SharedControlStore.h"
+#include "JailbreakRootResolver.h"
 
 #import <Foundation/Foundation.h>
 
@@ -388,7 +389,13 @@ void NormalizeSnapshot(
 SharedControlStore::SharedControlStore(
     std::string controlPath,
     std::string notificationName)
-    : controlPath_(std::move(controlPath)),
+    : controlPath_(
+          controlPath ==
+                  kDefaultControlPath
+              ? ResolvePathInJailbreakRoot(
+                    "/var/mobile/Library/Preferences/"
+                    "com.vcampro.control.plist")
+              : std::move(controlPath)),
       notificationName_(
           std::move(notificationName)) {}
 
