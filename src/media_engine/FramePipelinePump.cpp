@@ -21,7 +21,7 @@ FramePipelinePumpResult MakeReaderResult(
 
 FramePipelinePump::FramePipelinePump(
     frame_engine::FrameEngineState& state,
-    LocalVideoReader& reader,
+    LocalFrameSource& reader,
     FrameNormalizer& normalizer,
     frame_engine::ReadyFrameQueue& queue,
     const NormalizationTarget& target)

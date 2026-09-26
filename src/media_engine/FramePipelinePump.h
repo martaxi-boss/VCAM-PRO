@@ -4,6 +4,7 @@
 #include "FrameNormalizer.h"
 #include "FrameTimelineScheduler.h"
 #include "FrameTransformer.h"
+#include "LocalFrameSource.h"
 #include "LocalVideoReader.h"
 #include "ReadyFrameQueue.h"
 
@@ -69,14 +70,14 @@ class FramePipelinePump final {
 public:
     FramePipelinePump(
         frame_engine::FrameEngineState& state,
-        LocalVideoReader& reader,
+        LocalFrameSource& reader,
         FrameNormalizer& normalizer,
         frame_engine::ReadyFrameQueue& queue,
         const NormalizationTarget& target);
 
     FramePipelinePump(
         frame_engine::FrameEngineState& state,
-        LocalVideoReader& reader,
+        LocalFrameSource& reader,
         FrameNormalizer& normalizer,
         FrameTransformer& transformer,
         frame_engine::ReadyFrameQueue& queue,
@@ -87,7 +88,7 @@ public:
 
     FramePipelinePump(
         frame_engine::FrameEngineState& state,
-        LocalVideoReader& reader,
+        LocalFrameSource& reader,
         FrameNormalizer& normalizer,
         FrameTransformer& transformer,
         frame_engine::FrameTimelineScheduler& scheduler,
@@ -166,7 +167,7 @@ private:
     FramePipelinePumpResult resetTimedContextIfNeeded();
 
     frame_engine::FrameEngineState& state_;
-    LocalVideoReader& reader_;
+    LocalFrameSource& reader_;
     FrameNormalizer& normalizer_;
     frame_engine::ReadyFrameQueue& queue_;
     NormalizationTarget target_;
