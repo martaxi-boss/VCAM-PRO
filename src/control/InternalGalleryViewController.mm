@@ -722,12 +722,14 @@ using vcam::product::ProductPlaybackIntent;
                         displayName];
         }
 
+        const std::string status =
+            _productOwner
+                ->lastStatus();
+
         self.statusLabel.text =
             [NSString
                 stringWithUTF8String:
-                    _productOwner
-                        ->lastStatus()
-                        .c_str()];
+                    status.c_str()];
 
         const BOOL hasMedia =
             snapshot.hasMedia();

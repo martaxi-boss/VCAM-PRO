@@ -364,8 +364,10 @@ bool ProductControlOwner::setPlaybackIntent(
     return true;
 }
 
-const std::string&
-ProductControlOwner::lastStatus() const noexcept {
+std::string
+ProductControlOwner::lastStatus() const {
+    std::lock_guard<std::mutex>
+        lock(mutex_);
     return lastStatus_;
 }
 

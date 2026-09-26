@@ -55,8 +55,8 @@ public:
     bool setPlaybackIntent(
         ProductPlaybackIntent intent);
 
-    const std::string&
-    lastStatus() const noexcept;
+    std::string
+    lastStatus() const;
 
     const std::string&
     mediaDirectory() const noexcept;
