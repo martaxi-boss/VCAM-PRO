@@ -47,6 +47,7 @@ struct MarkerObservation {
     std::string process;
     int pid = -1;
     std::uint64_t observedAtNs = 0;
+    std::string error;
 };
 
 struct DeviceInfo {
