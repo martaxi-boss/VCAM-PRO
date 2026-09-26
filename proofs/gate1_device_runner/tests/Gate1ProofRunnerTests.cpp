@@ -45,10 +45,14 @@ public:
 
     bool armMarkerCapture(
         std::uint64_t proofStartNs,
+        std::string* runNonce,
         std::string* backend,
         std::string* error) override {
         ++markerArmCalls;
         armedAtNs = proofStartNs;
+        if (runNonce != nullptr) {
+            *runNonce = markerRunNonce;
+        }
         if (backend != nullptr) {
             *backend = markerBackend;
         }
@@ -126,7 +130,8 @@ public:
 
     bool markerArmAvailable = true;
     bool restartAvailable = true;
-    std::string markerBackend = "OSLogStoreSystem";
+    std::string markerBackend = "mediaserverd-local OSLogStoreCurrentProcessIdentifier witness";
+    std::string markerRunNonce = "test-nonce-0123456789";
 
     std::vector<ProcessSnapshot> processSnapshots;
     std::vector<MarkerObservation> markers;
@@ -156,6 +161,7 @@ MarkerObservation Marker(
     const std::string& process = "mediaserverd") {
     MarkerObservation marker;
     marker.found = true;
+    marker.runNonce = "test-nonce-0123456789";
     marker.text =
         "VCAM_PRO_LOAD_PROBE_001 process=" +
         process +
