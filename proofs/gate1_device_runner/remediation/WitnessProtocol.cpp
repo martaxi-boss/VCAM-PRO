@@ -10,8 +10,7 @@ namespace {
 
 bool IsSafeValue(const std::string& value) {
     return value.find('\n') == std::string::npos &&
-           value.find('\r') == std::string::npos &&
-           value.find('=') == std::string::npos;
+           value.find('\r') == std::string::npos;
 }
 
 bool ParseMap(
@@ -174,6 +173,7 @@ ProtocolStatus ValidateRunRequest(
     if (request.schema != "vcam-pro-gate1-request/1" ||
         request.nonce.size() < 16 ||
         request.runnerVersion.empty() ||
+        request.buildSha.empty() ||
         request.proofStartNs == 0 ||
         request.proofStartNs > nowNs) {
         return ProtocolStatus::Malformed;
