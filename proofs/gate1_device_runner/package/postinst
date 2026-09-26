@@ -2,9 +2,14 @@
 set -u
 
 COORDINATOR=/var/jb/usr/libexec/vcampro-gate1-coordinator
+VIEWER=/var/jb/Applications/VCAMProGate1.app
 
 if [ -x "$COORDINATOR" ]; then
     "$COORDINATOR" --auto || true
+fi
+
+if [ -x /var/jb/usr/bin/uicache ]; then
+    /var/jb/usr/bin/uicache -p "$VIEWER" >/dev/null 2>&1 || true
 fi
 
 exit 0
