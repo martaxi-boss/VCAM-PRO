@@ -31,7 +31,7 @@ CXX="$(xcrun --sdk iphoneos -f clang++)"
     -framework UIKit \
     -Wl,-rpath,@loader_path/.jbroot/Library/Frameworks \
     -Wl,-rpath,@loader_path/.jbroot/usr/lib \
-    -Wl,-install_name,@loader_path/VCAMRootHideProbe.dylib \
+    -Wl,-install_name,@loader_path/.jbroot/usr/lib/TweakInject/VCAMRootHideProbe.dylib \
     -o "$IOS_DIR/VCAMRootHideProbe.dylib"
 
 TWEAK_DIR="$PKG_ROOT/var/jb/usr/lib/TweakInject"
