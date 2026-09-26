@@ -29,6 +29,8 @@ using vcam::product::ProductPlaybackIntent;
 @property(nonatomic, strong) UILabel* selectedLabel;
 @property(nonatomic, strong) UILabel* statusLabel;
 @property(nonatomic, strong, nullable) NSURL* ownedMediaURL;
+- (BOOL)claimFileCompletionForRequestToken:
+    (std::uint64_t)requestToken;
 @end
 
 @implementation VCAMInternalGalleryViewController {
@@ -220,6 +222,28 @@ using vcam::product::ProductPlaybackIntent;
     [self refreshControls];
 }
 
+- (BOOL)claimFileCompletionForRequestToken:
+    (std::uint64_t)requestToken {
+    __block BOOL accepted = NO;
+
+    void (^claim)(void) = ^{
+        accepted =
+            _selectionGate
+                .claimFileCompletion(
+                    requestToken);
+    };
+
+    if ([NSThread isMainThread]) {
+        claim();
+    } else {
+        dispatch_sync(
+            dispatch_get_main_queue(),
+            claim);
+    }
+
+    return accepted;
+}
+
 - (void)selectMediaTapped:(id)sender {
     (void)sender;
 
@@ -311,6 +335,12 @@ using vcam::product::ProductPlaybackIntent;
                 return;
             }
 
+            if (![strongSelf
+                    claimFileCompletionForRequestToken:
+                        requestToken]) {
+                return;
+            }
+
             if (url == nil ||
                 error != nil ||
                 !url.isFileURL) {
@@ -329,6 +359,28 @@ using vcam::product::ProductPlaybackIntent;
                 const char* utf8 =
                     url.path.UTF8String;
                 std::string status;
+
+                ProductControlOwner::
+                    CommitGate commitGate =
+                    [weakSelf, requestToken](
+                        const ProductControlOwner::
+                            CommitAction&
+                                commitAction) {
+                        VCAMInternalGalleryViewController*
+                            currentSelf =
+                                weakSelf;
+
+                        if (currentSelf == nil) {
+                            return false;
+                        }
+
+                        return currentSelf
+                            ->_selectionGate
+                            .commitIfCurrent(
+                                requestToken,
+                                commitAction);
+                    };
+
                 const bool selected =
                     utf8 != nullptr &&
                     strongSelf->_productOwner
@@ -337,6 +389,7 @@ using vcam::product::ProductPlaybackIntent;
                             isVideo
                                 ? ProductMediaKind::Video
                                 : ProductMediaKind::Photo,
+                            commitGate,
                             &status);
 
                 dispatch_async(
@@ -669,12 +722,14 @@ using vcam::product::ProductPlaybackIntent;
                         displayName];
         }
 
+        const std::string status =
+            _productOwner
+                ->lastStatus();
+
         self.statusLabel.text =
             [NSString
                 stringWithUTF8String:
-                    _productOwner
-                        ->lastStatus()
-                        .c_str()];
+                    status.c_str()];
 
         const BOOL hasMedia =
             snapshot.hasMedia();
