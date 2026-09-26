@@ -80,9 +80,13 @@ jobs:
             exit 1
           fi
 
-          network_forbidden='GET /vcam\.mjpg|OBS|obs-websocket|NSURLSession|Network\.framework|CFNetwork|NWConnection|nw_connection|MJPEG|portal API'
+          network_forbidden='GET /vcam\.mjpg|obs-websocket|NSURLSession|Network\.framework|CFNetwork|NWConnection|nw_connection|MJPEG|portal API'
           if grep -RInEi "$network_forbidden" src product/VCAMPro.plist product/package; then
             echo "Forbidden network/OBS production dependency found."
+            exit 1
+          fi
+          if grep -RInE '(^|[^A-Za-z])OBS([^A-Za-z]|$)' src product/VCAMPro.plist product/package; then
+            echo "Forbidden OBS production dependency found."
             exit 1
           fi
 
