@@ -29,8 +29,9 @@ std::uint64_t MonotonicNs() {
         return value;
     }();
 
-    const std::uint64_t ticks = mach_absolute_time();
-    return (ticks * info.numer) / info.denom;
+    const __uint128_t scaled =
+        static_cast<__uint128_t>(mach_absolute_time()) * info.numer;
+    return static_cast<std::uint64_t>(scaled / info.denom);
 }
 
 bool ReadFile(const char* path, std::string* value) {
@@ -347,18 +348,18 @@ MarkerObservation IOSGate1Platform::pollMarker(
         return observation;
     }
 
-    observation.runNonce = record.nonce;
-    observation.text = record.marker;
-    observation.process = record.process;
-    observation.pid = record.pid;
-    observation.observedAtNs = record.observedAtNs;
+    const ProcessSnapshot current =
+        discoverMediaserverd();
+    if (!current.unambiguous || current.pid <= 0) {
+        return observation;
+    }
 
     const ProtocolStatus status =
         ValidateWitnessRecord(
             record,
             impl_->runNonce,
             proofStartNs,
-            record.pid,
+            current.pid,
             -1);
     if (status != ProtocolStatus::Ok) {
         observation.error =
@@ -367,6 +368,11 @@ MarkerObservation IOSGate1Platform::pollMarker(
         return observation;
     }
 
+    observation.runNonce = record.nonce;
+    observation.text = record.marker;
+    observation.process = record.process;
+    observation.pid = record.pid;
+    observation.observedAtNs = record.observedAtNs;
     observation.found = true;
     return observation;
 }
