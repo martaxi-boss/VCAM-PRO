@@ -1,7 +1,0 @@
-#!/bin/sh
-set -eu
-
-rm -f /var/tmp/VCAM_PRO_GATE1_REQUEST.txt
-rm -f /var/tmp/VCAM_PRO_GATE1_WITNESS.txt
-
-exit 0
