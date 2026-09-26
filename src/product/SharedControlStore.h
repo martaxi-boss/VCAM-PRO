@@ -12,6 +12,12 @@
 
 namespace vcam::product {
 
+enum class SharedControlLoadProvenance : std::uint8_t {
+    Absent = 0,
+    Valid,
+    InvalidOrUnreadable,
+};
+
 class SharedControlStore final {
 public:
     using ChangeCallback =
@@ -39,6 +45,10 @@ public:
         const SharedControlStore&) = delete;
 
     bool load(
+        ProductControlSnapshot* snapshot) const;
+
+    SharedControlLoadProvenance
+    loadWithProvenance(
         ProductControlSnapshot* snapshot) const;
 
     bool save(

@@ -272,6 +272,63 @@ bool ParseUnsignedGeneration(
     }
 }
 
+bool HasCompleteSchema(
+    NSDictionary* dict) {
+    if (dict == nil) {
+        return false;
+    }
+
+    return
+        dict[@"enabled"] != nil &&
+        dict[@"mediaKind"] != nil &&
+        dict[@"mediaPath"] != nil &&
+        dict[@"selectionGeneration"] != nil &&
+        dict[@"loopEnabled"] != nil &&
+        dict[@"playbackIntent"] != nil;
+}
+
+bool IsCanonicalSnapshotEncoding(
+    const ProductControlSnapshot& snapshot,
+    bool typeConfused,
+    bool mediaKindRecognized,
+    bool playbackRecognized,
+    bool generationValid,
+    bool schemaComplete) {
+    if (typeConfused ||
+        !mediaKindRecognized ||
+        !playbackRecognized ||
+        !generationValid ||
+        !schemaComplete) {
+        return false;
+    }
+
+    if (snapshot.mediaKind ==
+        ProductMediaKind::None) {
+        return
+            snapshot.mediaPath.empty() &&
+            !snapshot.loopEnabled &&
+            snapshot.playbackIntent ==
+                ProductPlaybackIntent::Stopped;
+    }
+
+    if (snapshot.mediaPath.empty() ||
+        snapshot.selectionGeneration == 0) {
+        return false;
+    }
+
+    if (snapshot.mediaKind ==
+        ProductMediaKind::Photo &&
+        snapshot.loopEnabled) {
+        return false;
+    }
+
+    return
+        snapshot.mediaKind ==
+            ProductMediaKind::Photo ||
+        snapshot.mediaKind ==
+            ProductMediaKind::Video;
+}
+
 void NormalizeSnapshot(
     ProductControlSnapshot* snapshot,
     bool typeConfused,
@@ -345,6 +402,20 @@ bool SharedControlStore::load(
         return false;
     }
 
+    (void)loadWithProvenance(
+        snapshot);
+    return true;
+}
+
+SharedControlLoadProvenance
+SharedControlStore::loadWithProvenance(
+    ProductControlSnapshot* snapshot) const {
+    if (snapshot == nullptr) {
+        return
+            SharedControlLoadProvenance::
+                InvalidOrUnreadable;
+    }
+
     diskReadCount_.fetch_add(
         1,
         std::memory_order_relaxed);
@@ -357,7 +428,27 @@ bool SharedControlStore::load(
             NSStringFromStd(controlPath_);
 
         if (path == nil) {
-            return true;
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
+        }
+
+        BOOL isDirectory = NO;
+        const BOOL exists =
+            [[NSFileManager defaultManager]
+                fileExistsAtPath:path
+                     isDirectory:&isDirectory];
+
+        if (!exists) {
+            return
+                SharedControlLoadProvenance::
+                    Absent;
+        }
+
+        if (isDirectory) {
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
         }
 
         NSData* data =
@@ -367,7 +458,9 @@ bool SharedControlStore::load(
                                  error:nil];
 
         if (data == nil) {
-            return true;
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
         }
 
         NSError* plistError = nil;
@@ -383,7 +476,9 @@ bool SharedControlStore::load(
             plistError != nil ||
             ![root isKindOfClass:
                 [NSDictionary class]]) {
-            return true;
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
         }
 
         NSDictionary* dict =
@@ -411,10 +506,11 @@ bool SharedControlStore::load(
                 dict[@"mediaPath"],
                 &typeConfused);
 
-        (void)ParseUnsignedGeneration(
-            dict[@"selectionGeneration"],
-            &result.selectionGeneration,
-            &typeConfused);
+        const bool generationValid =
+            ParseUnsignedGeneration(
+                dict[@"selectionGeneration"],
+                &result.selectionGeneration,
+                &typeConfused);
 
         result.loopEnabled =
             ParseBoolField(
@@ -427,6 +523,15 @@ bool SharedControlStore::load(
                 &typeConfused,
                 &playbackRecognized);
 
+        const bool trusted =
+            IsCanonicalSnapshotEncoding(
+                result,
+                typeConfused,
+                mediaKindRecognized,
+                playbackRecognized,
+                generationValid,
+                HasCompleteSchema(dict));
+
         NormalizeSnapshot(
             &result,
             typeConfused,
@@ -435,7 +540,11 @@ bool SharedControlStore::load(
 
         *snapshot =
             std::move(result);
-        return true;
+
+        return trusted
+            ? SharedControlLoadProvenance::Valid
+            : SharedControlLoadProvenance::
+                InvalidOrUnreadable;
     }
 }
 
@@ -609,7 +718,14 @@ SharedControlStore::diskWriteCount() const noexcept {
 
 void SharedControlStore::handleDarwinChange() {
     ProductControlSnapshot snapshot;
-    if (!load(&snapshot)) {
+
+    const auto provenance =
+        loadWithProvenance(
+            &snapshot);
+
+    if (provenance ==
+        SharedControlLoadProvenance::
+            InvalidOrUnreadable) {
         snapshot =
             ProductControlSnapshot{};
     }
