@@ -78,16 +78,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p build/gate1-remediation-c-tests
-          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/core             proofs/gate1_device_runner/core/Gate1ProofRunner.cpp             proofs/gate1_device_runner/tests/Gate1ProofRunnerTests.cpp             -o build/gate1-remediation-a-tests/original
-          build/gate1-remediation-a-tests/original             | tee build/gate1-remediation-a-tests/original.txt
-          grep -q 'Gate 1 runner host tests run: 15, failures: 0'             build/gate1-remediation-a-tests/original.txt
+          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/core             proofs/gate1_device_runner/core/Gate1ProofRunner.cpp             proofs/gate1_device_runner/tests/Gate1ProofRunnerTests.cpp             -o build/gate1-remediation-c-tests/original
+          build/gate1-remediation-c-tests/original             | tee build/gate1-remediation-c-tests/original.txt
+          grep -q 'Gate 1 runner host tests run: 15, failures: 0'             build/gate1-remediation-c-tests/original.txt
 
       - name: Run remediation host tests
         run: |
           set -euo pipefail
-          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/remediation             proofs/gate1_device_runner/remediation/WitnessProtocol.cpp             proofs/gate1_device_runner/tests/RemediationATests.cpp             -o build/gate1-remediation-a-tests/remediation
-          build/gate1-remediation-a-tests/remediation             | tee build/gate1-remediation-a-tests/remediation.txt
-          grep -q 'Gate 1 remediation tests run: 11, failures: 0'             build/gate1-remediation-a-tests/remediation.txt
+          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/remediation             proofs/gate1_device_runner/remediation/WitnessProtocol.cpp             proofs/gate1_device_runner/tests/RemediationATests.cpp             -o build/gate1-remediation-c-tests/remediation
+          build/gate1-remediation-c-tests/remediation             | tee build/gate1-remediation-c-tests/remediation.txt
+          grep -q 'Gate 1 remediation tests run: 11, failures: 0'             build/gate1-remediation-c-tests/remediation.txt
 
       - name: Validate installation and runtime separation
         run: |
@@ -246,7 +246,7 @@ jobs:
             build/gate1-remediation-a/witness-deps.txt
             build/gate1-remediation-a/coordinator-deps.txt
             build/gate1-remediation-a/viewer-deps.txt
-            build/gate1-remediation-a-tests/original.txt
-            build/gate1-remediation-a-tests/remediation.txt
+            build/gate1-remediation-c-tests/original.txt
+            build/gate1-remediation-c-tests/remediation.txt
           if-no-files-found: error
           retention-days: 14
