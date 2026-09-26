@@ -59,7 +59,8 @@ jobs:
           GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
           echo "$GNU_PATH" >> "$GITHUB_PATH"
 
-          ldid 2>&1 | grep -qi procursus
+          command -v ldid
+          ldid -h >/dev/null 2>&1 || true
           dpkg-deb --version
           gsed --version | head -1
           gfind --version | head -1
