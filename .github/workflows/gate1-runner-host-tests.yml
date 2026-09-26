@@ -1,0 +1,49 @@
+name: Gate 1 Runner Host Tests
+
+on:
+  push:
+    branches:
+      - builder/gate1-automated-device-proof-runner-001
+    paths:
+      - "proofs/gate1_device_runner/core/**"
+      - "proofs/gate1_device_runner/tests/**"
+      - ".github/workflows/gate1-runner-host-tests.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build deterministic Gate 1 state-machine tests
+        run: |
+          set -euo pipefail
+          mkdir -p build/gate1-host-tests
+          c++             -std=c++17             -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/core             proofs/gate1_device_runner/core/Gate1ProofRunner.cpp             proofs/gate1_device_runner/tests/Gate1ProofRunnerTests.cpp             -o build/gate1-host-tests/gate1_tests
+
+      - name: Run deterministic Gate 1 state-machine tests
+        run: |
+          set -euo pipefail
+          build/gate1-host-tests/gate1_tests             | tee build/gate1-host-tests/results.txt
+          grep -q 'Gate 1 runner host tests run: 15, failures: 0'             build/gate1-host-tests/results.txt
+
+      - name: Guard against device-side execution in CI
+        run: |
+          set -euo pipefail
+          if grep -R -En             'ssh |scp |iproxy|idevice|killall[[:space:]]+mediaserverd|launchctl[[:space:]].*mediaserverd'             proofs/gate1_device_runner/tests             proofs/gate1_device_runner/core; then
+            echo "Unexpected device-control token in host-test scope"
+            exit 1
+          fi
+
+      - name: Upload host-test evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate1-runner-host-test-evidence
+          path: build/gate1-host-tests/results.txt
+          if-no-files-found: error
+          retention-days: 14
