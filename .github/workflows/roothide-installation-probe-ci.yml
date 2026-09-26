@@ -65,7 +65,7 @@ jobs:
           dpkg-deb --version
           gsed --version | head -1
           gfind --version | head -1
-          realpath --version | head -1
+          "$(brew --prefix coreutils)/libexec/gnubin/realpath" --version | head -1
 
       - name: Build arm64 rootless input probe
         shell: bash
