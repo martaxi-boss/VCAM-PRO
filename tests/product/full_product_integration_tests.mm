@@ -1,4 +1,5 @@
 #include "CameraConsumerAdapter.h"
+#include "ControlStateCache.h"
 #include "InternalGalleryMediaSession.h"
 #include "ProductControlOwner.h"
 #include "SelectionCompletionGate.h"
@@ -710,7 +711,12 @@ int main() {
     @autoreleasepool {
         const std::string root =
             TempRoot();
-        CHECK(CreateDirectory(root));
+        if (!CreateDirectory(root)) {
+            std::cerr
+                << "Unable to create product test root."
+                << std::endl;
+            return EXIT_FAILURE;
+        }
 
         const std::string video =
             TempFile(root, @"mov");
