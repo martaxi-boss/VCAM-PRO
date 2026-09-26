@@ -1,3 +1,4 @@
+#include "ControlledPreviewHost.h"
 #include "SpringBoardControlHost.h"
 
 #include <cstring>
@@ -28,4 +29,7 @@ static void VCAMProControlledInitialize() {
 
     vcam::product::
         StartSpringBoardControlHost();
+
+    vcam::controlled::
+        StartControlledPreviewHost();
 }

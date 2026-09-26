@@ -3,10 +3,6 @@
 #include "InternalGalleryViewController.h"
 #include "ProductControlOwner.h"
 
-#if defined(VCAM_CONTROLLED_PREVIEW)
-#include "ControlledRuntime.h"
-#endif
-
 #import <UIKit/UIKit.h>
 
 @interface VCAMProductOverlayWindow : UIWindow
@@ -36,19 +32,11 @@
 
 @implementation VCAMProductOverlayController {
     vcam::product::ProductControlOwner _owner;
-#if defined(VCAM_CONTROLLED_PREVIEW)
-    vcam::controlled::ControlledRuntime
-        _controlledRuntime;
-#endif
     UIButton* _floatingButton;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-
-#if defined(VCAM_CONTROLLED_PREVIEW)
-    (void)_controlledRuntime.start();
-#endif
 
     self.view.backgroundColor =
         [UIColor clearColor];
@@ -113,21 +101,10 @@
 
 - (void)openControl {
     VCAMInternalGalleryViewController*
-        control = nil;
-
-#if defined(VCAM_CONTROLLED_PREVIEW)
-    control =
-        [[VCAMInternalGalleryViewController alloc]
-            initWithProductControlOwner:
-                &_owner
-            controlledRuntime:
-                &_controlledRuntime];
-#else
-    control =
+        control =
         [[VCAMInternalGalleryViewController alloc]
             initWithProductControlOwner:
                 &_owner];
-#endif
 
     UINavigationController* navigation =
         [[UINavigationController alloc]

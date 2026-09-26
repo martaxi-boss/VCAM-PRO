@@ -24,7 +24,6 @@ COMMON=(
   -Werror=unguarded-availability-new
   -pedantic
   -Wno-deprecated-declarations
-  -DVCAM_CONTROLLED_PREVIEW=1
   -Isrc/frame_engine
   -Isrc/media_engine
   -Isrc/control
@@ -53,6 +52,7 @@ SOURCES=(
   src/product/SharedMediaStager.mm
   src/product/SpringBoardControlHost.mm
   src/controlled/ControlledFrameConsumer.cpp
+  src/controlled/ControlledPreviewHost.mm
   src/controlled/ControlledRuntime.mm
   src/controlled/ControlledPreviewView.mm
   src/controlled/VCAMProControlledEntry.mm
