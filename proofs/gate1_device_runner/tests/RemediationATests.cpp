@@ -102,6 +102,21 @@ bool StaleRequest() {
         ProtocolStatus::Stale;
 }
 
+bool WitnessRoundTrip() {
+    const WitnessRecord original = Record();
+    const std::string rendered = RenderWitnessRecord(original);
+    if (rendered.empty()) return false;
+
+    WitnessRecord parsed;
+    return ParseWitnessRecord(rendered, &parsed) &&
+           parsed.nonce == original.nonce &&
+           parsed.marker == original.marker &&
+           parsed.process == original.process &&
+           parsed.pid == original.pid &&
+           parsed.witnessVersion == original.witnessVersion &&
+           parsed.observedAtNs == original.observedAtNs;
+}
+
 void Run(const char* name, const std::function<bool()>& test) {
     ++gTestsRun;
     if (test()) {
@@ -125,6 +140,7 @@ int main() {
     Run("PID_AFTER required", PidAfterRequired);
     Run("valid witness accepted", ValidWitness);
     Run("stale request rejected", StaleRequest);
+    Run("witness record round trip", WitnessRoundTrip);
 
     std::cout << "Gate 1 remediation tests run: "
               << gTestsRun << ", failures: " << gFailures << "\n";
