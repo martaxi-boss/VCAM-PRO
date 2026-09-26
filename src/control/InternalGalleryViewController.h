@@ -33,7 +33,8 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithProductControlOwner:
     (vcam::product::ProductControlOwner*)owner
     controlledRuntime:
-        (vcam::controlled::ControlledRuntime*)runtime;
+        (vcam::controlled::ControlledRuntime*)runtime
+    NS_DESIGNATED_INITIALIZER;
 #endif
 #endif
 

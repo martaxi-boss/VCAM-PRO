@@ -1,6 +1,7 @@
 #include "SpringBoardControlHost.h"
 
 #include <cstring>
+#include <stdlib.h>
 #include <unistd.h>
 
 namespace {
