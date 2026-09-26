@@ -266,10 +266,14 @@ ControlledFrameConsumer::tryAcquire() noexcept {
     ControlledAcquireResult result;
     result.kind =
         ControlledAcquireKind::Presented;
-    result.frame.emplace(
+
+    ControlledPresentedFrame presented(
         frameLease->pixelBuffer(),
         frameLease->identity(),
         tracker_);
+
+    result.frame.emplace(
+        std::move(presented));
 
     if (!result.frame->valid()) {
         result.frame.reset();
