@@ -77,23 +77,23 @@
 
     [NSLayoutConstraint
         activateConstraints:@[
-            [_floatingButton
-                widthAnchor
+            [[_floatingButton
+                widthAnchor]
                 constraintEqualToConstant:
                     56.0],
-            [_floatingButton
-                heightAnchor
+            [[_floatingButton
+                heightAnchor]
                 constraintEqualToConstant:
                     56.0],
-            [_floatingButton
-                trailingAnchor
+            [[_floatingButton
+                trailingAnchor]
                 constraintEqualToAnchor:
                     self.view
                         .safeAreaLayoutGuide
                         .trailingAnchor
                 constant:-18.0],
-            [_floatingButton
-                centerYAnchor
+            [[_floatingButton
+                centerYAnchor]
                 constraintEqualToAnchor:
                     self.view.centerYAnchor]
         ]];
