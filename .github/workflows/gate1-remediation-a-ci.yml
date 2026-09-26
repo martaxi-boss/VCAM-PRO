@@ -1,0 +1,187 @@
+name: Gate 1 Remediation A CI
+
+on:
+  push:
+    branches:
+      - builder/gate1-automated-device-proof-runner-001
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    env:
+      BASE_MAIN: d476caacc4f557843f9551533c2fcbe7c5d40baa
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        run: |
+          set -euo pipefail
+          brew install ldid dpkg
+
+      - name: Prove existing Load Probe unchanged
+        run: |
+          set -euo pipefail
+          git cat-file -e "$BASE_MAIN^{commit}"
+          git diff --exit-code "$BASE_MAIN" -- proofs/mediaserverd_load_probe
+          echo "LOAD_PROBE_UNCHANGED=PASS"
+
+      - name: Validate Witness filter and source boundaries
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+          p = Path("proofs/gate1_device_runner/witness/VCAMProGate1Witness.plist")
+          with p.open("rb") as f:
+              data = plistlib.load(f)
+          expected = {"Filter": {"Executables": ["mediaserverd"]}}
+          if data != expected:
+              raise SystemExit(f"unexpected witness filter: {data!r}")
+          print("WITNESS_FILTER=PASS")
+          PY
+
+          PROD=proofs/gate1_device_runner
+          if grep -R -En             'OSLogStoreSystem|/usr/bin/log|MSHookFunction|MSHookMessageEx|%hook|fishhook|method_exchangeImplementations|AVCapture|CMSampleBuffer|CVPixelBuffer|VideoToolbox|Photos|NSURLSession|nw_connection|socket[[:space:]]*\('             "$PROD/core" "$PROD/remediation" "$PROD/helper" "$PROD/coordinator" "$PROD/witness" "$PROD/viewer"; then
+            echo "Forbidden API/token found"
+            exit 1
+          fi
+
+          grep -F 'OSLogStoreCurrentProcessIdentifier'             "$PROD/witness/VCAMProGate1Witness.mm"
+          grep -F 'VCAM_PRO_LOAD_PROBE_001'             "$PROD/remediation/WitnessProtocol.cpp"
+
+      - name: Run original 15 host tests
+        run: |
+          set -euo pipefail
+          mkdir -p build/gate1-remediation-a-tests
+          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/core             proofs/gate1_device_runner/core/Gate1ProofRunner.cpp             proofs/gate1_device_runner/tests/Gate1ProofRunnerTests.cpp             -o build/gate1-remediation-a-tests/original
+          build/gate1-remediation-a-tests/original             | tee build/gate1-remediation-a-tests/original.txt
+          grep -q 'Gate 1 runner host tests run: 15, failures: 0'             build/gate1-remediation-a-tests/original.txt
+
+      - name: Run remediation host tests
+        run: |
+          set -euo pipefail
+          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/remediation             proofs/gate1_device_runner/remediation/WitnessProtocol.cpp             proofs/gate1_device_runner/tests/RemediationATests.cpp             -o build/gate1-remediation-a-tests/remediation
+          build/gate1-remediation-a-tests/remediation             | tee build/gate1-remediation-a-tests/remediation.txt
+          grep -q 'Gate 1 remediation tests run: 10, failures: 0'             build/gate1-remediation-a-tests/remediation.txt
+
+      - name: Validate one-restart and rollback policy
+        run: |
+          set -euo pipefail
+          HELPER=proofs/gate1_device_runner/helper/IOSGate1Platform.mm
+          test "$(grep -c 'kill(pid, SIGTERM)' "$HELPER")" = "1"
+          grep -F 'duplicate restart blocked' "$HELPER"
+
+          if grep -R -En             'SIGKILL|killall|pkill|ldrestart|userspace|reboot|SpringBoard'             proofs/gate1_device_runner/package             proofs/gate1_device_runner/helper; then
+            echo "Forbidden restart/rollback behavior found"
+            exit 1
+          fi
+
+          if grep -R -En             'VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal'             proofs/gate1_device_runner/package; then
+            echo "Rollback scripts target protected package/files"
+            exit 1
+          fi
+
+      - name: Build rootless arm64 package
+        env:
+          VCAM_GATE1_BUILD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          bash proofs/gate1_device_runner/build_package.sh
+
+      - name: Inspect package and Mach-O outputs
+        id: package
+        run: |
+          set -euo pipefail
+          DEB="$(find build/gate1-remediation-a -maxdepth 1 -name '*.deb' -type f | head -n 1)"
+          test -n "$DEB"
+          test "$(find build/gate1-remediation-a -maxdepth 1 -name '*.deb' -type f | wc -l | tr -d ' ')" = "1"
+
+          test "$(dpkg-deb -f "$DEB" Package)" = "com.vcampro.gate1proofrunner"
+          test "$(dpkg-deb -f "$DEB" Version)" = "0.2.0"
+          test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64"
+
+          dpkg-deb -c "$DEB" | tee build/gate1-remediation-a/package-contents.txt
+
+          EXTRACT="$RUNNER_TEMP/gate1-extract"
+          CONTROL="$RUNNER_TEMP/gate1-control"
+          rm -rf "$EXTRACT" "$CONTROL"
+          mkdir -p "$EXTRACT" "$CONTROL"
+          dpkg-deb -x "$DEB" "$EXTRACT"
+          dpkg-deb -e "$DEB" "$CONTROL"
+
+          test -f "$EXTRACT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.dylib"
+          test -f "$EXTRACT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.plist"
+          test -f "$EXTRACT/var/jb/usr/libexec/vcampro-gate1-coordinator"
+          test -f "$EXTRACT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
+          test -f "$EXTRACT/var/jb/Applications/VCAMProGate1.app/Info.plist"
+
+          if find "$EXTRACT" -type f | grep -E             'VCAMProLoadProbe|com\.vcam\.universal|/Library/MobileSubstrate'; then
+            echo "Package overlaps protected payload"
+            exit 1
+          fi
+
+          for script in postinst prerm; do
+            test -f "$CONTROL/$script"
+            cat "$CONTROL/$script"
+            if grep -Eqi               'killall|pkill|SIGKILL|ldrestart|userspace|reboot|SpringBoard|VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal'               "$CONTROL/$script"; then
+              echo "Forbidden package-script behavior"
+              exit 1
+            fi
+          done
+
+          WITNESS="$EXTRACT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.dylib"
+          COORD="$EXTRACT/var/jb/usr/libexec/vcampro-gate1-coordinator"
+          VIEWER="$EXTRACT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
+
+          for binary in "$WITNESS" "$COORD" "$VIEWER"; do
+            lipo -info "$binary"
+            test "$(lipo -archs "$binary")" = "arm64"
+            otool -l "$binary"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'
+            otool -l "$binary"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | grep -q 'minos 15.0'
+          done
+
+          otool -L "$WITNESS" | tee build/gate1-remediation-a/witness-deps.txt
+          otool -L "$COORD" | tee build/gate1-remediation-a/coordinator-deps.txt
+          otool -L "$VIEWER" | tee build/gate1-remediation-a/viewer-deps.txt
+
+          if otool -L "$WITNESS" "$COORD" "$VIEWER" | grep -E             'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Network\.framework'; then
+            echo "Forbidden media/network dependency"
+            exit 1
+          fi
+
+          if nm -u "$WITNESS" "$COORD" "$VIEWER" | grep -E             'MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer'; then
+            echo "Forbidden hook/camera symbol"
+            exit 1
+          fi
+
+          if strings "$WITNESS" "$COORD" "$VIEWER" | grep -E             'OSLogStoreSystem|/usr/bin/log|private.*logd'; then
+            echo "Forbidden logging dependency"
+            exit 1
+          fi
+
+          shasum -a 256 "$DEB" | tee build/gate1-remediation-a/package-sha256.txt
+          echo "deb=$DEB" >> "$GITHUB_OUTPUT"
+
+      - name: Upload Gate 1 proof package
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-gate1-proof-runner-remediation-a
+          path: |
+            ${{ steps.package.outputs.deb }}
+            build/gate1-remediation-a/package-contents.txt
+            build/gate1-remediation-a/package-sha256.txt
+            build/gate1-remediation-a/witness-deps.txt
+            build/gate1-remediation-a/coordinator-deps.txt
+            build/gate1-remediation-a/viewer-deps.txt
+            build/gate1-remediation-a-tests/original.txt
+            build/gate1-remediation-a-tests/remediation.txt
+          if-no-files-found: error
+          retention-days: 14
