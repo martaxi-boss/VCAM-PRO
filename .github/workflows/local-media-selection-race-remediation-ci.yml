@@ -40,7 +40,7 @@ jobs:
           while IFS= read -r path; do
             test -n "$path" || continue
             case "$path" in
-              src/control/InternalGalleryViewController.mm|              src/control/SelectionCompletionGate.h|              src/product/ProductControlOwner.h|              src/product/ProductControlOwner.mm|              tests/control/selection_completion_race_tests.cpp|              tests/product/selection_post_claim_commit_race_tests.mm|              .github/workflows/local-media-selection-race-remediation-ci.yml)
+              src/control/InternalGalleryViewController.mm|              src/control/SelectionCompletionGate.h|              src/product/ProductControlOwner.h|              src/product/ProductControlOwner.mm|              tests/control/selection_completion_race_tests.cpp|              tests/product/selection_post_claim_commit_race_tests.mm|              tests/product/product_control_lost_update_tests.mm|              .github/workflows/local-media-selection-race-remediation-ci.yml)
                 ;;
               *)
                 echo "Unauthorized changed file: $path"
@@ -135,6 +135,29 @@ jobs:
           echo "POST_CLAIM_PRE_COMMIT_STALE_REJECTION=PASS"
           echo "LATEST_SELECTION_REQUEST_WINS=PASS"
           echo "REJECTED_STAGED_MEDIA_CLEANUP=PASS"
+
+      - name: Run deterministic Product Control lost-update tests
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/product-control-lost-update
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/product_control_lost_update_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/product-control-lost-update/tests
+
+          build/product-control-lost-update/tests             | tee build/product-control-lost-update/results.txt
+
+          grep -q 'Product control lost-update tests run: 5, failures: 0'             build/product-control-lost-update/results.txt
+          grep -q 'PASS clear invalidates inflight selection'             build/product-control-lost-update/results.txt
+          grep -q 'PASS latest enabled state preserved'             build/product-control-lost-update/results.txt
+          grep -q 'PASS latest playback intent preserved'             build/product-control-lost-update/results.txt
+          grep -q 'PASS latest video loop state preserved'             build/product-control-lost-update/results.txt
+          grep -q 'PASS concurrent orthogonal mutations preserved'             build/product-control-lost-update/results.txt
+
+          echo "PRODUCT_CONTROL_LOST_UPDATE_BLOCKED=PASS"
+          echo "CLEAR_INVALIDATES_INFLIGHT_SELECTION=PASS"
+          echo "LATEST_ENABLED_STATE_PRESERVED=PASS"
+          echo "LATEST_PLAYBACK_INTENT_PRESERVED=PASS"
+          echo "LATEST_LOOP_STATE_PRESERVED=PASS"
 
       - name: Frame Engine A through F2 regressions
         run: |
