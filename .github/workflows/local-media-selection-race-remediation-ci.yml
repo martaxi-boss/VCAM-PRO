@@ -40,7 +40,7 @@ jobs:
           while IFS= read -r path; do
             test -n "$path" || continue
             case "$path" in
-              src/control/InternalGalleryViewController.mm|              src/control/SelectionCompletionGate.h|              tests/control/selection_completion_race_tests.cpp|              .github/workflows/local-media-selection-race-remediation-ci.yml)
+              src/control/InternalGalleryViewController.mm|              src/control/SelectionCompletionGate.h|              src/product/ProductControlOwner.h|              src/product/ProductControlOwner.mm|              tests/control/selection_completion_race_tests.cpp|              tests/product/selection_post_claim_commit_race_tests.mm|              .github/workflows/local-media-selection-race-remediation-ci.yml)
                 ;;
               *)
                 echo "Unauthorized changed file: $path"
@@ -57,7 +57,7 @@ jobs:
           echo "AUTHORIZED_DIFF=PASS"
           echo "REFERENCE_REPOS_UNCHANGED=PASS"
 
-      - name: Prove freshness claim precedes product mutation
+      - name: Prove pre-staging stale rejection ordering
         run: |
           set -euo pipefail
 
@@ -86,9 +86,12 @@ jobs:
 
           required = [
               "claimFileCompletion",
+              "commitIfCurrent",
+              "std::lock_guard<std::mutex>",
               "requestToken != requestToken_",
               "!consumed_",
-              "fileCompletionClaimed_",
+              "!fileCompletionClaimed_",
+              "finalCommitClaimed_",
           ]
 
           for token in required:
@@ -96,22 +99,42 @@ jobs:
                   raise SystemExit(
                       f"missing gate invariant: {token}")
 
-          print("STALE_COMPLETION_PRE_MUTATION_GUARD=PASS")
+          print("PRE_STAGING_STALE_REJECTION=PASS")
           PY
 
-      - name: Run deterministic selection race regression
+      - name: Run existing 10 selection race tests
         run: |
           set -euo pipefail
 
           mkdir -p build/selection-race
 
-          xcrun --sdk macosx clang++             -std=c++17             -Wall             -Wextra             -Werror             -pedantic             -Isrc/control             tests/control/selection_completion_race_tests.cpp             -o build/selection-race/selection-race-tests
+          xcrun --sdk macosx clang++             -std=c++17             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Isrc/control             tests/control/selection_completion_race_tests.cpp             -o build/selection-race/selection-race-tests
 
           build/selection-race/selection-race-tests             | tee build/selection-race/results.txt
 
           grep -q 'Selection race tests run: 10, failures: 0'             build/selection-race/results.txt
 
-          echo "STALE_SELECTION_COMMIT_BLOCKED=PASS"
+          echo "PRE_STAGING_STALE_REJECTION=PASS"
+
+      - name: Run deterministic post-claim pre-commit race tests
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/selection-race
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             -Isrc/product             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/selection_post_claim_commit_race_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/selection-race/post-claim-race-tests
+
+          build/selection-race/post-claim-race-tests             | tee build/selection-race/post-claim-results.txt
+
+          grep -q 'Post-claim commit race tests run: 4, failures: 0'             build/selection-race/post-claim-results.txt
+          grep -q 'PASS B cancellation blocks A and cleans stage'             build/selection-race/post-claim-results.txt
+          grep -q 'PASS failed B does not revive A'             build/selection-race/post-claim-results.txt
+          grep -q 'PASS successful B is only winner'             build/selection-race/post-claim-results.txt
+          grep -q 'PASS A commit before B start remains valid'             build/selection-race/post-claim-results.txt
+
+          echo "POST_CLAIM_PRE_COMMIT_STALE_REJECTION=PASS"
+          echo "LATEST_SELECTION_REQUEST_WINS=PASS"
+          echo "REJECTED_STAGED_MEDIA_CLEANUP=PASS"
 
       - name: Frame Engine A through F2 regressions
         run: |
@@ -147,7 +170,7 @@ jobs:
 
           echo "PRODUCT_INTEGRATION=PASS"
 
-      - name: Compile changed production source for iOS 15 arm64
+      - name: Compile changed production sources for iOS 15 arm64
         run: |
           set -euo pipefail
 
@@ -156,19 +179,41 @@ jobs:
           SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           CXX="$(xcrun --sdk iphoneos -f clang++)"
 
-          "$CXX"             -std=c++17             -fobjc-arc             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall             -Wextra             -Werror             -Werror=unguarded-availability-new             -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             -Isrc/product             -c src/control/InternalGalleryViewController.mm             -o build/gallery-race-remediation/ios/InternalGalleryViewController.o
+          common=(
+            -std=c++17
+            -fobjc-arc
+            -arch arm64
+            -isysroot "$SDKROOT"
+            -miphoneos-version-min=15.0
+            -Wall
+            -Wextra
+            -Werror
+            -Werror=unguarded-availability-new
+            -pedantic
+            -Wno-deprecated-declarations
+            -Isrc/frame_engine
+            -Isrc/media_engine
+            -Isrc/control
+            -Isrc/product
+          )
 
-          xcrun lipo -info             build/gallery-race-remediation/ios/InternalGalleryViewController.o             | tee build/gallery-race-remediation/ios/architecture.txt
+          "$CXX"             "${common[@]}"             -c src/control/InternalGalleryViewController.mm             -o build/gallery-race-remediation/ios/InternalGalleryViewController.o
 
-          grep -q 'arm64'             build/gallery-race-remediation/ios/architecture.txt
+          "$CXX"             "${common[@]}"             -c src/product/ProductControlOwner.mm             -o build/gallery-race-remediation/ios/ProductControlOwner.o
 
-          if grep -q 'arm64e'               build/gallery-race-remediation/ios/architecture.txt; then
-            exit 1
-          fi
+          for object in             InternalGalleryViewController.o             ProductControlOwner.o; do
+            xcrun lipo -info               "build/gallery-race-remediation/ios/$object"               | tee "build/gallery-race-remediation/ios/$object.arch.txt"
 
-          xcrun otool -l             build/gallery-race-remediation/ios/InternalGalleryViewController.o             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/gallery-race-remediation/ios/minos.txt
+            grep -q 'arm64'               "build/gallery-race-remediation/ios/$object.arch.txt"
 
-          grep -q 'minos 15.0'             build/gallery-race-remediation/ios/minos.txt
+            if grep -q 'arm64e'                 "build/gallery-race-remediation/ios/$object.arch.txt"; then
+              exit 1
+            fi
+
+            xcrun otool -l               "build/gallery-race-remediation/ios/$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee "build/gallery-race-remediation/ios/$object.minos.txt"
+
+            grep -q 'minos 15.0'               "build/gallery-race-remediation/ios/$object.minos.txt"
+          done
 
           echo "IOS15_ARM64=PASS"
 
@@ -181,6 +226,8 @@ jobs:
           for path in             src/product/ReferenceCameraHook.h             src/product/ReferenceCameraHook.mm             src/product/MediaserverdRuntime.h             src/product/MediaserverdRuntime.mm             src/product/CameraConsumerAdapter.h             src/product/CameraConsumerAdapter.cpp; do
             test -z "$(git diff --name-only "$target"..HEAD -- "$path")"
           done
+
+          test -z "$(git diff --name-only "$target"..HEAD -- 'src/controlled/**')"
 
           echo "GLOBAL_CAMERA_SUBSYSTEMS_UNTOUCHED=PASS"
           echo "CONTROLLED_PREVIEW_UNTOUCHED=PASS"
