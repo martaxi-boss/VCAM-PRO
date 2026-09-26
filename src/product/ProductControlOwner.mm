@@ -80,6 +80,18 @@ bool ProductControlOwner::selectFromTemporaryPath(
     const std::string& temporarySourcePath,
     ProductMediaKind kind,
     std::string* errorMessage) {
+    return selectFromTemporaryPath(
+        temporarySourcePath,
+        kind,
+        CommitGate{},
+        errorMessage);
+}
+
+bool ProductControlOwner::selectFromTemporaryPath(
+    const std::string& temporarySourcePath,
+    ProductMediaKind kind,
+    const CommitGate& commitGate,
+    std::string* errorMessage) {
     ProductControlSnapshot before;
     {
         std::lock_guard<std::mutex>
@@ -107,6 +119,7 @@ bool ProductControlOwner::selectFromTemporaryPath(
                     ? "Media candidate rejected."
                     : stagingError;
         }
+
         if (errorMessage != nullptr) {
             *errorMessage =
                 stagingError;
@@ -128,14 +141,47 @@ bool ProductControlOwner::selectFromTemporaryPath(
         next.loopEnabled = false;
     }
 
-    if (!commit(
-            next,
-            before.mediaPath,
-            stagedPath)) {
-        if (errorMessage != nullptr) {
+    bool commitAttempted = false;
+
+    const CommitAction commitAction =
+        [&]() {
+            commitAttempted = true;
+            return commit(
+                next,
+                before.mediaPath,
+                stagedPath);
+        };
+
+    const bool committed =
+        commitGate
+            ? commitGate(commitAction)
+            : commitAction();
+
+    if (!committed) {
+        if (!commitAttempted) {
+            (void)stager_.removeOwnedPath(
+                stagedPath);
+
+            const std::string superseded =
+                "Media selection superseded by newer request.";
+
+            {
+                std::lock_guard<std::mutex>
+                    lock(mutex_);
+                lastStatus_ =
+                    superseded;
+            }
+
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    superseded;
+            }
+        } else if (
+            errorMessage != nullptr) {
             *errorMessage =
                 "Unable to commit staged media.";
         }
+
         return false;
     }
 

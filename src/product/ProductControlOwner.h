@@ -4,6 +4,7 @@
 #include "SharedControlStore.h"
 #include "SharedMediaStager.h"
 
+#include <functional>
 #include <mutex>
 #include <string>
 
@@ -11,6 +12,12 @@ namespace vcam::product {
 
 class ProductControlOwner final {
 public:
+    using CommitAction =
+        std::function<bool()>;
+    using CommitGate =
+        std::function<bool(
+            const CommitAction&)>;
+
     ProductControlOwner(
         std::string controlPath =
             SharedControlStore::
@@ -32,6 +39,12 @@ public:
     bool selectFromTemporaryPath(
         const std::string& temporarySourcePath,
         ProductMediaKind kind,
+        std::string* errorMessage);
+
+    bool selectFromTemporaryPath(
+        const std::string& temporarySourcePath,
+        ProductMediaKind kind,
+        const CommitGate& commitGate,
         std::string* errorMessage);
 
     bool clearMedia();

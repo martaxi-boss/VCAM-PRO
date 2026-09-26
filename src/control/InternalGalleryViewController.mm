@@ -359,6 +359,28 @@ using vcam::product::ProductPlaybackIntent;
                 const char* utf8 =
                     url.path.UTF8String;
                 std::string status;
+
+                ProductControlOwner::
+                    CommitGate commitGate =
+                    [weakSelf, requestToken](
+                        const ProductControlOwner::
+                            CommitAction&
+                                commitAction) {
+                        VCAMInternalGalleryViewController*
+                            currentSelf =
+                                weakSelf;
+
+                        if (currentSelf == nil) {
+                            return false;
+                        }
+
+                        return currentSelf
+                            ->_selectionGate
+                            .commitIfCurrent(
+                                requestToken,
+                                commitAction);
+                    };
+
                 const bool selected =
                     utf8 != nullptr &&
                     strongSelf->_productOwner
@@ -367,6 +389,7 @@ using vcam::product::ProductPlaybackIntent;
                             isVideo
                                 ? ProductMediaKind::Video
                                 : ProductMediaKind::Photo,
+                            commitGate,
                             &status);
 
                 dispatch_async(
