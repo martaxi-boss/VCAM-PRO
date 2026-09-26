@@ -1,0 +1,8 @@
+Package: com.vcampro.controlledtest
+Name: VCAM PRO Controlled Test
+Version: 0.1.0
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: VCAM PRO SpringBoard-only controlled local media preview candidate
+Maintainer: VCAM PRO
+Section: Tweaks
