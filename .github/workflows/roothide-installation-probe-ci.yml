@@ -93,13 +93,11 @@ jobs:
           SOURCE="probes/roothide_installation_probe/VCAMRootHideProbe.mm"
 
           grep -q 'VCAM ROOT HIDE PROBE' "$SOURCE"
-          grep -q 'SpringBoard load confirmed' "$SOURCE"
-          grep -q '/var/mobile/Library/Preferences/com.vcampro.roothide-installation-probe.loaded' "$SOURCE"
-          grep -q '2 \* NSEC_PER_SEC' "$SOURCE"
-          grep -q '65 \* NSEC_PER_SEC' "$SOURCE"
-          grep -q 'WritePersistentProofMarker' "$SOURCE"
-          grep -q 'version=%s' "$SOURCE"
-          grep -q 'epoch=%lld' "$SOURCE"
+          grep -q 'SPRINGBOARD LOAD PASS' "$SOURCE"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$SOURCE"
+          grep -q 'UIApplicationDidFinishLaunchingNotification' "$SOURCE"
+          grep -q '60 \* NSEC_PER_SEC' "$SOURCE"
+          grep -q 'WritePersistentLoadProof' "$SOURCE"
 
           echo "PERSISTENT_LOAD_MARKER_SOURCE=PASS"
           echo "VISIBLE_60S_LOAD_MARKER_SOURCE=PASS"
@@ -204,7 +202,7 @@ jobs:
 
           strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
           grep -q 'VCAM ROOT HIDE PROBE' "$EVIDENCE/dylib-strings.txt"
-          grep -q '/var/mobile/Library/Preferences/com.vcampro.roothide-installation-probe.loaded' "$EVIDENCE/dylib-strings.txt"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$EVIDENCE/dylib-strings.txt"
 
           echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
           echo "IOS_MIN_VERSION=15.0"
@@ -248,7 +246,6 @@ jobs:
 
           echo "FINAL_PATCHED_PLIST_INSPECTED=PASS"
           echo "SPRINGBOARD_ONLY_FILTER=PASS"
-          echo "PERSISTENT_LOAD_MARKER=PASS"
           echo "NO_MEDIASERVERD_FILTER=PASS"
           echo "NO_REFERENCE_CAMERA_HOOK=PASS"
           echo "NO_CAMERA_RUNTIME=PASS"
