@@ -1,7 +1,15 @@
 #!/bin/sh
-set -u
+set +e
 
-rm -f /var/tmp/VCAM_PRO_GATE1_REQUEST.txt
-rm -f /var/tmp/VCAM_PRO_GATE1_WITNESS.txt
+HANDOFF_PLIST=/var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist
+
+if [ -x /var/jb/bin/launchctl ]; then
+    /var/jb/bin/launchctl bootout system "$HANDOFF_PLIST" >/dev/null 2>&1 || true
+elif [ -x /bin/launchctl ]; then
+    /bin/launchctl bootout system "$HANDOFF_PLIST" >/dev/null 2>&1 || true
+fi
+
+rm -f /var/tmp/VCAM_PRO_GATE1_REQUEST.txt >/dev/null 2>&1 || true
+rm -f /var/tmp/VCAM_PRO_GATE1_WITNESS.txt >/dev/null 2>&1 || true
 
 exit 0

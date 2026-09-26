@@ -1,15 +1,22 @@
 #!/bin/sh
-set -u
+set +e
 
-COORDINATOR=/var/jb/usr/libexec/vcampro-gate1-coordinator
-VIEWER=/var/jb/Applications/VCAMProGate1.app
+APP=/var/jb/Applications/VCAMProGate1.app
+HANDOFF_PLIST=/var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist
 
-if [ -x "$COORDINATOR" ]; then
-    "$COORDINATOR" --auto || true
+rm -f /var/tmp/VCAM_PRO_GATE1_REQUEST.txt >/dev/null 2>&1 || true
+rm -f /var/tmp/VCAM_PRO_GATE1_WITNESS.txt >/dev/null 2>&1 || true
+
+if [ -x /var/jb/bin/launchctl ]; then
+    /var/jb/bin/launchctl bootstrap system "$HANDOFF_PLIST" >/dev/null 2>&1 || true
+elif [ -x /bin/launchctl ]; then
+    /bin/launchctl bootstrap system "$HANDOFF_PLIST" >/dev/null 2>&1 || true
 fi
 
 if [ -x /var/jb/usr/bin/uicache ]; then
-    /var/jb/usr/bin/uicache -p "$VIEWER" >/dev/null 2>&1 || true
+    /var/jb/usr/bin/uicache -p "$APP" >/dev/null 2>&1 || true
+elif [ -x /usr/bin/uicache ]; then
+    /usr/bin/uicache -p "$APP" >/dev/null 2>&1 || true
 fi
 
 exit 0

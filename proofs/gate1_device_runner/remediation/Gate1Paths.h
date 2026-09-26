@@ -13,7 +13,7 @@ inline constexpr const char* kResultTextPath =
 inline constexpr const char* kResultJsonPath =
     "/var/mobile/Library/VCAMPROGate1/VCAM_PRO_GATE1_RESULT.json";
 
-inline constexpr const char* kRunnerVersion = "0.2.0";
+inline constexpr const char* kRunnerVersion = "0.2.1";
 inline constexpr const char* kWitnessVersion = "0.1.0";
 inline constexpr const char* kLoadProbePackage = "com.vcampro.loadprobe";
 inline constexpr const char* kLoadProbeVersion = "0.0.1";
