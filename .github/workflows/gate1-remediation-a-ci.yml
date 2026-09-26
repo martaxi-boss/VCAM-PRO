@@ -70,7 +70,7 @@ jobs:
           set -euo pipefail
           c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/remediation             proofs/gate1_device_runner/remediation/WitnessProtocol.cpp             proofs/gate1_device_runner/tests/RemediationATests.cpp             -o build/gate1-remediation-a-tests/remediation
           build/gate1-remediation-a-tests/remediation             | tee build/gate1-remediation-a-tests/remediation.txt
-          grep -q 'Gate 1 remediation tests run: 10, failures: 0'             build/gate1-remediation-a-tests/remediation.txt
+          grep -q 'Gate 1 remediation tests run: 11, failures: 0'             build/gate1-remediation-a-tests/remediation.txt
 
       - name: Validate one-restart and rollback policy
         run: |
@@ -128,6 +128,8 @@ jobs:
             exit 1
           fi
 
+          test "$(grep -c 'vcampro-gate1-coordinator' "$CONTROL/postinst")" = "1"
+
           for script in postinst prerm postrm; do
             test -f "$CONTROL/$script"
             cat "$CONTROL/$script"
@@ -152,7 +154,7 @@ jobs:
           otool -L "$COORD" | tee build/gate1-remediation-a/coordinator-deps.txt
           otool -L "$VIEWER" | tee build/gate1-remediation-a/viewer-deps.txt
 
-          if otool -L "$WITNESS" "$COORD" "$VIEWER" | grep -E             'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Network\.framework'; then
+          if otool -L "$WITNESS" "$COORD" "$VIEWER" | grep -E             'PrivateFrameworks|AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Network\.framework|CFNetwork'; then
             echo "Forbidden media/network dependency"
             exit 1
           fi
