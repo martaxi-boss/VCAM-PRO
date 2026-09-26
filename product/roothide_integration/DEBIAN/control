@@ -1,0 +1,9 @@
+Package: com.vcampro.camera
+Name: VCAM PRO
+Version: 0.1.0+roothide1
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: VCAM PRO RootHide packaging/path integration gate for iOS 15. SpringBoard-only activation.
+Maintainer: VCAM PRO
+Author: VCAM PRO
+Section: Tweaks
