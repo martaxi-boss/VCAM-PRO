@@ -42,7 +42,7 @@ jobs:
 
           test -z "$(git diff --name-only "$FROZEN"..HEAD -- src product)"
 
-          echo "FROZEN_SOURCE=2475bd51953b536c32d12e37475fd32eaf7c4a67"
+          echo "FROZEN_SOURCE=$FROZEN"
           echo "CAMERA_CODE_UNCHANGED=PASS"
           echo "FRAME_ENGINE_UNCHANGED=PASS"
           echo "LOCAL_GALLERY_UNCHANGED=PASS"
@@ -65,7 +65,6 @@ jobs:
           dpkg-deb --version
           gsed --version | head -1
           gfind --version | head -1
-          "$(brew --prefix coreutils)/libexec/gnubin/realpath" --version | head -1
 
       - name: Build arm64 rootless input probe
         shell: bash
@@ -74,13 +73,34 @@ jobs:
 
           sh probes/roothide_installation_probe/build_rootless_input.sh
 
-          INPUT_DEB="build/roothide-installation-probe/input/com.vcampro.roothide-install-probe_0.1.0~probe1_iphoneos-arm64.deb"
+          INPUT_DEB="build/roothide-installation-probe/input/com.vcampro.roothide-install-probe_0.1.0~probe2_iphoneos-arm64.deb"
           test -f "$INPUT_DEB"
           test "$(dpkg-deb -f "$INPUT_DEB" Architecture)" = "iphoneos-arm64"
+          test "$(dpkg-deb -f "$INPUT_DEB" Version)" = "0.1.0~probe2"
 
           mkdir -p build/roothide-installation-probe/evidence
           dpkg-deb -f "$INPUT_DEB" > build/roothide-installation-probe/evidence/input-control.txt
           dpkg-deb -c "$INPUT_DEB" > build/roothide-installation-probe/evidence/input-inventory.txt
+
+          grep -q './var/jb/usr/lib/TweakInject/VCAMRootHideProbe.dylib'             build/roothide-installation-probe/evidence/input-inventory.txt
+          grep -q './var/jb/usr/lib/TweakInject/VCAMRootHideProbe.plist'             build/roothide-installation-probe/evidence/input-inventory.txt
+
+      - name: Verify load-proof source contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SOURCE="probes/roothide_installation_probe/VCAMRootHideProbe.mm"
+
+          grep -q 'VCAM ROOT HIDE PROBE' "$SOURCE"
+          grep -q 'SPRINGBOARD LOAD PASS' "$SOURCE"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$SOURCE"
+          grep -q 'UIApplicationDidFinishLaunchingNotification' "$SOURCE"
+          grep -q '60 \* NSEC_PER_SEC' "$SOURCE"
+          grep -q 'WritePersistentLoadProof' "$SOURCE"
+
+          echo "PERSISTENT_LOAD_MARKER_SOURCE=PASS"
+          echo "VISIBLE_60S_LOAD_MARKER_SOURCE=PASS"
 
       - name: Fetch pinned official RootHidePatcher
         shell: bash
@@ -100,9 +120,9 @@ jobs:
         run: |
           set -euo pipefail
 
-          INPUT_DEB="$PWD/build/roothide-installation-probe/input/com.vcampro.roothide-install-probe_0.1.0~probe1_iphoneos-arm64.deb"
+          INPUT_DEB="$PWD/build/roothide-installation-probe/input/com.vcampro.roothide-install-probe_0.1.0~probe2_iphoneos-arm64.deb"
           FINAL_DIR="$PWD/build/roothide-installation-probe/final"
-          FINAL_DEB="$FINAL_DIR/VCAM-PRO-RootHide-Installation-Probe.deb"
+          FINAL_DEB="$FINAL_DIR/VCAM-PRO-RootHide-Installation-Probe-Remediation-A.deb"
           PATCHER="$PWD/build/roothide-installation-probe/RootHidePatcher/patch.sh"
 
           mkdir -p "$FINAL_DIR"
@@ -111,14 +131,14 @@ jobs:
 
           test -f "$FINAL_DEB"
           shasum -a 256 "$FINAL_DEB" |
-            tee "$FINAL_DIR/VCAM-PRO-RootHide-Installation-Probe.deb.sha256"
+            tee "$FINAL_DEB.sha256"
 
-      - name: Inspect final RootHide deb
+      - name: Inspect final RootHide deb and ElleKit discovery layout
         shell: bash
         run: |
           set -euo pipefail
 
-          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe.deb"
+          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-A.deb"
           EVIDENCE="build/roothide-installation-probe/evidence"
           EXTRACTED="build/roothide-installation-probe/extracted-final"
 
@@ -130,22 +150,29 @@ jobs:
           dpkg-deb -c "$FINAL_DEB" | tee "$EVIDENCE/final-inventory.txt"
 
           test "$(dpkg-deb -f "$FINAL_DEB" Package)" = "com.vcampro.roothide-install-probe"
+          test "$(dpkg-deb -f "$FINAL_DEB" Version)" = "0.1.0~probe2"
           test "$(dpkg-deb -f "$FINAL_DEB" Architecture)" = "iphoneos-arm64e"
           test "$(dpkg-deb -f "$FINAL_DEB" Depends)" = "mobilesubstrate, firmware (>= 15.0)"
 
-          test -f "$EXTRACTED/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.dylib"
-          test -f "$EXTRACTED/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.plist"
+          test -f "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          test -f "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.plist"
           test ! -e "$EXTRACTED/var/jb"
+          test ! -e "$EXTRACTED/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.dylib"
+          test ! -e "$EXTRACTED/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.plist"
+
+          stat -f '%Sp %Su/%Sg %N'             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.dylib"             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.plist" |
+            tee "$EVIDENCE/final-payload-modes.txt"
 
           echo "ROOTHIDE_PACKAGE_ARCH=PASS"
           echo "ROOTHIDE_JBROOT_PAYLOAD=PASS"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
 
       - name: Inspect final Mach-O and signing
         shell: bash
         run: |
           set -euo pipefail
 
-          DYLIB="build/roothide-installation-probe/extracted-final/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.dylib"
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
           EVIDENCE="build/roothide-installation-probe/evidence"
 
           xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/dylib-arch.txt"
@@ -168,39 +195,44 @@ jobs:
             exit 1
           fi
 
-          grep -q '@loader_path/.jbroot/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.dylib' "$EVIDENCE/dylib-install-name.txt"
+          grep -q '@loader_path/VCAMRootHideProbe.dylib' "$EVIDENCE/dylib-install-name.txt"
 
           xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
           ldid -e "$DYLIB" > "$EVIDENCE/dylib-entitlements.txt"
+
+          strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
+          grep -q 'VCAM ROOT HIDE PROBE' "$EVIDENCE/dylib-strings.txt"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$EVIDENCE/dylib-strings.txt"
 
           echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
           echo "IOS_MIN_VERSION=15.0"
           echo "ROOTHIDE_RPATH=PASS"
           echo "ROOTHIDE_INSTALL_NAME=PASS"
           echo "DYLIB_SIGNING=PASS"
+          echo "LOAD_MARKER_EMBEDDED=PASS"
 
-      - name: Validate SpringBoard-only filter and no camera runtime
+      - name: Inspect final patched plist and SpringBoard-only filter
         shell: bash
         run: |
           set -euo pipefail
 
-          PLIST="build/roothide-installation-probe/extracted-final/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.plist"
-          DYLIB="build/roothide-installation-probe/extracted-final/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.dylib"
+          PLIST="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.plist"
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
           EVIDENCE="build/roothide-installation-probe/evidence"
 
           plutil -lint "$PLIST"
-          plutil -p "$PLIST" | tee "$EVIDENCE/filter.txt"
+          plutil -p "$PLIST" | tee "$EVIDENCE/final-filter.txt"
+          cat "$PLIST" > "$EVIDENCE/final-filter-raw.plist"
 
-          grep -q 'com.apple.springboard' "$EVIDENCE/filter.txt"
-          grep -q '"SpringBoard"' "$EVIDENCE/filter.txt"
+          grep -q 'com.apple.springboard' "$EVIDENCE/final-filter.txt"
+          grep -q '"SpringBoard"' "$EVIDENCE/final-filter.txt"
 
-          if grep -qi 'mediaserverd' "$EVIDENCE/filter.txt"; then
+          if grep -qi 'mediaserverd' "$EVIDENCE/final-filter.txt"; then
             echo "mediaserverd filter is forbidden in the installation probe."
             exit 1
           fi
 
           xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
-          strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
 
           if grep -Ei 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' "$EVIDENCE/dylib-strings.txt" "$EVIDENCE/dylib-undefined.txt"; then
             echo "Camera/runtime symbol found in diagnostic probe."
@@ -212,6 +244,7 @@ jobs:
             exit 1
           fi
 
+          echo "FINAL_PATCHED_PLIST_INSPECTED=PASS"
           echo "SPRINGBOARD_ONLY_FILTER=PASS"
           echo "NO_MEDIASERVERD_FILTER=PASS"
           echo "NO_REFERENCE_CAMERA_HOOK=PASS"
@@ -240,7 +273,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe.deb"
+          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-A.deb"
           SHA_FILE="$FINAL_DEB.sha256"
           EVIDENCE="build/roothide-installation-probe/evidence"
 
@@ -261,15 +294,20 @@ jobs:
           echo "NO_REFERENCE_CAMERA_HOOK=PASS"
           echo "NO_CAMERA_RUNTIME=PASS"
           echo "CAMERA_CODE_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+          echo "PERSISTENT_LOAD_MARKER_SOURCE=PASS"
+          echo "VISIBLE_60S_LOAD_MARKER_SOURCE=PASS"
           echo "SILEO_STATIC_READY=YES"
 
-      - name: Upload RootHide installation probe
+      - name: Upload RootHide installation probe remediation
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-roothide-installation-probe-001
+          name: vcampro-roothide-installation-probe-001-remediation-a
           path: |
-            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe.deb
-            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe.deb.sha256
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-A.deb
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-A.deb.sha256
             build/roothide-installation-probe/evidence/
           if-no-files-found: error
           retention-days: 14
