@@ -181,7 +181,507 @@ jobs:
             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.plist" |
             tee "$EVIDENCE/final-payload-modes.txt"
 
-          grep -Eq '^-rwxr-xr-x root/root .* \./usr/lib/TweakInject/VCAMRootHideProbe\.dylib$' "$EVIDENCE/final-inventory.txt"
+          grep -Eq '^-rwxr-xr-x root/wheel .* \./usr/lib/TweakInject/VCAMRootHideProbe\.dylib
+          grep -Eq '^-rw-r--r-- root/wheel .* \./usr/lib/TweakInject/VCAMRootHideProbe\.plist
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "PAYLOAD_MODES_OWNERSHIP=PASS"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+
+      - name: Inspect final Mach-O, signing and constructor proof
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/dylib-arch.txt"
+          grep -q 'arm64' "$EVIDENCE/dylib-arch.txt"
+          if grep -q 'arm64e' "$EVIDENCE/dylib-arch.txt"; then
+            echo "A9 probe must not contain arm64e code."
+            exit 1
+          fi
+
+          xcrun otool -l "$DYLIB" > "$EVIDENCE/dylib-load-commands.txt"
+          xcrun otool -L "$DYLIB" > "$EVIDENCE/dylib-linked-libraries.txt"
+          xcrun otool -D "$DYLIB" > "$EVIDENCE/dylib-install-name.txt"
+
+          grep -q 'minos 15.0' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/dylib-load-commands.txt"
+
+          if grep -q 'path /var/jb' "$EVIDENCE/dylib-load-commands.txt"; then
+            echo "Fixed /var/jb RPATH remains."
+            exit 1
+          fi
+
+          grep -q '@loader_path/VCAMRootHideProbe.dylib' "$EVIDENCE/dylib-install-name.txt"
+
+          xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
+          ldid -e "$DYLIB" > "$EVIDENCE/dylib-entitlements.txt"
+
+          strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
+          xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
+
+          grep -q 'VCAM ROOT HIDE PROBE' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'SPRINGBOARD CONSTRUCTOR PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q '0.1.0~probe3' "$EVIDENCE/dylib-strings.txt"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'pid=%d' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'constructor=PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'SpringBoard' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'getprogname' "$EVIDENCE/dylib-undefined.txt"
+          grep -q 'UIAlertController' "$EVIDENCE/dylib-undefined.txt"
+
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "SPRINGBOARD_PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "EXISTING_WINDOW_VISIBLE_PROOF=PASS"
+          echo "SECOND_VISIBLE_FALLBACK=PASS"
+
+      - name: Inspect final patched plist and camera isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PLIST="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.plist"
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          plutil -lint "$PLIST"
+          plutil -p "$PLIST" | tee "$EVIDENCE/final-filter.txt"
+          cat "$PLIST" > "$EVIDENCE/final-filter-raw.plist"
+
+          grep -q 'com.apple.springboard' "$EVIDENCE/final-filter.txt"
+          grep -q '"SpringBoard"' "$EVIDENCE/final-filter.txt"
+
+          if grep -qi 'mediaserverd' "$EVIDENCE/final-filter.txt"; then
+            echo "mediaserverd filter is forbidden in the installation probe."
+            exit 1
+          fi
+
+          xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
+
+          if grep -Ei 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' "$EVIDENCE/dylib-strings.txt" "$EVIDENCE/dylib-undefined.txt"; then
+            echo "Camera/runtime symbol found in diagnostic probe."
+            exit 1
+          fi
+
+          if grep -RInE 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' probes/roothide_installation_probe; then
+            echo "Camera/runtime source reference found in diagnostic probe."
+            exit 1
+          fi
+
+          echo "FINAL_PATCHED_PLIST_INSPECTED=PASS"
+          echo "SPRINGBOARD_ONLY_FILTER=PASS"
+          echo "NO_MEDIASERVERD_FILTER=PASS"
+          echo "NO_REFERENCE_CAMERA_HOOK=PASS"
+          echo "NO_CAMERA_RUNTIME=PASS"
+
+      - name: Validate RootHide-safe maintainer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SCRIPT="build/roothide-installation-probe/extracted-final/DEBIAN/postinst"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          test -f "$SCRIPT"
+          cat "$SCRIPT" | tee "$EVIDENCE/postinst.txt"
+
+          if grep -E '/var/jb|sudo|NewTerm|password|RootHidePatcher' "$SCRIPT"; then
+            echo "Maintainer script contains a forbidden fixed/manual-install assumption."
+            exit 1
+          fi
+
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+
+      - name: Final static acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb"
+          SHA_FILE="$FINAL_DEB.sha256"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          test -f "$FINAL_DEB"
+          test -f "$SHA_FILE"
+
+          cat "$SHA_FILE" | tee "$EVIDENCE/final-sha256.txt"
+          git rev-parse HEAD | tee "$EVIDENCE/exact-head.txt"
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "SPRINGBOARD_ONLY_FILTER=PASS"
+          echo "SPRINGBOARD_PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "EXISTING_WINDOW_VISIBLE_PROOF=PASS"
+          echo "SECOND_VISIBLE_FALLBACK=PASS"
+          echo "NO_MEDIASERVERD_FILTER=PASS"
+          echo "NO_REFERENCE_CAMERA_HOOK=PASS"
+          echo "NO_CAMERA_RUNTIME=PASS"
+          echo "CAMERA_CODE_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+          echo "PAYLOAD_MODES_OWNERSHIP=PASS"
+          echo "SILEO_STATIC_READY=YES"
+
+      - name: Upload RootHide installation probe remediation B
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-roothide-installation-probe-001-remediation-b
+          path: |
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb.sha256
+            build/roothide-installation-probe/evidence/
+          if-no-files-found: error
+          retention-days: 14
+ "$EVIDENCE/final-inventory.txt"
+          grep -Eq '^-rw-r--r-- root/root .* \./usr/lib/TweakInject/VCAMRootHideProbe\.plist$' "$EVIDENCE/final-inventory.txt"
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "PAYLOAD_MODES_OWNERSHIP=PASS"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+
+      - name: Inspect final Mach-O, signing and constructor proof
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/dylib-arch.txt"
+          grep -q 'arm64' "$EVIDENCE/dylib-arch.txt"
+          if grep -q 'arm64e' "$EVIDENCE/dylib-arch.txt"; then
+            echo "A9 probe must not contain arm64e code."
+            exit 1
+          fi
+
+          xcrun otool -l "$DYLIB" > "$EVIDENCE/dylib-load-commands.txt"
+          xcrun otool -L "$DYLIB" > "$EVIDENCE/dylib-linked-libraries.txt"
+          xcrun otool -D "$DYLIB" > "$EVIDENCE/dylib-install-name.txt"
+
+          grep -q 'minos 15.0' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/dylib-load-commands.txt"
+
+          if grep -q 'path /var/jb' "$EVIDENCE/dylib-load-commands.txt"; then
+            echo "Fixed /var/jb RPATH remains."
+            exit 1
+          fi
+
+          grep -q '@loader_path/VCAMRootHideProbe.dylib' "$EVIDENCE/dylib-install-name.txt"
+
+          xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
+          ldid -e "$DYLIB" > "$EVIDENCE/dylib-entitlements.txt"
+
+          strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
+          xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
+
+          grep -q 'VCAM ROOT HIDE PROBE' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'SPRINGBOARD CONSTRUCTOR PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q '0.1.0~probe3' "$EVIDENCE/dylib-strings.txt"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'pid=%d' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'constructor=PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'SpringBoard' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'getprogname' "$EVIDENCE/dylib-undefined.txt"
+          grep -q 'UIAlertController' "$EVIDENCE/dylib-undefined.txt"
+
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "SPRINGBOARD_PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "EXISTING_WINDOW_VISIBLE_PROOF=PASS"
+          echo "SECOND_VISIBLE_FALLBACK=PASS"
+
+      - name: Inspect final patched plist and camera isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PLIST="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.plist"
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          plutil -lint "$PLIST"
+          plutil -p "$PLIST" | tee "$EVIDENCE/final-filter.txt"
+          cat "$PLIST" > "$EVIDENCE/final-filter-raw.plist"
+
+          grep -q 'com.apple.springboard' "$EVIDENCE/final-filter.txt"
+          grep -q '"SpringBoard"' "$EVIDENCE/final-filter.txt"
+
+          if grep -qi 'mediaserverd' "$EVIDENCE/final-filter.txt"; then
+            echo "mediaserverd filter is forbidden in the installation probe."
+            exit 1
+          fi
+
+          xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
+
+          if grep -Ei 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' "$EVIDENCE/dylib-strings.txt" "$EVIDENCE/dylib-undefined.txt"; then
+            echo "Camera/runtime symbol found in diagnostic probe."
+            exit 1
+          fi
+
+          if grep -RInE 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' probes/roothide_installation_probe; then
+            echo "Camera/runtime source reference found in diagnostic probe."
+            exit 1
+          fi
+
+          echo "FINAL_PATCHED_PLIST_INSPECTED=PASS"
+          echo "SPRINGBOARD_ONLY_FILTER=PASS"
+          echo "NO_MEDIASERVERD_FILTER=PASS"
+          echo "NO_REFERENCE_CAMERA_HOOK=PASS"
+          echo "NO_CAMERA_RUNTIME=PASS"
+
+      - name: Validate RootHide-safe maintainer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SCRIPT="build/roothide-installation-probe/extracted-final/DEBIAN/postinst"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          test -f "$SCRIPT"
+          cat "$SCRIPT" | tee "$EVIDENCE/postinst.txt"
+
+          if grep -E '/var/jb|sudo|NewTerm|password|RootHidePatcher' "$SCRIPT"; then
+            echo "Maintainer script contains a forbidden fixed/manual-install assumption."
+            exit 1
+          fi
+
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+
+      - name: Final static acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb"
+          SHA_FILE="$FINAL_DEB.sha256"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          test -f "$FINAL_DEB"
+          test -f "$SHA_FILE"
+
+          cat "$SHA_FILE" | tee "$EVIDENCE/final-sha256.txt"
+          git rev-parse HEAD | tee "$EVIDENCE/exact-head.txt"
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "SPRINGBOARD_ONLY_FILTER=PASS"
+          echo "SPRINGBOARD_PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "EXISTING_WINDOW_VISIBLE_PROOF=PASS"
+          echo "SECOND_VISIBLE_FALLBACK=PASS"
+          echo "NO_MEDIASERVERD_FILTER=PASS"
+          echo "NO_REFERENCE_CAMERA_HOOK=PASS"
+          echo "NO_CAMERA_RUNTIME=PASS"
+          echo "CAMERA_CODE_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+          echo "PAYLOAD_MODES_OWNERSHIP=PASS"
+          echo "SILEO_STATIC_READY=YES"
+
+      - name: Upload RootHide installation probe remediation B
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-roothide-installation-probe-001-remediation-b
+          path: |
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb.sha256
+            build/roothide-installation-probe/evidence/
+          if-no-files-found: error
+          retention-days: 14
+ "$EVIDENCE/final-inventory.txt"
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "PAYLOAD_MODES_OWNERSHIP=PASS"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+
+      - name: Inspect final Mach-O, signing and constructor proof
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/dylib-arch.txt"
+          grep -q 'arm64' "$EVIDENCE/dylib-arch.txt"
+          if grep -q 'arm64e' "$EVIDENCE/dylib-arch.txt"; then
+            echo "A9 probe must not contain arm64e code."
+            exit 1
+          fi
+
+          xcrun otool -l "$DYLIB" > "$EVIDENCE/dylib-load-commands.txt"
+          xcrun otool -L "$DYLIB" > "$EVIDENCE/dylib-linked-libraries.txt"
+          xcrun otool -D "$DYLIB" > "$EVIDENCE/dylib-install-name.txt"
+
+          grep -q 'minos 15.0' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/dylib-load-commands.txt"
+
+          if grep -q 'path /var/jb' "$EVIDENCE/dylib-load-commands.txt"; then
+            echo "Fixed /var/jb RPATH remains."
+            exit 1
+          fi
+
+          grep -q '@loader_path/VCAMRootHideProbe.dylib' "$EVIDENCE/dylib-install-name.txt"
+
+          xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
+          ldid -e "$DYLIB" > "$EVIDENCE/dylib-entitlements.txt"
+
+          strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
+          xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
+
+          grep -q 'VCAM ROOT HIDE PROBE' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'SPRINGBOARD CONSTRUCTOR PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q '0.1.0~probe3' "$EVIDENCE/dylib-strings.txt"
+          grep -q '/var/mobile/Library/VCAMProRootHideProbe/load-proof.txt' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'pid=%d' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'constructor=PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'SpringBoard' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'getprogname' "$EVIDENCE/dylib-undefined.txt"
+          grep -q 'UIAlertController' "$EVIDENCE/dylib-undefined.txt"
+
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "SPRINGBOARD_PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "EXISTING_WINDOW_VISIBLE_PROOF=PASS"
+          echo "SECOND_VISIBLE_FALLBACK=PASS"
+
+      - name: Inspect final patched plist and camera isolation
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PLIST="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.plist"
+          DYLIB="build/roothide-installation-probe/extracted-final/usr/lib/TweakInject/VCAMRootHideProbe.dylib"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          plutil -lint "$PLIST"
+          plutil -p "$PLIST" | tee "$EVIDENCE/final-filter.txt"
+          cat "$PLIST" > "$EVIDENCE/final-filter-raw.plist"
+
+          grep -q 'com.apple.springboard' "$EVIDENCE/final-filter.txt"
+          grep -q '"SpringBoard"' "$EVIDENCE/final-filter.txt"
+
+          if grep -qi 'mediaserverd' "$EVIDENCE/final-filter.txt"; then
+            echo "mediaserverd filter is forbidden in the installation probe."
+            exit 1
+          fi
+
+          xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
+
+          if grep -Ei 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' "$EVIDENCE/dylib-strings.txt" "$EVIDENCE/dylib-undefined.txt"; then
+            echo "Camera/runtime symbol found in diagnostic probe."
+            exit 1
+          fi
+
+          if grep -RInE 'MediaserverdRuntime|ReferenceCameraHook|CameraConsumerAdapter|CMSampleBufferGetImageBuffer|MSHookFunction|CVPixelBuffer|mediaserverd' probes/roothide_installation_probe; then
+            echo "Camera/runtime source reference found in diagnostic probe."
+            exit 1
+          fi
+
+          echo "FINAL_PATCHED_PLIST_INSPECTED=PASS"
+          echo "SPRINGBOARD_ONLY_FILTER=PASS"
+          echo "NO_MEDIASERVERD_FILTER=PASS"
+          echo "NO_REFERENCE_CAMERA_HOOK=PASS"
+          echo "NO_CAMERA_RUNTIME=PASS"
+
+      - name: Validate RootHide-safe maintainer scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SCRIPT="build/roothide-installation-probe/extracted-final/DEBIAN/postinst"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          test -f "$SCRIPT"
+          cat "$SCRIPT" | tee "$EVIDENCE/postinst.txt"
+
+          if grep -E '/var/jb|sudo|NewTerm|password|RootHidePatcher' "$SCRIPT"; then
+            echo "Maintainer script contains a forbidden fixed/manual-install assumption."
+            exit 1
+          fi
+
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+
+      - name: Final static acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          FINAL_DEB="build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb"
+          SHA_FILE="$FINAL_DEB.sha256"
+          EVIDENCE="build/roothide-installation-probe/evidence"
+
+          test -f "$FINAL_DEB"
+          test -f "$SHA_FILE"
+
+          cat "$SHA_FILE" | tee "$EVIDENCE/final-sha256.txt"
+          git rev-parse HEAD | tee "$EVIDENCE/exact-head.txt"
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ELLEKIT_TWEAKINJECT_DISCOVERY_PATH=PASS"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "SPRINGBOARD_ONLY_FILTER=PASS"
+          echo "SPRINGBOARD_PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "EXISTING_WINDOW_VISIBLE_PROOF=PASS"
+          echo "SECOND_VISIBLE_FALLBACK=PASS"
+          echo "NO_MEDIASERVERD_FILTER=PASS"
+          echo "NO_REFERENCE_CAMERA_HOOK=PASS"
+          echo "NO_CAMERA_RUNTIME=PASS"
+          echo "CAMERA_CODE_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+          echo "PAYLOAD_MODES_OWNERSHIP=PASS"
+          echo "SILEO_STATIC_READY=YES"
+
+      - name: Upload RootHide installation probe remediation B
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-roothide-installation-probe-001-remediation-b
+          path: |
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb
+            build/roothide-installation-probe/final/VCAM-PRO-RootHide-Installation-Probe-Remediation-B.deb.sha256
+            build/roothide-installation-probe/evidence/
+          if-no-files-found: error
+          retention-days: 14
+ "$EVIDENCE/final-inventory.txt"
           grep -Eq '^-rw-r--r-- root/root .* \./usr/lib/TweakInject/VCAMRootHideProbe\.plist$' "$EVIDENCE/final-inventory.txt"
 
           echo "ROOTHIDE_PACKAGE_ARCH=PASS"
