@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+#include <cerrno>
 #include <cstdio>
 #include <cstring>
 #include <ctime>
