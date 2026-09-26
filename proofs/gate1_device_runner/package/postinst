@@ -1,0 +1,10 @@
+#!/bin/sh
+set -u
+
+COORDINATOR=/var/jb/usr/libexec/vcampro-gate1-coordinator
+
+if [ -x "$COORDINATOR" ]; then
+    "$COORDINATOR" --auto || true
+fi
+
+exit 0
