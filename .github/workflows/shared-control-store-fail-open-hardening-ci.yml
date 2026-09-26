@@ -40,7 +40,7 @@ jobs:
           while IFS= read -r path; do
             test -n "$path" || continue
             case "$path" in
-              src/product/SharedControlStore.mm|              src/product/SharedControlStore.h|              tests/product/shared_control_store_fail_open_tests.mm|              .github/workflows/shared-control-store-fail-open-hardening-ci.yml)
+              src/product/SharedControlStore.mm|              src/product/SharedControlStore.h|              src/product/ProductControlOwner.mm|              tests/product/shared_control_store_fail_open_tests.mm|              tests/product/shared_control_store_recovery_provenance_tests.mm|              .github/workflows/shared-control-store-fail-open-hardening-ci.yml)
                 ;;
               *)
                 echo "Unauthorized changed file: $path"
@@ -91,6 +91,28 @@ jobs:
           echo "CORRUPT_CONTROL_OBSERVER_FAIL_OPEN=PASS"
           echo "ABSENT_CONTROL_STORE_DEFAULT_SAFE=PASS"
           echo "VALID_CONTROL_SNAPSHOT_ROUNDTRIP=PASS"
+
+      - name: Run control-store provenance recovery suite
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/control-store-provenance
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/shared_control_store_recovery_provenance_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/control-store-provenance/tests
+
+          build/control-store-provenance/tests             | tee build/control-store-provenance/results.txt
+
+          grep -q 'Control provenance recovery tests run: 4, failures: 0'             build/control-store-provenance/results.txt
+          grep -q 'PASS corrupt control preserves generated media'             build/control-store-provenance/results.txt
+          grep -q 'PASS type confused control preserves generated media'             build/control-store-provenance/results.txt
+          grep -q 'PASS absent control allows recovery'             build/control-store-provenance/results.txt
+          grep -q 'PASS valid control allows recovery'             build/control-store-provenance/results.txt
+
+          echo "CORRUPT_CONTROL_DESTRUCTIVE_RECOVERY_BLOCKED=PASS"
+          echo "CORRUPT_CONTROL_MEDIA_PRESERVED=PASS"
+          echo "TYPE_CONFUSED_CONTROL_MEDIA_PRESERVED=PASS"
+          echo "ABSENT_CONTROL_RECOVERY_ALLOWED=PASS"
+          echo "VALID_CONTROL_RECOVERY_ALLOWED=PASS"
 
       - name: Prove SpringBoard storage recovery decoupling
         run: |
@@ -238,17 +260,21 @@ jobs:
 
           "$CXX"             "${common[@]}"             -c src/product/SharedControlStore.mm             -o build/store-hardening-ios/SharedControlStore.o
 
-          xcrun lipo -info             build/store-hardening-ios/SharedControlStore.o             | tee build/store-hardening-ios/architecture.txt
+          "$CXX"             "${common[@]}"             -c src/product/ProductControlOwner.mm             -o build/store-hardening-ios/ProductControlOwner.o
 
-          grep -q 'arm64'             build/store-hardening-ios/architecture.txt
+          for object in SharedControlStore.o ProductControlOwner.o; do
+            xcrun lipo -info "build/store-hardening-ios/$object"               | tee "build/store-hardening-ios/$object.arch.txt"
 
-          if grep -q 'arm64e'               build/store-hardening-ios/architecture.txt; then
-            exit 1
-          fi
+            grep -q 'arm64'               "build/store-hardening-ios/$object.arch.txt"
 
-          xcrun otool -l             build/store-hardening-ios/SharedControlStore.o             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/store-hardening-ios/minos.txt
+            if grep -q 'arm64e'                 "build/store-hardening-ios/$object.arch.txt"; then
+              exit 1
+            fi
 
-          grep -q 'minos 15.0'             build/store-hardening-ios/minos.txt
+            xcrun otool -l               "build/store-hardening-ios/$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee "build/store-hardening-ios/$object.minos.txt"
+
+            grep -q 'minos 15.0'               "build/store-hardening-ios/$object.minos.txt"
+          done
 
           echo "IOS15_ARM64=PASS"
 
