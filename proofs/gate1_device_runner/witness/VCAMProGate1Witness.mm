@@ -4,6 +4,7 @@
 #include "Gate1Paths.h"
 #include "WitnessProtocol.h"
 
+#include <cstring>
 #include <dispatch/dispatch.h>
 #include <mach/mach_time.h>
 #include <unistd.h>
@@ -35,7 +36,7 @@ std::string ReadText(const char* path) {
     }
 }
 
-void WriteWitness(
+bool WriteWitness(
     const RunRequest& request,
     pid_t pid,
     std::uint64_t observedAtNs) {
@@ -49,26 +50,29 @@ void WriteWitness(
     record.observedAtNs = observedAtNs;
 
     const std::string rendered = RenderWitnessRecord(record);
-    if (rendered.empty()) return;
+    if (rendered.empty()) return false;
 
     @autoreleasepool {
         NSString* text =
             [[NSString alloc] initWithBytes:rendered.data()
                                     length:rendered.size()
                                   encoding:NSUTF8StringEncoding];
-        if (text == nil) return;
+        if (text == nil) return false;
         NSError* error = nil;
-        (void)[text writeToFile:@(kWitnessEvidencePath)
-                     atomically:YES
-                       encoding:NSUTF8StringEncoding
-                          error:&error];
+        const BOOL ok =
+            [text writeToFile:@(kWitnessEvidencePath)
+                   atomically:YES
+                     encoding:NSUTF8StringEncoding
+                        error:&error];
+        return ok && error == nil;
     }
 }
 
-void ObserveMarker(RunRequest request) {
+bool ObserveMarkerOnce(
+    const RunRequest& request,
+    pid_t pid) {
     @autoreleasepool {
-        const pid_t pid = getpid();
-        const NSString* expected =
+        NSString* expected =
             [NSString stringWithUTF8String:
                 ExpectedMarkerForPid(pid).c_str()];
 
@@ -76,7 +80,7 @@ void ObserveMarker(RunRequest request) {
         OSLogStore* store =
             [OSLogStore storeWithScope:OSLogStoreCurrentProcessIdentifier
                                  error:&storeError];
-        if (store == nil || storeError != nil) return;
+        if (store == nil || storeError != nil) return false;
 
         NSPredicate* predicate =
             [NSPredicate predicateWithFormat:@"composedMessage == %@",
@@ -88,7 +92,7 @@ void ObserveMarker(RunRequest request) {
                                        position:nil
                                       predicate:predicate
                                           error:&enumError];
-        if (enumerator == nil || enumError != nil) return;
+        if (enumerator == nil || enumError != nil) return false;
 
         NSUInteger inspected = 0;
         for (OSLogEntry* entry in enumerator) {
@@ -103,10 +107,28 @@ void ObserveMarker(RunRequest request) {
             if (![source.process isEqualToString:@"mediaserverd"]) continue;
             if (![entry.composedMessage isEqualToString:expected]) continue;
 
-            WriteWitness(request, pid, MonotonicNs());
-            return;
+            return WriteWitness(request, pid, MonotonicNs());
         }
     }
+    return false;
+}
+
+void ScheduleObservation(
+    RunRequest request,
+    std::uint64_t deadlineNs,
+    dispatch_queue_t queue) {
+    constexpr std::uint64_t kRetryNs =
+        150ULL * 1000ULL * 1000ULL;
+
+    dispatch_after(
+        dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(kRetryNs)),
+        queue,
+        ^{
+            const pid_t pid = getpid();
+            if (ObserveMarkerOnce(request, pid)) return;
+            if (MonotonicNs() >= deadlineNs) return;
+            ScheduleObservation(request, deadlineNs, queue);
+        });
 }
 
 }  // namespace
@@ -130,9 +152,10 @@ static void VCAMProGate1WitnessStart(void) {
 
     constexpr std::uint64_t kMaxRequestAgeNs =
         30ULL * 1000ULL * 1000ULL * 1000ULL;
+    const std::uint64_t now = MonotonicNs();
     if (vcam::gate1::ValidateRunRequest(
             request,
-            MonotonicNs(),
+            now,
             kMaxRequestAgeNs) !=
         vcam::gate1::ProtocolStatus::Ok) {
         return;
@@ -143,10 +166,10 @@ static void VCAMProGate1WitnessStart(void) {
             "com.vcampro.gate1.witness",
             DISPATCH_QUEUE_SERIAL);
 
-    dispatch_after(
-        dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC),
-        queue,
-        ^{
-            ObserveMarker(request);
-        });
+    constexpr std::uint64_t kWitnessTimeoutNs =
+        2ULL * 1000ULL * 1000ULL * 1000ULL;
+    ScheduleObservation(
+        request,
+        now + kWitnessTimeoutNs,
+        queue);
 }
