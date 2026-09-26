@@ -451,8 +451,10 @@ bool TestPhotoReachesConsumer(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto frame =
         WaitForFrame(consumer);
@@ -481,8 +483,10 @@ bool TestVideoReachesConsumer(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto frame =
         WaitForFrame(consumer);
@@ -506,8 +510,10 @@ bool TestVideoLoopContinues(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     bool sawLoop = false;
 
@@ -547,8 +553,10 @@ bool TestPauseStopsPresentation(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto frame =
         WaitForFrame(consumer);
@@ -556,6 +564,7 @@ bool TestPauseStopsPresentation(
     frame.reset();
 
     CHECK(session.pause());
+    consumer.setPresentationActive(false);
 
     auto paused =
         consumer.tryAcquire();
@@ -578,8 +587,10 @@ bool TestResumeContinues(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto first =
         WaitForFrame(consumer);
@@ -587,7 +598,13 @@ bool TestResumeContinues(
     first.reset();
 
     CHECK(session.pause());
+    consumer.setPresentationActive(false);
     CHECK(session.resume());
+    consumer.bind(
+        &session.readyQueue(),
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
+    consumer.setPresentationActive(true);
 
     auto resumed =
         WaitForFrame(consumer);
@@ -608,8 +625,10 @@ bool TestChangeInvalidatesGeneration(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto first =
         WaitForFrame(consumer);
@@ -625,6 +644,11 @@ bool TestChangeInvalidatesGeneration(
             video,
             false));
     CHECK(session.start());
+    consumer.bind(
+        &session.readyQueue(),
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
+    consumer.setPresentationActive(true);
 
     auto replacement =
         WaitForFrame(consumer);
@@ -653,8 +677,10 @@ bool TestClearEmptiesPresentation(
     ControlledFrameConsumer consumer;
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto frame =
         WaitForFrame(consumer);
@@ -662,6 +688,7 @@ bool TestClearEmptiesPresentation(
     frame.reset();
 
     session.clearMedia();
+    consumer.unbind();
 
     auto cleared =
         consumer.tryAcquire();
@@ -669,7 +696,7 @@ bool TestClearEmptiesPresentation(
     CHECK(
         cleared.kind ==
         ControlledAcquireKind::
-            Inactive);
+            Unbound);
     CHECK(
         consumer.outstandingFrameCount() ==
         0);
@@ -693,7 +720,8 @@ bool TestEmptyStateSafe() {
 
     consumer.bind(
         &session.readyQueue(),
-        &session.state());
+        session.state().mediaGeneration(),
+        session.state().timelineEpoch());
 
     auto empty =
         consumer.tryAcquire();
@@ -744,8 +772,10 @@ bool TestStaleFrameRejected() {
     ControlledFrameConsumer consumer;
     consumer.bind(
         &queue,
-        &state);
+        state.mediaGeneration(),
+        state.timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto stale =
         consumer.tryAcquire();
@@ -772,7 +802,8 @@ bool TestRepeatedLifecycleClean() {
          ++iteration) {
         consumer.bind(
             &queue,
-            &state);
+            state.mediaGeneration(),
+            state.timelineEpoch());
         consumer.unbind();
     }
 
@@ -933,8 +964,10 @@ bool TestPixelLifetimeBounded() {
     ControlledFrameConsumer consumer;
     consumer.bind(
         queue.get(),
-        state.get());
+        state->mediaGeneration(),
+        state->timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     auto frame =
         consumer.tryAcquire();

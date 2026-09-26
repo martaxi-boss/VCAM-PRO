@@ -284,7 +284,15 @@ void ControlledRuntime::bindCurrentSession() {
 
     consumer_.bind(
         &session_->readyQueue(),
-        &session_->state());
+        session_->state()
+            .mediaGeneration(),
+        session_->state()
+            .timelineEpoch());
+
+    consumer_.setPresentationActive(
+        session_->playbackState() ==
+            frame_engine::
+                PlaybackState::Playing);
 }
 
 void ControlledRuntime::

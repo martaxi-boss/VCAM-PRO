@@ -98,9 +98,11 @@ ControlledFrameConsumer::ControlledFrameConsumer()
 
 void ControlledFrameConsumer::bind(
     frame_engine::ReadyFrameQueue* queue,
-    frame_engine::FrameEngineState* state) noexcept {
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch) noexcept {
     queue_ = queue;
-    state_ = state;
+    contextGeneration_ = mediaGeneration;
+    contextEpoch_ = timelineEpoch;
     lastGeneration_ = 0;
     lastEpoch_ = 0;
     lastSequence_.reset();
@@ -108,10 +110,14 @@ void ControlledFrameConsumer::bind(
 
 void ControlledFrameConsumer::unbind() noexcept {
     queue_ = nullptr;
-    state_ = nullptr;
+    contextGeneration_ = 0;
+    contextEpoch_ = 0;
     lastGeneration_ = 0;
     lastEpoch_ = 0;
     lastSequence_.reset();
+    presentationActive_.store(
+        false,
+        std::memory_order_release);
 }
 
 void ControlledFrameConsumer::setEnabled(
@@ -126,6 +132,19 @@ bool ControlledFrameConsumer::enabled() const noexcept {
         std::memory_order_acquire);
 }
 
+void ControlledFrameConsumer::
+setPresentationActive(bool active) noexcept {
+    presentationActive_.store(
+        active,
+        std::memory_order_release);
+}
+
+bool ControlledFrameConsumer::
+presentationActive() const noexcept {
+    return presentationActive_.load(
+        std::memory_order_acquire);
+}
+
 ControlledAcquireResult
 ControlledFrameConsumer::tryAcquire() noexcept {
     if (!enabled()) {
@@ -136,15 +155,15 @@ ControlledFrameConsumer::tryAcquire() noexcept {
     }
 
     if (queue_ == nullptr ||
-        state_ == nullptr) {
+        contextGeneration_ == 0 ||
+        contextEpoch_ == 0) {
         return {
             ControlledAcquireKind::Unbound,
             std::nullopt,
         };
     }
 
-    if (state_->playbackState() !=
-        frame_engine::PlaybackState::Playing) {
+    if (!presentationActive()) {
         return {
             ControlledAcquireKind::Inactive,
             std::nullopt,
@@ -179,9 +198,9 @@ ControlledFrameConsumer::tryAcquire() noexcept {
         };
 
     const std::uint64_t generation =
-        state_->mediaGeneration();
+        contextGeneration_;
     const std::uint64_t epoch =
-        state_->timelineEpoch();
+        contextEpoch_;
 
     if (generation != lastGeneration_ ||
         epoch != lastEpoch_) {

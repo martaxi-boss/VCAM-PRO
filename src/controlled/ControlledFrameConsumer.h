@@ -1,6 +1,5 @@
 #pragma once
 
-#include "FrameEngineState.h"
 #include "ReadyFrameQueue.h"
 
 #include <CoreVideo/CoreVideo.h>
@@ -79,11 +78,15 @@ public:
 
     void bind(
         frame_engine::ReadyFrameQueue* queue,
-        frame_engine::FrameEngineState* state) noexcept;
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch) noexcept;
     void unbind() noexcept;
 
     void setEnabled(bool enabled) noexcept;
     bool enabled() const noexcept;
+
+    void setPresentationActive(bool active) noexcept;
+    bool presentationActive() const noexcept;
 
     ControlledAcquireResult tryAcquire() noexcept;
 
@@ -91,8 +94,9 @@ public:
 
 private:
     frame_engine::ReadyFrameQueue* queue_ = nullptr;
-    frame_engine::FrameEngineState* state_ = nullptr;
 
+    std::uint64_t contextGeneration_ = 0;
+    std::uint64_t contextEpoch_ = 0;
     std::uint64_t lastGeneration_ = 0;
     std::uint64_t lastEpoch_ = 0;
     std::optional<std::uint64_t> lastSequence_;
@@ -101,6 +105,7 @@ private:
         ControlledFrameLifetimeTracker> tracker_;
 
     std::atomic<bool> enabled_{false};
+    std::atomic<bool> presentationActive_{false};
 };
 
 }  // namespace vcam::controlled
