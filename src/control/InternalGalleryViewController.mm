@@ -290,8 +290,12 @@ using vcam::media_engine::SelectedMediaKind;
     } else {
         NSString* path = [NSString stringWithUTF8String:selected.localPath.c_str()];
         NSString* kind = selected.kind == SelectedMediaKind::Video ? @"Video" : @"Photo";
+        NSString* displayName =
+            path.lastPathComponent != nil
+                ? path.lastPathComponent
+                : @"local media";
         self.selectedLabel.text =
-            [NSString stringWithFormat:@"%@ — %@", kind, path.lastPathComponent ?: @"local media"];
+            [NSString stringWithFormat:@"%@ — %@", kind, displayName];
     }
 
     self.statusLabel.text =
