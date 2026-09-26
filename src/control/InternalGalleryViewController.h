@@ -9,6 +9,11 @@ class InternalGalleryMediaSession;
 namespace vcam::product {
 class ProductControlOwner;
 }
+#if defined(VCAM_CONTROLLED_PREVIEW)
+namespace vcam::controlled {
+class ControlledRuntime;
+}
+#endif
 #endif
 
 NS_ASSUME_NONNULL_BEGIN
@@ -23,6 +28,13 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithProductControlOwner:
     (vcam::product::ProductControlOwner*)owner
     NS_DESIGNATED_INITIALIZER;
+
+#if defined(VCAM_CONTROLLED_PREVIEW)
+- (instancetype)initWithProductControlOwner:
+    (vcam::product::ProductControlOwner*)owner
+    controlledRuntime:
+        (vcam::controlled::ControlledRuntime*)runtime;
+#endif
 #endif
 
 - (instancetype)initWithNibName:(nullable NSString*)nibNameOrNil

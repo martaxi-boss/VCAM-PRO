@@ -4,6 +4,11 @@
 #include "ProductControlOwner.h"
 #include "SelectionCompletionGate.h"
 
+#if defined(VCAM_CONTROLLED_PREVIEW)
+#include "ControlledPreviewView.h"
+#include "ControlledRuntime.h"
+#endif
+
 #import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
@@ -34,6 +39,10 @@ using vcam::product::ProductPlaybackIntent;
 @implementation VCAMInternalGalleryViewController {
     InternalGalleryMediaSession* _mediaSession;
     ProductControlOwner* _productOwner;
+#if defined(VCAM_CONTROLLED_PREVIEW)
+    vcam::controlled::ControlledRuntime*
+        _controlledRuntime;
+#endif
     SelectionCompletionGate _selectionGate;
     std::uint64_t _presentedSelectionToken;
 }
@@ -44,6 +53,9 @@ using vcam::product::ProductPlaybackIntent;
     if (self) {
         _mediaSession = session;
         _productOwner = nullptr;
+#if defined(VCAM_CONTROLLED_PREVIEW)
+        _controlledRuntime = nullptr;
+#endif
         _presentedSelectionToken = 0;
     }
     return self;
@@ -55,10 +67,29 @@ using vcam::product::ProductPlaybackIntent;
     if (self) {
         _mediaSession = nullptr;
         _productOwner = owner;
+#if defined(VCAM_CONTROLLED_PREVIEW)
+        _controlledRuntime = nullptr;
+#endif
         _presentedSelectionToken = 0;
     }
     return self;
 }
+
+#if defined(VCAM_CONTROLLED_PREVIEW)
+- (instancetype)initWithProductControlOwner:
+    (ProductControlOwner*)owner
+    controlledRuntime:
+        (vcam::controlled::ControlledRuntime*)runtime {
+    self = [super initWithNibName:nil bundle:nil];
+    if (self) {
+        _mediaSession = nullptr;
+        _productOwner = owner;
+        _controlledRuntime = runtime;
+        _presentedSelectionToken = 0;
+    }
+    return self;
+}
+#endif
 
 - (void)dealloc {
     if (_productOwner == nullptr &&
@@ -174,9 +205,9 @@ using vcam::product::ProductPlaybackIntent;
     vcamRow.hidden =
         _productOwner == nullptr;
 
-    UIStackView* stack =
-        [[UIStackView alloc]
-            initWithArrangedSubviews:@[
+    NSMutableArray<UIView*>*
+        arrangedViews =
+            [NSMutableArray arrayWithObjects:
                 title,
                 vcamRow,
                 self.selectedLabel,
@@ -185,8 +216,30 @@ using vcam::product::ProductPlaybackIntent;
                 self.changeButton,
                 self.clearButton,
                 self.playbackButton,
-                loopRow
-            ]];
+                loopRow,
+                nil];
+
+#if defined(VCAM_CONTROLLED_PREVIEW)
+    if (_controlledRuntime != nullptr) {
+        VCAMControlledPreviewView* preview =
+            [[VCAMControlledPreviewView alloc]
+                initWithRuntime:
+                    _controlledRuntime];
+        preview.translatesAutoresizingMaskIntoConstraints =
+            NO;
+        [preview.heightAnchor
+            constraintEqualToConstant:
+                220.0].active = YES;
+        [arrangedViews
+            insertObject:preview
+                 atIndex:2];
+    }
+#endif
+
+    UIStackView* stack =
+        [[UIStackView alloc]
+            initWithArrangedSubviews:
+                arrangedViews];
     stack.axis =
         UILayoutConstraintAxisVertical;
     stack.spacing = 12.0;
