@@ -11,8 +11,6 @@ BUILD_SHA="${VCAM_GATE1_BUILD_SHA:-unknown}"
 
 SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
 CXX="$(xcrun --sdk iphoneos -f clang++)"
-CC="$(xcrun --sdk iphoneos -f clang)"
-
 rm -rf "$OUT"
 mkdir -p "$OUT/bin"   "$PKGROOT/DEBIAN"   "$PKGROOT/var/jb/usr/lib/TweakInject"   "$PKGROOT/var/jb/usr/libexec"   "$PKGROOT/var/jb/Applications/VCAMProGate1.app"
 
@@ -54,7 +52,7 @@ Description: One-shot automated VCAM PRO Gate 1 device-proof tooling.
 Maintainer: VCAM PRO
 Author: VCAM PRO
 Section: Development
-Depends: firmware (>= 15.0), mobilesubstrate
+Depends: firmware (>= 15.0), mobilesubstrate, uikittools
 EOF
 
 cp "$SOURCE/package/postinst" "$PKGROOT/DEBIAN/postinst"
