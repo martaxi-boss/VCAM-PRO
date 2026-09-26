@@ -52,6 +52,7 @@ public:
     std::uint64_t loopIteration() const noexcept;
 
     void selectOrReplaceMedia();
+    void clearMedia() noexcept;
 
     bool start();
     bool pause();

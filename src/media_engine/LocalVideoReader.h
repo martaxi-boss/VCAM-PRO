@@ -1,10 +1,7 @@
 #pragma once
 
-#include "FrameEngineState.h"
-#include "PreparedFrame.h"
+#include "LocalFrameSource.h"
 
-#include <CoreGraphics/CoreGraphics.h>
-#include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
 
 #include <cstdint>
@@ -14,39 +11,15 @@
 
 namespace vcam::media_engine {
 
-enum class ReadResultKind : std::uint8_t {
-    Frame = 0,
-    EndOfStream,
-    LoopRestarted,
-    NotReady,
-    Failed,
-    Cancelled,
-};
-
 struct LocalVideoReaderConfig {
     bool loopEnabled = false;
     OSType outputPixelFormat = 0;
 };
 
-struct SourceVideoInfo {
-    CGSize naturalSize = CGSizeZero;
-    CGAffineTransform preferredTransform = CGAffineTransformIdentity;
-    CMTime duration = kCMTimeInvalid;
-    OSType outputPixelFormat = 0;
-};
-
-struct ReadResult {
-    ReadResultKind kind = ReadResultKind::NotReady;
-    std::optional<frame_engine::PreparedFrame> frame;
-    frame_engine::ReaderErrorCode error =
-        frame_engine::ReaderErrorCode::None;
-    std::string message;
-};
-
-class LocalVideoReader final {
+class LocalVideoReader final : public LocalFrameSource {
 public:
     explicit LocalVideoReader(frame_engine::FrameEngineState& state);
-    ~LocalVideoReader();
+    ~LocalVideoReader() override;
 
     LocalVideoReader(const LocalVideoReader&) = delete;
     LocalVideoReader& operator=(const LocalVideoReader&) = delete;
@@ -56,15 +29,16 @@ public:
     bool open(const std::string& filesystemPath,
               const LocalVideoReaderConfig& config);
 
-    bool start();
-    ReadResult readNext();
-    void stop();
+    bool start() override;
+    ReadResult readNext() override;
+    void stop() override;
 
     bool isOpen() const noexcept;
     bool isStarted() const noexcept;
     bool loopEnabled() const noexcept;
+    void setLoopEnabled(bool enabled) noexcept;
 
-    std::optional<SourceVideoInfo> sourceInfo() const;
+    std::optional<SourceVideoInfo> sourceInfo() const override;
     const std::string& fileIdentity() const noexcept;
 
     frame_engine::ReaderErrorCode lastErrorCode() const noexcept;

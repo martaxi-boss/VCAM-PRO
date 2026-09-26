@@ -555,6 +555,10 @@ bool LocalVideoReader::loopEnabled() const noexcept {
     return impl_->config.loopEnabled;
 }
 
+void LocalVideoReader::setLoopEnabled(bool enabled) noexcept {
+    impl_->config.loopEnabled = enabled;
+}
+
 std::optional<SourceVideoInfo> LocalVideoReader::sourceInfo() const {
     if (!impl_->opened) {
         return std::nullopt;
