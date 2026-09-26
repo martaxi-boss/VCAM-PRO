@@ -36,12 +36,23 @@ ProductControlOwner::ProductControlOwner(
 bool ProductControlOwner::initializeAndRecoverStorage() {
     ProductControlSnapshot loaded;
 
-    if (!store_.load(&loaded)) {
+    const auto provenance =
+        store_.loadWithProvenance(
+            &loaded);
+
+    if (provenance ==
+        SharedControlLoadProvenance::
+            InvalidOrUnreadable) {
         std::lock_guard<std::mutex>
             lock(mutex_);
+        current_ =
+            ProductControlSnapshot{};
+        playbackIntentRevision_ =
+            nextGeneration(
+                playbackIntentRevision_);
         lastStatus_ =
-            "Unable to read VCAM control state.";
-        return false;
+            "Control state is untrusted; VCAM disabled and media recovery deferred.";
+        return true;
     }
 
     bool repairedInvalidMedia = false;
@@ -109,7 +120,11 @@ bool ProductControlOwner::initializeAndRecoverStorage() {
                 ? "Invalid local media repaired fail-open."
                 : current_.hasMedia()
                     ? "Existing local media loaded."
-                    : "No media selected.";
+                    : provenance ==
+                              SharedControlLoadProvenance::
+                                  Absent
+                        ? "No media selected; first-run recovery complete."
+                        : "No media selected.";
     }
 
     return true;

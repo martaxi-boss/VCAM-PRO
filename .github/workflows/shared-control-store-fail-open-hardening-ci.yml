@@ -1,0 +1,295 @@
+name: VCAM PRO Shared Control Store Fail-Open Hardening CI
+
+on:
+  push:
+    branches:
+      - builder/shared-control-store-fail-open-hardening-001
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Shared control store fail-open hardening
+    runs-on: macos-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout hardening branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact ancestry and authorized diff
+        run: |
+          set -euo pipefail
+
+          target=99b552f564d5e85f5a98d2acd240e724af3e1f85
+
+          test "$(git merge-base "$target" HEAD)" = "$target"
+
+          source_sha="$(git ls-remote origin refs/heads/builder/local-media-storage-recovery-001 | awk '{print $1}')"
+          test "$source_sha" = "$target"
+
+          changed="$(git diff --name-only "$target"..HEAD)"
+
+          while IFS= read -r path; do
+            test -n "$path" || continue
+            case "$path" in
+              src/product/SharedControlStore.mm|              src/product/SharedControlStore.h|              src/product/ProductControlOwner.mm|              tests/product/shared_control_store_fail_open_tests.mm|              tests/product/shared_control_store_recovery_provenance_tests.mm|              .github/workflows/shared-control-store-fail-open-hardening-ci.yml)
+                ;;
+              *)
+                echo "Unauthorized changed file: $path"
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+
+          test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/main | awk '{print $1}')" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "cc20d787070c67565173d4a46c218e2549cecc93"
+
+          echo "EXACT_ANCESTRY=PASS"
+          echo "AUTHORIZED_DIFF=PASS"
+          echo "REFERENCE_REPOS_UNCHANGED=PASS"
+
+      - name: Run Shared Control Store fail-open suite
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/shared-control-store-hardening
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Isrc/product             src/product/SharedControlStore.mm             tests/product/shared_control_store_fail_open_tests.mm             -framework Foundation             -o build/shared-control-store-hardening/tests
+
+          build/shared-control-store-hardening/tests             | tee build/shared-control-store-hardening/results.txt
+
+          grep -q 'Shared control store hardening tests run: 16, failures: 0'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS absent plist safe default'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS malformed bytes safe default'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong root safe default'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong enabled type safe'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong media kind type safe'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong media path type safe'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong generation type safe'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong loop type safe'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS wrong playback type safe'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS unknown media kind normalized'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS unknown playback normalized'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS incomplete media identity normalized'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS photo forces loop false'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS no media forces playback stopped'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS valid snapshot round trip'             build/shared-control-store-hardening/results.txt
+          grep -q 'PASS observer corruption fail open'             build/shared-control-store-hardening/results.txt
+
+          echo "MALFORMED_CONTROL_PLIST_FAIL_OPEN=PASS"
+          echo "CONTROL_PLIST_TYPE_CONFUSION_SAFE=PASS"
+          echo "CONTROL_SNAPSHOT_NORMALIZATION=PASS"
+          echo "CORRUPT_CONTROL_OBSERVER_FAIL_OPEN=PASS"
+          echo "ABSENT_CONTROL_STORE_DEFAULT_SAFE=PASS"
+          echo "VALID_CONTROL_SNAPSHOT_ROUNDTRIP=PASS"
+
+      - name: Run control-store provenance recovery suite
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/control-store-provenance
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/shared_control_store_recovery_provenance_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/control-store-provenance/tests
+
+          build/control-store-provenance/tests             | tee build/control-store-provenance/results.txt
+
+          grep -q 'Control provenance recovery tests run: 4, failures: 0'             build/control-store-provenance/results.txt
+          grep -q 'PASS corrupt control preserves generated media'             build/control-store-provenance/results.txt
+          grep -q 'PASS type confused control preserves generated media'             build/control-store-provenance/results.txt
+          grep -q 'PASS absent control allows recovery'             build/control-store-provenance/results.txt
+          grep -q 'PASS valid control allows recovery'             build/control-store-provenance/results.txt
+
+          echo "CORRUPT_CONTROL_DESTRUCTIVE_RECOVERY_BLOCKED=PASS"
+          echo "CORRUPT_CONTROL_MEDIA_PRESERVED=PASS"
+          echo "TYPE_CONFUSED_CONTROL_MEDIA_PRESERVED=PASS"
+          echo "ABSENT_CONTROL_RECOVERY_ALLOWED=PASS"
+          echo "VALID_CONTROL_RECOVERY_ALLOWED=PASS"
+
+      - name: Prove SpringBoard storage recovery decoupling
+        run: |
+          set -euo pipefail
+
+          python3 tests/product/springboard_storage_recovery_decoupling_tests.py
+
+      - name: Run storage ownership and startup recovery tests
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/storage-recovery
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/local_media_storage_recovery_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/storage-recovery/tests
+
+          build/storage-recovery/tests             | tee build/storage-recovery/results.txt
+
+          grep -q 'Storage recovery tests run: 15, failures: 0'             build/storage-recovery/results.txt
+
+          echo "OWNED_PATH_CONTAINMENT=PASS"
+          echo "FOREIGN_MEDIA_FILE_PRESERVED=PASS"
+          echo "PRE_COMMIT_ORPHAN_RECOVERY=PASS"
+          echo "POST_COMMIT_ORPHAN_RECOVERY=PASS"
+          echo "MISSING_OR_INVALID_ACTIVE_MEDIA_FAIL_OPEN=PASS"
+          echo "STARTUP_MEDIA_RECOVERY_IDEMPOTENT=PASS"
+
+      - name: Run existing 10 selection race tests
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/selection-race
+
+          xcrun --sdk macosx clang++             -std=c++17             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Isrc/control             tests/control/selection_completion_race_tests.cpp             -o build/selection-race/selection-race-tests
+
+          build/selection-race/selection-race-tests             | tee build/selection-race/results.txt
+
+          grep -q 'Selection race tests run: 10, failures: 0'             build/selection-race/results.txt
+
+          echo "PRE_STAGING_STALE_REJECTION=PASS"
+
+      - name: Run existing 4 post-claim race tests
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/post-claim
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/selection_post_claim_commit_race_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/post-claim/tests
+
+          build/post-claim/tests             | tee build/post-claim/results.txt
+
+          grep -q 'Post-claim commit race tests run: 4, failures: 0'             build/post-claim/results.txt
+
+          echo "POST_CLAIM_PRE_COMMIT_STALE_REJECTION=PASS"
+          echo "LATEST_SELECTION_REQUEST_WINS=PASS"
+          echo "REJECTED_STAGED_MEDIA_CLEANUP=PASS"
+
+      - name: Run existing Product Control lost-update 5-case suite
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/product-control-lost-update
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/product_control_lost_update_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/product-control-lost-update/tests
+
+          build/product-control-lost-update/tests             | tee build/product-control-lost-update/results.txt
+
+          grep -q 'Product control lost-update tests run: 5, failures: 0'             build/product-control-lost-update/results.txt
+
+          echo "PRODUCT_CONTROL_LOST_UPDATE_BLOCKED=PASS"
+          echo "CLEAR_INVALIDATES_INFLIGHT_SELECTION=PASS"
+          echo "LATEST_ENABLED_STATE_PRESERVED=PASS"
+          echo "LATEST_PLAYBACK_INTENT_PRESERVED=PASS"
+          echo "LATEST_LOOP_STATE_PRESERVED=PASS"
+
+      - name: Run existing Product Control status 2-case suite
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/product-control-status
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/product_control_status_thread_safety_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/product-control-status/tests
+
+          build/product-control-status/tests             | tee build/product-control-status/results.txt
+
+          grep -q 'Product control status tests run: 2, failures: 0'             build/product-control-status/results.txt
+
+          echo "PRODUCT_CONTROL_STATUS_THREAD_SAFE=PASS"
+
+      - name: Frame Engine A through F2 regressions
+        run: |
+          set -euo pipefail
+
+          tools/run_frame_regressions.sh
+
+          echo "FRAME_ENGINE_A_F2=PASS"
+
+      - name: Internal Gallery 20-case regression
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/store-hardening-regressions
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/store-hardening-regressions/internal-gallery
+
+          build/store-hardening-regressions/internal-gallery             | tee build/store-hardening-regressions/internal-gallery.txt
+
+          grep -q 'Internal gallery tests run: 20, failures: 0'             build/store-hardening-regressions/internal-gallery.txt
+
+          echo "INTERNAL_GALLERY=PASS"
+
+      - name: Existing safe Product Integration regression
+        run: |
+          set -euo pipefail
+
+          xcrun --sdk macosx clang++             -std=c++17             -fobjc-arc             -Wall             -Wextra             -Werror             -pedantic             -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/control             -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/store-hardening-regressions/product-integration
+
+          build/store-hardening-regressions/product-integration             | tee build/store-hardening-regressions/product-integration.txt
+
+          grep -q 'Product integration tests run: 8, failures: 0'             build/store-hardening-regressions/product-integration.txt
+
+          echo "PRODUCT_INTEGRATION=PASS"
+
+      - name: Compile changed production source for iOS 15 arm64
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/store-hardening-ios
+
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+
+          common=(
+            -std=c++17
+            -fobjc-arc
+            -arch arm64
+            -isysroot "$SDKROOT"
+            -miphoneos-version-min=15.0
+            -Wall
+            -Wextra
+            -Werror
+            -Werror=unguarded-availability-new
+            -pedantic
+            -Isrc/product
+          )
+
+          "$CXX"             "${common[@]}"             -c src/product/SharedControlStore.mm             -o build/store-hardening-ios/SharedControlStore.o
+
+          "$CXX"             "${common[@]}"             -c src/product/ProductControlOwner.mm             -o build/store-hardening-ios/ProductControlOwner.o
+
+          for object in SharedControlStore.o ProductControlOwner.o; do
+            xcrun lipo -info "build/store-hardening-ios/$object"               | tee "build/store-hardening-ios/$object.arch.txt"
+
+            grep -q 'arm64'               "build/store-hardening-ios/$object.arch.txt"
+
+            if grep -q 'arm64e'                 "build/store-hardening-ios/$object.arch.txt"; then
+              exit 1
+            fi
+
+            xcrun otool -l               "build/store-hardening-ios/$object"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | tee "build/store-hardening-ios/$object.minos.txt"
+
+            grep -q 'minos 15.0'               "build/store-hardening-ios/$object.minos.txt"
+          done
+
+          echo "IOS15_ARM64=PASS"
+
+      - name: Confirm excluded subsystems untouched
+        run: |
+          set -euo pipefail
+
+          target=99b552f564d5e85f5a98d2acd240e724af3e1f85
+
+          for path in             src/product/ReferenceCameraHook.h             src/product/ReferenceCameraHook.mm             src/product/MediaserverdRuntime.h             src/product/MediaserverdRuntime.mm             src/product/CameraConsumerAdapter.h             src/product/CameraConsumerAdapter.cpp; do
+            test -z "$(git diff --name-only "$target"..HEAD -- "$path")"
+          done
+
+          test -z "$(git diff --name-only "$target"..HEAD -- 'src/controlled/**')"
+
+          echo "GLOBAL_CAMERA_SUBSYSTEMS_MODIFIED=NO"
+          echo "DEVICE_ACTION=NO"
+          echo "MERGE_PERFORMED=NO"

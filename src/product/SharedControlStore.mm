@@ -21,13 +21,79 @@ NSString* NSStringFromStd(
              encoding:NSUTF8StringEncoding];
 }
 
+bool IsNumber(
+    id value) {
+    return
+        value != nil &&
+        [value isKindOfClass:
+            [NSNumber class]];
+}
+
+bool IsString(
+    id value) {
+    return
+        value != nil &&
+        [value isKindOfClass:
+            [NSString class]];
+}
+
+bool ParseBoolField(
+    id value,
+    bool* typeConfused) {
+    if (value == nil) {
+        return false;
+    }
+
+    if (!IsNumber(value)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return false;
+    }
+
+    return
+        [(NSNumber*)value boolValue];
+}
+
 ProductMediaKind ParseMediaKind(
-    NSString* value) {
-    if ([value isEqualToString:@"photo"]) {
+    id value,
+    bool* typeConfused,
+    bool* recognized) {
+    if (recognized != nullptr) {
+        *recognized = true;
+    }
+
+    if (value == nil) {
+        return ProductMediaKind::None;
+    }
+
+    if (!IsString(value)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return ProductMediaKind::None;
+    }
+
+    NSString* string =
+        (NSString*)value;
+
+    if ([string
+            isEqualToString:@"photo"]) {
         return ProductMediaKind::Photo;
     }
-    if ([value isEqualToString:@"video"]) {
+
+    if ([string
+            isEqualToString:@"video"]) {
         return ProductMediaKind::Video;
+    }
+
+    if ([string
+            isEqualToString:@"none"]) {
+        return ProductMediaKind::None;
+    }
+
+    if (recognized != nullptr) {
+        *recognized = false;
     }
     return ProductMediaKind::None;
 }
@@ -46,12 +112,44 @@ NSString* MediaKindString(
 }
 
 ProductPlaybackIntent ParsePlayback(
-    NSString* value) {
-    if ([value isEqualToString:@"playing"]) {
+    id value,
+    bool* typeConfused,
+    bool* recognized) {
+    if (recognized != nullptr) {
+        *recognized = true;
+    }
+
+    if (value == nil) {
+        return ProductPlaybackIntent::Stopped;
+    }
+
+    if (!IsString(value)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return ProductPlaybackIntent::Stopped;
+    }
+
+    NSString* string =
+        (NSString*)value;
+
+    if ([string
+            isEqualToString:@"playing"]) {
         return ProductPlaybackIntent::Playing;
     }
-    if ([value isEqualToString:@"paused"]) {
+
+    if ([string
+            isEqualToString:@"paused"]) {
         return ProductPlaybackIntent::Paused;
+    }
+
+    if ([string
+            isEqualToString:@"stopped"]) {
+        return ProductPlaybackIntent::Stopped;
+    }
+
+    if (recognized != nullptr) {
+        *recognized = false;
     }
     return ProductPlaybackIntent::Stopped;
 }
@@ -69,15 +167,220 @@ NSString* PlaybackString(
     return @"stopped";
 }
 
-std::string StdFromNSString(
-    NSString* value) {
+std::string ParseStringField(
+    id value,
+    bool* typeConfused) {
     if (value == nil) {
         return {};
     }
-    const char* utf8 = value.UTF8String;
+
+    if (!IsString(value)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return {};
+    }
+
+    const char* utf8 =
+        [(NSString*)value UTF8String];
+
     return utf8 == nullptr
         ? std::string{}
         : std::string(utf8);
+}
+
+bool ParseUnsignedGeneration(
+    id value,
+    std::uint64_t* generation,
+    bool* typeConfused) {
+    if (generation == nullptr) {
+        return false;
+    }
+
+    *generation = 0;
+
+    if (value == nil) {
+        return true;
+    }
+
+    if (!IsNumber(value)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return false;
+    }
+
+    NSNumber* number =
+        (NSNumber*)value;
+
+    if (CFGetTypeID(
+            (__bridge CFTypeRef)number) ==
+        CFBooleanGetTypeID()) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return false;
+    }
+
+    const char* type =
+        number.objCType;
+
+    if (type == nullptr ||
+        type[0] == '\0') {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return false;
+    }
+
+    switch (type[0]) {
+        case 'c':
+        case 's':
+        case 'i':
+        case 'l':
+        case 'q': {
+            const long long signedValue =
+                number.longLongValue;
+            if (signedValue < 0) {
+                if (typeConfused != nullptr) {
+                    *typeConfused = true;
+                }
+                return false;
+            }
+
+            *generation =
+                static_cast<std::uint64_t>(
+                    signedValue);
+            return true;
+        }
+
+        case 'C':
+        case 'S':
+        case 'I':
+        case 'L':
+        case 'Q':
+            *generation =
+                static_cast<std::uint64_t>(
+                    number.unsignedLongLongValue);
+            return true;
+
+        default:
+            if (typeConfused != nullptr) {
+                *typeConfused = true;
+            }
+            return false;
+    }
+}
+
+bool HasCompleteSchema(
+    NSDictionary* dict) {
+    if (dict == nil) {
+        return false;
+    }
+
+    return
+        dict[@"enabled"] != nil &&
+        dict[@"mediaKind"] != nil &&
+        dict[@"mediaPath"] != nil &&
+        dict[@"selectionGeneration"] != nil &&
+        dict[@"loopEnabled"] != nil &&
+        dict[@"playbackIntent"] != nil;
+}
+
+bool IsCanonicalSnapshotEncoding(
+    const ProductControlSnapshot& snapshot,
+    bool typeConfused,
+    bool mediaKindRecognized,
+    bool playbackRecognized,
+    bool generationValid,
+    bool schemaComplete) {
+    if (typeConfused ||
+        !mediaKindRecognized ||
+        !playbackRecognized ||
+        !generationValid ||
+        !schemaComplete) {
+        return false;
+    }
+
+    if (snapshot.mediaKind ==
+        ProductMediaKind::None) {
+        return
+            snapshot.mediaPath.empty() &&
+            !snapshot.loopEnabled &&
+            snapshot.playbackIntent ==
+                ProductPlaybackIntent::Stopped;
+    }
+
+    if (snapshot.mediaPath.empty() ||
+        snapshot.selectionGeneration == 0) {
+        return false;
+    }
+
+    if (snapshot.mediaKind ==
+        ProductMediaKind::Photo &&
+        snapshot.loopEnabled) {
+        return false;
+    }
+
+    return
+        snapshot.mediaKind ==
+            ProductMediaKind::Photo ||
+        snapshot.mediaKind ==
+            ProductMediaKind::Video;
+}
+
+void NormalizeSnapshot(
+    ProductControlSnapshot* snapshot,
+    bool typeConfused,
+    bool mediaKindRecognized,
+    bool playbackRecognized) {
+    if (snapshot == nullptr) {
+        return;
+    }
+
+    if (typeConfused) {
+        const std::uint64_t generation =
+            snapshot->selectionGeneration;
+
+        *snapshot =
+            ProductControlSnapshot{};
+        snapshot->selectionGeneration =
+            generation;
+        return;
+    }
+
+    if (!mediaKindRecognized) {
+        snapshot->mediaKind =
+            ProductMediaKind::None;
+    }
+
+    if (!playbackRecognized) {
+        snapshot->playbackIntent =
+            ProductPlaybackIntent::Stopped;
+    }
+
+    const bool hasCompleteIdentity =
+        (snapshot->mediaKind ==
+             ProductMediaKind::Photo ||
+         snapshot->mediaKind ==
+             ProductMediaKind::Video) &&
+        !snapshot->mediaPath.empty() &&
+        snapshot->selectionGeneration != 0;
+
+    if (!hasCompleteIdentity) {
+        snapshot->mediaKind =
+            ProductMediaKind::None;
+        snapshot->mediaPath.clear();
+        snapshot->loopEnabled = false;
+        snapshot->playbackIntent =
+            ProductPlaybackIntent::Stopped;
+        return;
+    }
+
+    if (snapshot->mediaKind ==
+        ProductMediaKind::Photo) {
+        snapshot->loopEnabled = false;
+    }
 }
 
 }  // namespace
@@ -99,52 +402,149 @@ bool SharedControlStore::load(
         return false;
     }
 
+    (void)loadWithProvenance(
+        snapshot);
+    return true;
+}
+
+SharedControlLoadProvenance
+SharedControlStore::loadWithProvenance(
+    ProductControlSnapshot* snapshot) const {
+    if (snapshot == nullptr) {
+        return
+            SharedControlLoadProvenance::
+                InvalidOrUnreadable;
+    }
+
     diskReadCount_.fetch_add(
         1,
         std::memory_order_relaxed);
 
     @autoreleasepool {
+        *snapshot =
+            ProductControlSnapshot{};
+
         NSString* path =
             NSStringFromStd(controlPath_);
-        NSDictionary* dict =
-            [NSDictionary
-                dictionaryWithContentsOfFile:path];
 
-        if (dict == nil) {
-            *snapshot =
-                ProductControlSnapshot{};
-            return true;
+        if (path == nil) {
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
         }
+
+        BOOL isDirectory = NO;
+        const BOOL exists =
+            [[NSFileManager defaultManager]
+                fileExistsAtPath:path
+                     isDirectory:&isDirectory];
+
+        if (!exists) {
+            return
+                SharedControlLoadProvenance::
+                    Absent;
+        }
+
+        if (isDirectory) {
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
+        }
+
+        NSData* data =
+            [NSData
+                dataWithContentsOfFile:path
+                               options:0
+                                 error:nil];
+
+        if (data == nil) {
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
+        }
+
+        NSError* plistError = nil;
+        id root =
+            [NSPropertyListSerialization
+                propertyListWithData:data
+                             options:
+                                 NSPropertyListImmutable
+                              format:nil
+                               error:&plistError];
+
+        if (root == nil ||
+            plistError != nil ||
+            ![root isKindOfClass:
+                [NSDictionary class]]) {
+            return
+                SharedControlLoadProvenance::
+                    InvalidOrUnreadable;
+        }
+
+        NSDictionary* dict =
+            (NSDictionary*)root;
+
+        bool typeConfused = false;
+        bool mediaKindRecognized = true;
+        bool playbackRecognized = true;
 
         ProductControlSnapshot result;
+
         result.enabled =
-            [dict[@"enabled"] boolValue];
+            ParseBoolField(
+                dict[@"enabled"],
+                &typeConfused);
+
         result.mediaKind =
-            ParseMediaKind(dict[@"mediaKind"]);
+            ParseMediaKind(
+                dict[@"mediaKind"],
+                &typeConfused,
+                &mediaKindRecognized);
+
         result.mediaPath =
-            StdFromNSString(dict[@"mediaPath"]);
-        result.selectionGeneration =
-            [dict[@"selectionGeneration"]
-                unsignedLongLongValue];
+            ParseStringField(
+                dict[@"mediaPath"],
+                &typeConfused);
+
+        const bool generationValid =
+            ParseUnsignedGeneration(
+                dict[@"selectionGeneration"],
+                &result.selectionGeneration,
+                &typeConfused);
+
         result.loopEnabled =
-            [dict[@"loopEnabled"] boolValue];
+            ParseBoolField(
+                dict[@"loopEnabled"],
+                &typeConfused);
+
         result.playbackIntent =
             ParsePlayback(
-                dict[@"playbackIntent"]);
+                dict[@"playbackIntent"],
+                &typeConfused,
+                &playbackRecognized);
 
-        if (result.mediaKind ==
-                ProductMediaKind::None ||
-            result.mediaPath.empty() ||
-            result.selectionGeneration == 0) {
-            result.mediaKind =
-                ProductMediaKind::None;
-            result.mediaPath.clear();
-            result.playbackIntent =
-                ProductPlaybackIntent::Stopped;
-        }
+        const bool trusted =
+            IsCanonicalSnapshotEncoding(
+                result,
+                typeConfused,
+                mediaKindRecognized,
+                playbackRecognized,
+                generationValid,
+                HasCompleteSchema(dict));
 
-        *snapshot = std::move(result);
-        return true;
+        NormalizeSnapshot(
+            &result,
+            typeConfused,
+            mediaKindRecognized,
+            playbackRecognized);
+
+        *snapshot =
+            std::move(result);
+
+        return trusted
+            ? SharedControlLoadProvenance::Valid
+            : SharedControlLoadProvenance::
+                InvalidOrUnreadable;
     }
 }
 
@@ -318,8 +718,16 @@ SharedControlStore::diskWriteCount() const noexcept {
 
 void SharedControlStore::handleDarwinChange() {
     ProductControlSnapshot snapshot;
-    if (!load(&snapshot)) {
-        return;
+
+    const auto provenance =
+        loadWithProvenance(
+            &snapshot);
+
+    if (provenance ==
+        SharedControlLoadProvenance::
+            InvalidOrUnreadable) {
+        snapshot =
+            ProductControlSnapshot{};
     }
 
     ChangeCallback callback;
