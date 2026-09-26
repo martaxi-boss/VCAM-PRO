@@ -13,25 +13,82 @@ permissions:
   contents: read
 
 jobs:
-  ios15-oslogstore-system-scope:
+  ios15-public-oslogstore-scope:
     runs-on: macos-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Compile iOS 15 arm64 OSLogStore system-scope probe
+      - name: Prove iOS public OSLogStore scope boundary
+        run: |
+          set -euo pipefail
+          mkdir -p build/gate1-preflight
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          HEADER="$SDKROOT/System/Library/Frameworks/OSLog.framework/Headers/Store.h"
+          test -f "$HEADER"
+
+          grep -n 'OSLogStoreCurrentProcessIdentifier' "$HEADER"             | tee build/gate1-preflight/current-process-scope.txt
+          grep -n 'OSLogStoreSystem' "$HEADER"             | tee build/gate1-preflight/system-scope.txt
+
+          python3 - "$HEADER" <<'PY'
+          from pathlib import Path
+          import sys
+
+          text = Path(sys.argv[1]).read_text()
+          current = next(
+              line for line in text.splitlines()
+              if "OSLogStoreCurrentProcessIdentifier" in line
+          )
+          system = next(
+              line for line in text.splitlines()
+              if "OSLogStoreSystem" in line
+          )
+
+          if "API_UNAVAILABLE(ios" not in system:
+              raise SystemExit(
+                  "Expected OSLogStoreSystem to be unavailable on iOS; "
+                  f"SDK header changed: {system}"
+              )
+
+          report = (
+              "GATE1_MARKER_CAPTURE_PREFLIGHT\n"
+              "PUBLIC_OSLOGSTORE_CROSS_PROCESS_IOS=UNAVAILABLE\n"
+              f"CURRENT_PROCESS_DECL={current.strip()}\n"
+              f"SYSTEM_SCOPE_DECL={system.strip()}\n"
+              "CONCLUSION=PUBLIC_IOS_API_CANNOT_READ_MEDIASERVERD_LOGS_FROM_A_SEPARATE_HELPER\n"
+          )
+          Path("build/gate1-preflight/conclusion.txt").write_text(report)
+          print(report, end="")
+          PY
+
+      - name: Compile the public iOS 15 current-process scope
         run: |
           set -euo pipefail
           mkdir -p build/gate1-preflight
           SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           CXX="$(xcrun --sdk iphoneos -f clang++)"
-          "$CXX"             -std=c++17             -fobjc-arc             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -Werror=unguarded-availability-new             -c proofs/gate1_device_runner/preflight/OSLogStoreSystemProbe.mm             -o build/gate1-preflight/OSLogStoreSystemProbe.o
+          cat > build/gate1-preflight/CurrentProcessScope.mm <<'EOF'
+          #import <Foundation/Foundation.h>
+          #import <OSLog/OSLog.h>
+
+          int main(void) {
+              @autoreleasepool {
+                  NSError *error = nil;
+                  OSLogStore *store =
+                      [OSLogStore storeWithScope:OSLogStoreCurrentProcessIdentifier
+                                           error:&error];
+                  return store != nil ? 0 : (error != nil ? 2 : 1);
+              }
+          }
+          EOF
+
+          "$CXX"             -std=c++17             -fobjc-arc             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -Werror=unguarded-availability-new             -c build/gate1-preflight/CurrentProcessScope.mm             -o build/gate1-preflight/CurrentProcessScope.o
 
       - name: Inspect minimum OS and architecture
         run: |
           set -euo pipefail
-          xcrun lipo -info build/gate1-preflight/OSLogStoreSystemProbe.o             | tee build/gate1-preflight/architecture.txt
-          xcrun otool -l build/gate1-preflight/OSLogStoreSystemProbe.o             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/gate1-preflight/minos.txt
+          xcrun lipo -info build/gate1-preflight/CurrentProcessScope.o             | tee build/gate1-preflight/architecture.txt
+          xcrun otool -l build/gate1-preflight/CurrentProcessScope.o             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/gate1-preflight/minos.txt
           grep -q 'arm64' build/gate1-preflight/architecture.txt
           grep -q 'minos 15.0' build/gate1-preflight/minos.txt
 
@@ -40,6 +97,9 @@ jobs:
         with:
           name: gate1-marker-capture-preflight
           path: |
+            build/gate1-preflight/current-process-scope.txt
+            build/gate1-preflight/system-scope.txt
+            build/gate1-preflight/conclusion.txt
             build/gate1-preflight/architecture.txt
             build/gate1-preflight/minos.txt
           if-no-files-found: error
