@@ -1,4 +1,5 @@
 #include "SharedMediaStager.h"
+#include "JailbreakRootResolver.h"
 
 #include "FrameEngineState.h"
 #include "LocalPhotoReader.h"
@@ -532,7 +533,11 @@ void SetSharedMediaStagerTestHook(
 SharedMediaStager::SharedMediaStager(
     std::string mediaDirectory)
     : mediaDirectory_(
-          std::move(mediaDirectory)) {}
+          mediaDirectory ==
+                  kDefaultMediaDirectory
+              ? ResolvePathInJailbreakRoot(
+                    "/var/mobile/Library/VCAMPro/Media")
+              : std::move(mediaDirectory)) {}
 
 bool SharedMediaStager::stageAndValidate(
     const std::string& temporarySourcePath,
