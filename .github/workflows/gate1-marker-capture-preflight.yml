@@ -1,0 +1,46 @@
+name: Gate 1 Marker Capture Preflight
+
+on:
+  push:
+    branches:
+      - builder/gate1-automated-device-proof-runner-001
+    paths:
+      - "proofs/gate1_device_runner/preflight/**"
+      - ".github/workflows/gate1-marker-capture-preflight.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ios15-oslogstore-system-scope:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compile iOS 15 arm64 OSLogStore system-scope probe
+        run: |
+          set -euo pipefail
+          mkdir -p build/gate1-preflight
+          SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CXX="$(xcrun --sdk iphoneos -f clang++)"
+          "$CXX"             -std=c++17             -fobjc-arc             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror -Werror=unguarded-availability-new             -c proofs/gate1_device_runner/preflight/OSLogStoreSystemProbe.mm             -o build/gate1-preflight/OSLogStoreSystemProbe.o
+
+      - name: Inspect minimum OS and architecture
+        run: |
+          set -euo pipefail
+          xcrun lipo -info build/gate1-preflight/OSLogStoreSystemProbe.o             | tee build/gate1-preflight/architecture.txt
+          xcrun otool -l build/gate1-preflight/OSLogStoreSystemProbe.o             | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'             | tee build/gate1-preflight/minos.txt
+          grep -q 'arm64' build/gate1-preflight/architecture.txt
+          grep -q 'minos 15.0' build/gate1-preflight/minos.txt
+
+      - name: Upload preflight evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: gate1-marker-capture-preflight
+          path: |
+            build/gate1-preflight/architecture.txt
+            build/gate1-preflight/minos.txt
+          if-no-files-found: error
+          retention-days: 14
