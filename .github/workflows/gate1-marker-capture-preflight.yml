@@ -4,9 +4,6 @@ on:
   push:
     branches:
       - builder/gate1-automated-device-proof-runner-001
-    paths:
-      - "proofs/gate1_device_runner/preflight/**"
-      - ".github/workflows/gate1-marker-capture-preflight.yml"
   workflow_dispatch:
 
 permissions:
@@ -37,11 +34,11 @@ jobs:
           text = Path(sys.argv[1]).read_text()
           current = next(
               line for line in text.splitlines()
-              if "OSLogStoreCurrentProcessIdentifier" in line
+              if "OSLogStoreCurrentProcessIdentifier" in line and "=" in line
           )
           system = next(
               line for line in text.splitlines()
-              if "OSLogStoreSystem" in line
+              if "OSLogStoreSystem" in line and "=" in line
           )
 
           if "API_UNAVAILABLE(ios" not in system:
