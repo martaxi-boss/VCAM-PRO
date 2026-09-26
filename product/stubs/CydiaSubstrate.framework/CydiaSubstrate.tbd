@@ -1,0 +1,8 @@
+--- !tapi-tbd
+tbd-version: 4
+targets: [ arm64-ios ]
+install-name: '@rpath/CydiaSubstrate.framework/CydiaSubstrate'
+exports:
+  - targets: [ arm64-ios ]
+    symbols: [ _MSHookFunction, _MSHookMessageEx ]
+...

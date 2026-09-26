@@ -1,0 +1,11 @@
+#!/bin/sh
+set +e
+
+VCAM_ROOT="/var/jb/var/mobile/Library/VCAMPro"
+VCAM_MEDIA="$VCAM_ROOT/Media"
+
+mkdir -p "$VCAM_MEDIA" 2>/dev/null || true
+chown mobile:mobile "$VCAM_ROOT" "$VCAM_MEDIA" 2>/dev/null || true
+chmod 0755 "$VCAM_ROOT" "$VCAM_MEDIA" 2>/dev/null || true
+
+exit 0
