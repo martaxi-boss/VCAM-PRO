@@ -5,7 +5,27 @@
 #include <cstdint>
 #include <string>
 
+#if defined(VCAM_TESTING)
+#include <functional>
+#endif
+
 namespace vcam::product {
+
+#if defined(VCAM_TESTING)
+enum class SharedMediaStagerTestPoint : std::uint8_t {
+    BeforeDestinationCreate = 0,
+    BeforePublish,
+    BeforeDelete,
+    BeforeReconcileDelete,
+};
+
+using SharedMediaStagerTestHook =
+    std::function<void(
+        SharedMediaStagerTestPoint)>;
+
+void SetSharedMediaStagerTestHook(
+    SharedMediaStagerTestHook hook);
+#endif
 
 class SharedMediaStager final {
 public:
