@@ -6,6 +6,8 @@
 
 #import <Foundation/Foundation.h>
 
+#include <cerrno>
+#include <cctype>
 #include <sys/stat.h>
 
 #include <string>
@@ -30,6 +32,177 @@ std::string StdFromNSString(
     return utf8 == nullptr
         ? std::string{}
         : std::string(utf8);
+}
+
+bool IsHexCharacter(
+    unichar value) {
+    return
+        (value >= '0' && value <= '9') ||
+        (value >= 'a' && value <= 'f') ||
+        (value >= 'A' && value <= 'F');
+}
+
+bool IsGeneratedMediaFilename(
+    NSString* filename) {
+    if (filename == nil ||
+        ![filename hasPrefix:@"media-"]) {
+        return false;
+    }
+
+    const NSUInteger prefixLength = 6;
+    if (filename.length <= prefixLength) {
+        return false;
+    }
+
+    NSRange remaining =
+        NSMakeRange(
+            prefixLength,
+            filename.length - prefixLength);
+    NSRange separator =
+        [filename
+            rangeOfString:@"-"
+                  options:0
+                    range:remaining];
+
+    if (separator.location ==
+            NSNotFound ||
+        separator.location ==
+            prefixLength) {
+        return false;
+    }
+
+    NSString* generation =
+        [filename
+            substringWithRange:
+                NSMakeRange(
+                    prefixLength,
+                    separator.location -
+                        prefixLength)];
+
+    for (NSUInteger index = 0;
+         index < generation.length;
+         ++index) {
+        const unichar value =
+            [generation
+                characterAtIndex:index];
+
+        if (value < '0' ||
+            value > '9') {
+            return false;
+        }
+    }
+
+    if (generation.longLongValue <= 0) {
+        return false;
+    }
+
+    const NSUInteger uuidStart =
+        NSMaxRange(separator);
+    constexpr NSUInteger uuidLength = 36;
+
+    if (filename.length <=
+        uuidStart + uuidLength + 1) {
+        return false;
+    }
+
+    NSString* uuid =
+        [filename
+            substringWithRange:
+                NSMakeRange(
+                    uuidStart,
+                    uuidLength)];
+
+    for (NSUInteger index = 0;
+         index < uuid.length;
+         ++index) {
+        const bool hyphen =
+            index == 8 ||
+            index == 13 ||
+            index == 18 ||
+            index == 23;
+        const unichar value =
+            [uuid characterAtIndex:index];
+
+        if (hyphen) {
+            if (value != '-') {
+                return false;
+            }
+        } else if (!IsHexCharacter(value)) {
+            return false;
+        }
+    }
+
+    if ([filename
+            characterAtIndex:
+                uuidStart + uuidLength] !=
+        '.') {
+        return false;
+    }
+
+    NSString* extension =
+        [filename
+            substringFromIndex:
+                uuidStart +
+                uuidLength +
+                1];
+
+    if (extension.length == 0 ||
+        [extension containsString:@"/"] ||
+        [extension containsString:@"\\"]) {
+        return false;
+    }
+
+    return true;
+}
+
+NSString* StandardizedLocalPath(
+    const std::string& value) {
+    if (value.empty() ||
+        value.find("://") !=
+            std::string::npos) {
+        return nil;
+    }
+
+    NSString* path =
+        NSStringFromStd(value);
+
+    if (path == nil ||
+        !path.isAbsolutePath) {
+        return nil;
+    }
+
+    return
+        [path stringByStandardizingPath];
+}
+
+bool SameCanonicalPath(
+    NSString* left,
+    NSString* right) {
+    if (left == nil ||
+        right == nil) {
+        return false;
+    }
+
+    return
+        [[left
+            stringByResolvingSymlinksInPath]
+            isEqualToString:
+                [right
+                    stringByResolvingSymlinksInPath]];
+}
+
+bool IsRegularNonSymlink(
+    const std::string& path) {
+    struct stat info {};
+    if (lstat(
+            path.c_str(),
+            &info) != 0) {
+        return false;
+    }
+
+    return
+        S_ISREG(info.st_mode) &&
+        !S_ISLNK(info.st_mode);
 }
 
 }  // namespace
@@ -167,21 +340,131 @@ bool SharedMediaStager::removeOwnedPath(
         return false;
     }
 
+    struct stat info {};
+    if (lstat(
+            path.c_str(),
+            &info) != 0) {
+        return errno == ENOENT;
+    }
+
+    if (!S_ISREG(info.st_mode) ||
+        S_ISLNK(info.st_mode)) {
+        return false;
+    }
+
     @autoreleasepool {
         NSString* nsPath =
-            NSStringFromStd(path);
-        if (nsPath == nil) {
+            StandardizedLocalPath(path);
+
+        return
+            nsPath != nil &&
+            [[NSFileManager defaultManager]
+                removeItemAtPath:nsPath
+                           error:nil];
+    }
+}
+
+bool SharedMediaStager::isExistingOwnedMediaPath(
+    const std::string& path) const {
+    return
+        isOwnedPath(path) &&
+        IsRegularNonSymlink(path);
+}
+
+bool SharedMediaStager::reconcileOwnedMedia(
+    const std::string& activeOwnedPath,
+    std::string* errorMessage) const {
+    @autoreleasepool {
+        NSString* directory =
+            StandardizedLocalPath(
+                mediaDirectory_);
+
+        if (directory == nil) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "Invalid VCAM media directory.";
+            }
             return false;
         }
 
-        if (![[NSFileManager defaultManager]
-                fileExistsAtPath:nsPath]) {
+        BOOL isDirectory = NO;
+        NSFileManager* manager =
+            [NSFileManager defaultManager];
+
+        if (![manager
+                fileExistsAtPath:directory
+                     isDirectory:&isDirectory]) {
+            if (errorMessage != nullptr) {
+                errorMessage->clear();
+            }
             return true;
         }
 
-        return [[NSFileManager defaultManager]
-            removeItemAtPath:nsPath
-                       error:nil];
+        if (!isDirectory) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "VCAM media root is not a directory.";
+            }
+            return false;
+        }
+
+        NSString* trustedActive = nil;
+        if (!activeOwnedPath.empty() &&
+            isExistingOwnedMediaPath(
+                activeOwnedPath)) {
+            trustedActive =
+                StandardizedLocalPath(
+                    activeOwnedPath);
+        }
+
+        NSError* enumerateError = nil;
+        NSArray<NSString*>* entries =
+            [manager
+                contentsOfDirectoryAtPath:
+                    directory
+                                  error:
+                                      &enumerateError];
+
+        if (entries == nil) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "Unable to enumerate VCAM media storage.";
+            }
+            return false;
+        }
+
+        for (NSString* entry in entries) {
+            if (!IsGeneratedMediaFilename(
+                    entry)) {
+                continue;
+            }
+
+            NSString* candidate =
+                [directory
+                    stringByAppendingPathComponent:
+                        entry];
+
+            if (trustedActive != nil &&
+                SameCanonicalPath(
+                    candidate,
+                    trustedActive)) {
+                continue;
+            }
+
+            const std::string candidatePath =
+                StdFromNSString(candidate);
+
+            if (isExistingOwnedMediaPath(
+                    candidatePath)) {
+                (void)removeOwnedPath(
+                    candidatePath);
+            }
+        }
+
+        if (errorMessage != nullptr) {
+            errorMessage->clear();
+        }
+        return true;
     }
 }
 
@@ -249,21 +532,58 @@ bool SharedMediaStager::validate(
 }
 
 bool SharedMediaStager::isOwnedPath(
-    const std::string& path) const noexcept {
-    if (path.size() <=
-        mediaDirectory_.size()) {
-        return false;
-    }
+    const std::string& path) const {
+    @autoreleasepool {
+        NSString* root =
+            StandardizedLocalPath(
+                mediaDirectory_);
+        NSString* candidate =
+            StandardizedLocalPath(path);
 
-    if (path.compare(
-            0,
-            mediaDirectory_.size(),
-            mediaDirectory_) != 0) {
-        return false;
-    }
+        if (root == nil ||
+            candidate == nil ||
+            [candidate isEqualToString:root]) {
+            return false;
+        }
 
-    return path[
-        mediaDirectory_.size()] == '/';
+        NSString* parent =
+            [candidate
+                stringByDeletingLastPathComponent];
+
+        if (![parent
+                isEqualToString:root]) {
+            return false;
+        }
+
+        if (!IsGeneratedMediaFilename(
+                candidate.lastPathComponent)) {
+            return false;
+        }
+
+        NSString* canonicalRoot =
+            [root
+                stringByResolvingSymlinksInPath];
+        NSString* canonicalCandidate =
+            [candidate
+                stringByResolvingSymlinksInPath];
+
+        if (canonicalRoot == nil ||
+            canonicalCandidate == nil ||
+            [canonicalCandidate
+                isEqualToString:
+                    canonicalRoot]) {
+            return false;
+        }
+
+        NSString* canonicalParent =
+            [canonicalCandidate
+                stringByDeletingLastPathComponent];
+
+        return
+            [canonicalParent
+                isEqualToString:
+                    canonicalRoot];
+    }
 }
 
 }  // namespace vcam::product

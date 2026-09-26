@@ -30,7 +30,89 @@ ProductControlOwner::ProductControlOwner(
           std::move(notificationName)),
       stager_(
           std::move(mediaDirectory)) {
-    (void)reload();
+    (void)initializeAndRecoverStorage();
+}
+
+bool ProductControlOwner::initializeAndRecoverStorage() {
+    ProductControlSnapshot loaded;
+
+    if (!store_.load(&loaded)) {
+        std::lock_guard<std::mutex>
+            lock(mutex_);
+        lastStatus_ =
+            "Unable to read VCAM control state.";
+        return false;
+    }
+
+    bool repairedInvalidMedia = false;
+
+    if (loaded.mediaKind !=
+            ProductMediaKind::None &&
+        !stager_.isExistingOwnedMediaPath(
+            loaded.mediaPath)) {
+        loaded.mediaKind =
+            ProductMediaKind::None;
+        loaded.mediaPath.clear();
+        loaded.selectionGeneration =
+            nextGeneration(
+                loaded.selectionGeneration);
+        loaded.loopEnabled = false;
+        loaded.playbackIntent =
+            ProductPlaybackIntent::Stopped;
+
+        repairedInvalidMedia = true;
+
+        if (!store_.save(loaded)) {
+            std::lock_guard<std::mutex>
+                lock(mutex_);
+            current_ = loaded;
+            playbackIntentRevision_ =
+                nextGeneration(
+                    playbackIntentRevision_);
+            lastStatus_ =
+                "Invalid local media failed open; repaired state could not be persisted.";
+            return false;
+        }
+    }
+
+    std::string recoveryError;
+    const std::string activePath =
+        loaded.hasMedia()
+            ? loaded.mediaPath
+            : std::string{};
+
+    if (!stager_.reconcileOwnedMedia(
+            activePath,
+            &recoveryError)) {
+        std::lock_guard<std::mutex>
+            lock(mutex_);
+        current_ = loaded;
+        playbackIntentRevision_ =
+            nextGeneration(
+                playbackIntentRevision_);
+        lastStatus_ =
+            recoveryError.empty()
+                ? "Unable to reconcile VCAM media storage."
+                : recoveryError;
+        return false;
+    }
+
+    {
+        std::lock_guard<std::mutex>
+            lock(mutex_);
+        current_ = loaded;
+        playbackIntentRevision_ =
+            nextGeneration(
+                playbackIntentRevision_);
+        lastStatus_ =
+            repairedInvalidMedia
+                ? "Invalid local media repaired fail-open."
+                : current_.hasMedia()
+                    ? "Existing local media loaded."
+                    : "No media selected.";
+    }
+
+    return true;
 }
 
 bool ProductControlOwner::reload() {
