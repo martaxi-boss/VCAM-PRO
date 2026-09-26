@@ -21,6 +21,23 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Guard canonical WitnessProtocol topology
+        run: |
+          set -euo pipefail
+          CANONICAL=proofs/gate1_device_runner/remediation
+          test -f "$CANONICAL/WitnessProtocol.h"
+          test -f "$CANONICAL/WitnessProtocol.cpp"
+          test ! -e proofs/gate1_device_runner/protocol/WitnessProtocol.h
+          test ! -e proofs/gate1_device_runner/protocol/WitnessProtocol.cpp
+
+          mapfile -t protocol_headers < <(find proofs/gate1_device_runner -type f -name 'WitnessProtocol.h' -print)
+          mapfile -t protocol_sources < <(find proofs/gate1_device_runner -type f -name 'WitnessProtocol.cpp' -print)
+          test "${#protocol_headers[@]}" = "1"
+          test "${#protocol_sources[@]}" = "1"
+          test "${protocol_headers[0]}" = "$CANONICAL/WitnessProtocol.h"
+          test "${protocol_sources[0]}" = "$CANONICAL/WitnessProtocol.cpp"
+          echo "WITNESS_PROTOCOL_TOPOLOGY=PASS"
+
       - name: Install packaging tools
         run: |
           set -euo pipefail
