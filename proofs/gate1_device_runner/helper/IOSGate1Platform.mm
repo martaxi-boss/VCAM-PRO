@@ -142,6 +142,7 @@ struct IOSGate1Platform::Impl {
     std::string runNonce;
     std::uint64_t proofStartNs = 0;
     std::string buildSha;
+    bool restartIssued = false;
 };
 
 IOSGate1Platform::IOSGate1Platform()
@@ -234,6 +235,7 @@ bool IOSGate1Platform::armMarkerCapture(
 
     impl_->runNonce = RandomNonce();
     impl_->proofStartNs = proofStartNs;
+    impl_->restartIssued = false;
 
     RunRequest request;
     request.schema = "vcam-pro-gate1-request/1";
@@ -309,6 +311,12 @@ bool IOSGate1Platform::requestSingleRestart(
     if (action != nullptr) {
         *action = "SIGTERM_EXACT_PID";
     }
+    if (impl_->restartIssued) {
+        if (error != nullptr) *error = "duplicate restart blocked";
+        return false;
+    }
+    impl_->restartIssued = true;
+
     if (pid <= 0) {
         if (error != nullptr) *error = "invalid PID";
         return false;
