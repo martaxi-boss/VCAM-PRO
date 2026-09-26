@@ -47,7 +47,7 @@ void WritePersistentLoadProof() {
             stringWithFormat:
                 @"VCAM ROOT HIDE PROBE\nversion=%@\ntimestamp=%@\nprocess=SpringBoard\n",
                 kProbeVersion,
-                timestamp ?: @"unknown"];
+                (timestamp != nil ? timestamp : @"unknown")];
 
     NSError* writeError = nil;
     if (![contents
