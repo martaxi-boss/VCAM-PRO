@@ -1,0 +1,8 @@
+#!/bin/sh
+set -u
+
+if [ -x /var/jb/usr/bin/uicache ]; then
+    /var/jb/usr/bin/uicache -u com.vcampro.gate1viewer >/dev/null 2>&1 || true
+fi
+
+exit 0
