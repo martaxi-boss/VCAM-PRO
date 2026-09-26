@@ -57,6 +57,7 @@ jobs:
           brew install dpkg gnu-sed findutils coreutils ldid-procursus
 
           GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          export PATH="$GNU_PATH:$PATH"
           echo "$GNU_PATH" >> "$GITHUB_PATH"
 
           command -v ldid
