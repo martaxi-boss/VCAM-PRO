@@ -40,7 +40,7 @@ jobs:
           while IFS= read -r path; do
             test -n "$path" || continue
             case "$path" in
-              src/product/SharedMediaStager.h|              src/product/SharedMediaStager.mm|              src/product/ProductControlOwner.h|              src/product/ProductControlOwner.mm|              tests/product/local_media_storage_recovery_tests.mm|              .github/workflows/local-media-storage-recovery-ci.yml)
+              src/product/SharedMediaStager.h|              src/product/SharedMediaStager.mm|              src/product/ProductControlOwner.h|              src/product/ProductControlOwner.mm|              src/product/SpringBoardControlHost.mm|              tests/product/local_media_storage_recovery_tests.mm|              tests/product/springboard_storage_recovery_decoupling_tests.py|              .github/workflows/local-media-storage-recovery-ci.yml)
                 ;;
               *)
                 echo "Unauthorized changed file: $path"
@@ -56,6 +56,12 @@ jobs:
           echo "EXACT_ANCESTRY=PASS"
           echo "AUTHORIZED_DIFF=PASS"
           echo "REFERENCE_REPOS_UNCHANGED=PASS"
+
+      - name: Prove SpringBoard storage recovery decoupling
+        run: |
+          set -euo pipefail
+
+          python3 tests/product/springboard_storage_recovery_decoupling_tests.py
 
       - name: Run storage ownership and startup recovery tests
         run: |
@@ -218,7 +224,9 @@ jobs:
 
           "$CXX"             "${common[@]}"             -c src/product/ProductControlOwner.mm             -o build/storage-recovery-ios/ProductControlOwner.o
 
-          for object in             SharedMediaStager.o             ProductControlOwner.o; do
+          "$CXX"             "${common[@]}"             -c src/product/SpringBoardControlHost.mm             -o build/storage-recovery-ios/SpringBoardControlHost.o
+
+          for object in             SharedMediaStager.o             ProductControlOwner.o             SpringBoardControlHost.o; do
             xcrun lipo -info               "build/storage-recovery-ios/$object"               | tee "build/storage-recovery-ios/$object.arch.txt"
 
             grep -q 'arm64'               "build/storage-recovery-ios/$object.arch.txt"

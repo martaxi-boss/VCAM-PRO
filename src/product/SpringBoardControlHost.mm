@@ -5,6 +5,8 @@
 
 #import <UIKit/UIKit.h>
 
+#include <memory>
+
 @interface VCAMProductOverlayWindow : UIWindow
 @end
 
@@ -31,8 +33,12 @@
 @end
 
 @implementation VCAMProductOverlayController {
-    vcam::product::ProductControlOwner _owner;
+    std::shared_ptr<
+        vcam::product::ProductControlOwner>
+        _owner;
     UIButton* _floatingButton;
+    BOOL _ownerInitializationStarted;
+    BOOL _ownerReady;
 }
 
 - (void)viewDidLoad {
@@ -65,6 +71,7 @@
         28.0;
     _floatingButton.translatesAutoresizingMaskIntoConstraints =
         NO;
+    _floatingButton.enabled = NO;
 
     [_floatingButton
         addTarget:self
@@ -99,12 +106,75 @@
         ]];
 }
 
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self startProductOwnerInitializationIfNeeded];
+}
+
+- (void)startProductOwnerInitializationIfNeeded {
+    NSAssert(
+        [NSThread isMainThread],
+        @"VCAM owner readiness must be managed on the main thread.");
+
+    if (_ownerInitializationStarted ||
+        _ownerReady) {
+        return;
+    }
+
+    _ownerInitializationStarted = YES;
+
+    __weak VCAMProductOverlayController*
+        weakSelf = self;
+
+    dispatch_async(
+        ProductOwnerInitializationQueue(),
+        ^{
+            @autoreleasepool {
+                auto owner =
+                    std::make_shared<
+                        vcam::product::
+                            ProductControlOwner>();
+
+                dispatch_async(
+                    dispatch_get_main_queue(),
+                    ^{
+                        VCAMProductOverlayController*
+                            strongSelf =
+                                weakSelf;
+
+                        if (strongSelf == nil) {
+                            return;
+                        }
+
+                        strongSelf->_owner =
+                            owner;
+                        strongSelf->_ownerReady =
+                            YES;
+                        strongSelf
+                            ->_floatingButton
+                            .enabled = YES;
+                    });
+            }
+        });
+}
+
 - (void)openControl {
+    NSAssert(
+        [NSThread isMainThread],
+        @"VCAM control presentation must occur on the main thread.");
+
+    if (!_ownerReady ||
+        !_owner) {
+        return;
+    }
+
+    auto owner = _owner;
+
     VCAMInternalGalleryViewController*
         control =
         [[VCAMInternalGalleryViewController alloc]
             initWithProductControlOwner:
-                &_owner];
+                owner.get()];
 
     UINavigationController* navigation =
         [[UINavigationController alloc]
@@ -124,6 +194,23 @@
 
 static VCAMProductOverlayWindow*
     gOverlayWindow = nil;
+
+static dispatch_queue_t
+ProductOwnerInitializationQueue() {
+    static dispatch_queue_t queue;
+    static dispatch_once_t onceToken;
+
+    dispatch_once(
+        &onceToken,
+        ^{
+            queue =
+                dispatch_queue_create(
+                    "com.vcampro.product-owner-storage-init",
+                    DISPATCH_QUEUE_SERIAL);
+        });
+
+    return queue;
+}
 
 namespace vcam::product {
 
