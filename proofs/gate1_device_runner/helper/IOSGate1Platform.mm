@@ -353,8 +353,17 @@ MarkerObservation IOSGate1Platform::pollMarker(
     observation.pid = record.pid;
     observation.observedAtNs = record.observedAtNs;
 
-    if (record.observedAtNs < proofStartNs) {
-        observation.error = "stale witness evidence";
+    const ProtocolStatus status =
+        ValidateWitnessRecord(
+            record,
+            impl_->runNonce,
+            proofStartNs,
+            record.pid,
+            -1);
+    if (status != ProtocolStatus::Ok) {
+        observation.error =
+            std::string("witness evidence rejected: ") +
+            ProtocolStatusString(status);
         return observation;
     }
 
