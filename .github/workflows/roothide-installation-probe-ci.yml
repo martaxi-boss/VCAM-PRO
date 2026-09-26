@@ -160,7 +160,7 @@ jobs:
           test ! -e "$EXTRACTED/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.dylib"
           test ! -e "$EXTRACTED/Library/MobileSubstrate/DynamicLibraries/VCAMRootHideProbe.plist"
 
-          stat -f '%Sp %Su/%Sg %N'             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.dylib"             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.plist" |
+          /usr/bin/stat -f '%Sp %Su/%Sg %N'             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.dylib"             "$EXTRACTED/usr/lib/TweakInject/VCAMRootHideProbe.plist" |
             tee "$EVIDENCE/final-payload-modes.txt"
 
           echo "ROOTHIDE_PACKAGE_ARCH=PASS"
