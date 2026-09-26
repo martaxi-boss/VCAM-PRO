@@ -134,17 +134,25 @@ bool TestRandomizedRootHideControlAndMedia() {
             root.c_str(),
             jbrootLink.c_str()) == 0);
 
+    char canonicalBuffer[PATH_MAX];
+    CHECK(
+        realpath(
+            root.c_str(),
+            canonicalBuffer) != nullptr);
+    const std::string canonicalRoot =
+        canonicalBuffer;
+
     const std::string resolved =
         ResolveJailbreakRootForImagePath(
             image);
-    CHECK(resolved == root);
+    CHECK(resolved == canonicalRoot);
 
     CHECK(
         ResolvePathInJailbreakRoot(
             "/var/mobile/Library/Preferences/"
             "com.vcampro.control.plist",
             resolved) ==
-        root +
+        canonicalRoot +
         "/var/mobile/Library/Preferences/"
         "com.vcampro.control.plist");
 
@@ -152,7 +160,7 @@ bool TestRandomizedRootHideControlAndMedia() {
         ResolvePathInJailbreakRoot(
             "/var/mobile/Library/VCAMPro/Media",
             resolved) ==
-        root +
+        canonicalRoot +
         "/var/mobile/Library/VCAMPro/Media");
 
     RemoveTree(root);
