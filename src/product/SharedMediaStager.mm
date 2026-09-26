@@ -427,6 +427,12 @@ bool SharedMediaStager::removeOwnedPath(
         return false;
     }
 
+    if (InspectMediaRoot(
+            mediaDirectory_) !=
+        MediaRootState::ValidDirectory) {
+        return false;
+    }
+
     @autoreleasepool {
         NSString* nsPath =
             StandardizedLocalPath(path);
@@ -511,6 +517,16 @@ bool SharedMediaStager::reconcileOwnedMedia(
             trustedActive =
                 StandardizedLocalPath(
                     activeOwnedPath);
+        }
+
+        if (InspectMediaRoot(
+                mediaDirectory_) !=
+            MediaRootState::ValidDirectory) {
+            if (errorMessage != nullptr) {
+                *errorMessage =
+                    "VCAM media root changed before recovery.";
+            }
+            return false;
         }
 
         NSError* enumerateError = nil;
