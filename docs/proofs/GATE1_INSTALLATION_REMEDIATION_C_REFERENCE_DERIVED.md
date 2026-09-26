@@ -19,89 +19,109 @@ Device-install candidate:
 - dependencies: `firmware (>= 15.0), mobilesubstrate`
 - rootless payload: `/var/jb/...`
 
-`uikittools` is no longer a hard dependency.
+`uikittools` is not a hard dependency.
 
 `0.2.0 = SUPERSEDED_FOR_DEVICE_INSTALLATION`
 
 ## Installation/runtime separation
 
-Maintainer scripts are best-effort, repeat-safe and terminate successfully.
+Maintainer scripts use reference-style best-effort behavior:
 
-The package installation does **not** execute the Gate 1 coordinator and does **not** create a proof nonce or signal `mediaserverd`.
+- `set +e`;
+- guarded optional operations;
+- `rm -f` for stale Gate 1-owned trigger state;
+- final `exit 0`.
 
-Post-install may:
+Installation never executes the Gate 1 coordinator, creates a proof nonce or signals `mediaserverd`.
 
-- clear stale package-owned request/witness trigger files;
-- register the dormant package-owned handoff LaunchDaemon when a compatible built-in `launchctl` exists;
-- register the app with an already-present `uicache`.
+If a compatible rootless `uicache` already exists, app registration/unregistration is best-effort. No package dependency is added for it.
 
-Missing optional tools do not fail the package transaction.
+The postinst may normalize the package-owned coordinator ownership/mode, but it does not execute it.
 
 ## Explicit Owner action
 
-Opening the app does not run Gate 1.
+Opening `VCAM PRO Gate 1` does not run Gate 1.
 
 The Owner must press:
 
 `Run Gate 1`
 
-The app disables duplicate Run actions while a request is active and displays a running state.
+While the one explicit run is active, the Run button is disabled. There is no automatic retry.
 
 ## Minimum privileged handoff
 
-The package installs a narrow system LaunchDaemon:
+No persistent daemon, Mach service, polling worker or network service is used.
 
-`com.vcampro.gate1.handoff`
-
-It is:
-
-- `RunAtLoad = false`;
-- `KeepAlive = false`;
-- local Mach service only;
-- root-owned system-domain helper;
-- dormant until a Mach-service connection is requested;
-- self-terminating after one proof request or a finite idle timeout;
-- not a command shell and accepts no arbitrary executable/path/arguments.
-
-The UIKit app uses public Foundation `NSXPCConnection` to request one proof run. The helper launches only the fixed existing coordinator path:
+The existing coordinator remains at:
 
 `/var/jb/usr/libexec/vcampro-gate1-coordinator`
 
-The helper has no network transport and no polling loop.
+The package stores it root-owned with mode `4755`.
+
+The app performs one local `posix_spawn` of that fixed path only after the Owner presses `Run Gate 1`.
+
+The coordinator immediately fails closed with status 77 before any Gate 1 activity unless:
+
+`geteuid() == 0`
+
+This handoff is statically grounded in RootHide's own bootstrap implementation:
+
+- `roothide/Bootstrap-basebin@c66454cdeb9c1c4dfefd62500fc54e5f458e1a61/bootstrap/fixsuid.c`
+- `roothide/Bootstrap-basebin@c66454cdeb9c1c4dfefd62500fc54e5f458e1a61/launchdhook/main.m`
+
+Those sources explicitly detect `S_ISUID/S_ISGID` executables and apply the file UID/GID through spawn persona attributes.
+
+An intermediate LaunchDaemon/NSXPC approach was rejected during Remediation C because iPhoneOS compilation proved:
+
+`NSXPCListener initWithMachServiceName:` is unavailable on iOS.
+
+That rejected path is not present in the terminal package topology.
+
+Static support is not device certification; the real iPhone must still prove the post-install handoff and Gate 1 runtime result.
 
 ## Runtime invariant
 
-A single explicit Owner action can cause at most one existing coordinator execution.
+The existing accepted coordinator/Witness engine remains in place:
 
-The coordinator retains the accepted maximum intentional restart contract:
+- mediaserverd-local Witness;
+- `OSLogStoreCurrentProcessIdentifier`;
+- exact `VCAM_PRO_LOAD_PROBE_001` marker;
+- nonce/PID/PID_AFTER correlation;
+- maximum one `kill(PID_BEFORE, SIGTERM)`;
+- bounded stability observation;
+- PASS / NOT_PROVEN / FAIL_LOAD_UNSTABLE;
+- `gate2_attempted=NO`.
 
-`kill(PID_BEFORE, SIGTERM)`
+No SIGKILL fallback, killall, pkill, ldrestart, reboot, userspace reboot or SpringBoard restart exists.
 
-maximum:
+## RootHide two-pass safety
 
-`1`
+Repeated installation/conversion is treated as normal:
 
-There is no SIGKILL, killall, pkill, ldrestart, reboot, userspace reboot or SpringBoard restart fallback.
+- stale request/witness files use `rm -f`;
+- coordinator mode normalization is idempotent and best-effort;
+- optional uicache is guarded;
+- no append-only installation state is created;
+- no proof execution occurs on either pass;
+- scripts terminate successfully when optional registration is absent.
 
 ## Rollback
 
-prerm/postrm are package-owned, best-effort, repeat-safe and do not execute Gate 1.
+prerm/postrm remain package-owned, repeat-safe and non-blocking.
 
-They may:
+They may clear Gate 1 request/witness temporary state and best-effort unregister the Gate 1 viewer.
 
-- unload the Gate 1-owned dormant handoff registration;
-- clean active Gate 1 request/witness temporary files;
-- unregister the Gate 1 viewer if an optional compatible uicache exists.
+They do not execute Gate 1, restart mediaserverd, alter `com.vcampro.loadprobe`, touch legacy VCam, reboot or respring.
 
-They do not alter the Load Probe or legacy VCam and do not restart mediaserverd.
+Final result/evidence files may remain for audit/export.
 
-## Validation boundary
+## Existing Load Probe
 
-Static/CI validation proves package shape, dependency policy, installation/runtime separation, two-pass script behavior, rootless payload, arm64/minimum iOS, and the existing Gate 1 invariants.
+`proofs/mediaserverd_load_probe/` remains byte-for-byte unchanged against approved main:
 
-It does not certify the post-install runtime handoff on the iPhone.
+`d476caacc4f557843f9551533c2fcbe7c5d40baa`
 
-Therefore:
+## Runtime status
 
 `GATE 1 = NOT YET RUNTIME PROVEN`
 

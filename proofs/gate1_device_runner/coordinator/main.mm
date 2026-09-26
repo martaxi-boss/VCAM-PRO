@@ -39,6 +39,13 @@ bool WriteResult(
 int main() {
     using namespace vcam::gate1;
 
+    // Remediation C privilege boundary: the package marks this fixed-purpose
+    // coordinator setuid-root. If the jailbreak/runtime did not honor that
+    // handoff, fail closed before any proof token or daemon signal exists.
+    if (geteuid() != 0) {
+        return 77;
+    }
+
     IOSGate1Platform platform;
     platform.setBuildSha(VCAM_GATE1_BUILD_SHA);
 

@@ -16,8 +16,7 @@ mkdir -p "$OUT/bin" \
   "$PKGROOT/DEBIAN" \
   "$PKGROOT/var/jb/usr/lib/TweakInject" \
   "$PKGROOT/var/jb/usr/libexec" \
-  "$PKGROOT/var/jb/Applications/VCAMProGate1.app" \
-  "$PKGROOT/var/jb/Library/LaunchDaemons"
+  "$PKGROOT/var/jb/Applications/VCAMProGate1.app"
 
 COMMON=(
   -std=c++17
@@ -48,19 +47,13 @@ COMMON=(
   -framework Foundation \
   -o "$OUT/bin/vcampro-gate1-coordinator"
 
-"$CXX" "${COMMON[@]}" -fobjc-arc -I"$SOURCE/handoff" \
-  "$SOURCE/handoff/VCAMProGate1Handoff.mm" \
-  -framework Foundation \
-  -o "$OUT/bin/vcampro-gate1-handoff"
-
-"$CXX" "${COMMON[@]}" -fobjc-arc -I"$SOURCE/handoff" \
+"$CXX" "${COMMON[@]}" -fobjc-arc \
   "$SOURCE/viewer/main.mm" \
   -framework Foundation -framework UIKit \
   -o "$OUT/bin/VCAMProGate1"
 
 ldid -S "$OUT/bin/VCAMProGate1Witness.dylib"
 ldid -S "$OUT/bin/vcampro-gate1-coordinator"
-ldid -S "$OUT/bin/vcampro-gate1-handoff"
 ldid -S "$OUT/bin/VCAMProGate1"
 
 cp "$OUT/bin/VCAMProGate1Witness.dylib" \
@@ -69,10 +62,6 @@ cp "$SOURCE/witness/VCAMProGate1Witness.plist" \
   "$PKGROOT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.plist"
 cp "$OUT/bin/vcampro-gate1-coordinator" \
   "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-coordinator"
-cp "$OUT/bin/vcampro-gate1-handoff" \
-  "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-handoff"
-cp "$SOURCE/handoff/com.vcampro.gate1.handoff.plist" \
-  "$PKGROOT/var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist"
 cp "$OUT/bin/VCAMProGate1" \
   "$PKGROOT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
 cp "$SOURCE/viewer/Info.plist" \
@@ -83,7 +72,7 @@ Package: com.vcampro.gate1proofrunner
 Name: VCAM PRO Gate 1
 Version: $VERSION
 Architecture: iphoneos-arm64
-Description: One-shot VCAM PRO Gate 1 device-proof tooling.
+Description: Explicit-owner-run VCAM PRO Gate 1 device-proof tooling.
 Maintainer: VCAM PRO
 Author: VCAM PRO
 Section: Development
@@ -98,14 +87,13 @@ chmod 0755 \
   "$PKGROOT/DEBIAN/postinst" \
   "$PKGROOT/DEBIAN/prerm" \
   "$PKGROOT/DEBIAN/postrm" \
-  "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-coordinator" \
-  "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-handoff" \
   "$PKGROOT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
+chmod 4755 \
+  "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-coordinator"
 chmod 0644 \
   "$PKGROOT/DEBIAN/control" \
   "$PKGROOT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.dylib" \
   "$PKGROOT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.plist" \
-  "$PKGROOT/var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist" \
   "$PKGROOT/var/jb/Applications/VCAMProGate1.app/Info.plist"
 
 dpkg-deb --root-owner-group --build "$PKGROOT" "$OUT/$PACKAGE_FILE"

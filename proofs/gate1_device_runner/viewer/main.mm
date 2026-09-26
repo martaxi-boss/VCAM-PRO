@@ -1,16 +1,20 @@
 #import <UIKit/UIKit.h>
 
-#import "Gate1HandoffProtocol.h"
-
 #include "Gate1Paths.h"
+
+#include <cerrno>
+#include <spawn.h>
+#include <sys/wait.h>
+
+extern char** environ;
 
 @interface Gate1ViewController : UIViewController
 @property(nonatomic, strong) UILabel* statusLabel;
 @property(nonatomic, strong) UITextView* detailsView;
 @property(nonatomic, strong) UIButton* runButton;
 @property(nonatomic, strong) UIButton* shareButton;
-@property(nonatomic, strong) NSXPCConnection* handoffConnection;
 @property(nonatomic, assign) BOOL runInFlight;
+@property(nonatomic, assign) BOOL fileEvidenceAvailable;
 @end
 
 @implementation Gate1ViewController
@@ -18,6 +22,8 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = UIColor.systemBackgroundColor;
+    self.runInFlight = NO;
+    self.fileEvidenceAvailable = NO;
 
     self.statusLabel = [[UILabel alloc] init];
     self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -39,7 +45,7 @@
     [self.runButton setTitle:@"Run Gate 1"
                     forState:UIControlStateNormal];
     self.runButton.titleLabel.font =
-        [UIFont boldSystemFontOfSize:18.0];
+        [UIFont boldSystemFontOfSize:20.0];
     [self.runButton addTarget:self
                        action:@selector(runGate1)
              forControlEvents:UIControlEventTouchUpInside];
@@ -83,7 +89,7 @@
         [self.shareButton.centerXAnchor constraintEqualToAnchor:safe.centerXAnchor],
         [self.shareButton.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor
                                                       constant:-20.0],
-        [self.shareButton.heightAnchor constraintEqualToConstant:50.0],
+        [self.shareButton.heightAnchor constraintEqualToConstant:46.0],
     ]];
 
     [self reloadResult];
@@ -94,93 +100,6 @@
     if (!self.runInFlight) {
         [self reloadResult];
     }
-}
-
-- (void)setRunningUI {
-    self.runInFlight = YES;
-    self.runButton.enabled = NO;
-    self.shareButton.enabled = NO;
-    self.statusLabel.text = @"RUNNING_GATE_1";
-    self.detailsView.text =
-        @"reason=OWNER_REQUESTED_GATE_1_RUN\n"
-         "gate2_attempted=NO\n";
-}
-
-- (void)finishHandoffFailure:(NSString*)reason {
-    if (!self.runInFlight) return;
-    self.runInFlight = NO;
-    self.runButton.enabled = YES;
-    self.shareButton.enabled = NO;
-    self.statusLabel.text = @"GATE_1_NOT_PROVEN";
-    self.detailsView.text =
-        [NSString stringWithFormat:
-            @"reason=%@\n"
-             "gate2_attempted=NO\n",
-            reason];
-    [self.handoffConnection invalidate];
-    self.handoffConnection = nil;
-}
-
-- (void)runGate1 {
-    if (self.runInFlight) return;
-    [self setRunningUI];
-
-    NSXPCConnection* connection =
-        [[NSXPCConnection alloc]
-            initWithMachServiceName:VCAM_GATE1_MACH_SERVICE_NAME
-            options:NSXPCConnectionPrivileged];
-    connection.remoteObjectInterface =
-        [NSXPCInterface interfaceWithProtocol:
-            @protocol(VCAMGate1HandoffProtocol)];
-
-    __weak Gate1ViewController* weakSelf = self;
-    connection.interruptionHandler = ^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf finishHandoffFailure:
-                @"PRIVILEGE_HANDOFF_INTERRUPTED"];
-        });
-    };
-    connection.invalidationHandler = ^{
-        dispatch_async(dispatch_get_main_queue(), ^{
-            [weakSelf finishHandoffFailure:
-                @"PRIVILEGE_HANDOFF_INVALIDATED"];
-        });
-    };
-
-    self.handoffConnection = connection;
-    [connection resume];
-
-    id<VCAMGate1HandoffProtocol> proxy =
-        [connection remoteObjectProxyWithErrorHandler:
-            ^(NSError* error) {
-                (void)error;
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    [weakSelf finishHandoffFailure:
-                        @"PRIVILEGE_HANDOFF_UNAVAILABLE"];
-                });
-            }];
-
-    [proxy runGate1WithReply:^(NSString* result) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            Gate1ViewController* strongSelf = weakSelf;
-            if (strongSelf == nil || !strongSelf.runInFlight) return;
-
-            strongSelf.runInFlight = NO;
-            strongSelf.runButton.enabled = YES;
-            [strongSelf.handoffConnection invalidate];
-            strongSelf.handoffConnection = nil;
-
-            if ([result isEqualToString:@"COMPLETED"]) {
-                [strongSelf reloadResult];
-            } else {
-                strongSelf.shareButton.enabled = NO;
-                strongSelf.statusLabel.text = @"GATE_1_NOT_PROVEN";
-                strongSelf.detailsView.text =
-                    @"reason=PRIVILEGED_COORDINATOR_FAILED\n"
-                     "gate2_attempted=NO\n";
-            }
-        });
-    }];
 }
 
 - (void)reloadResult {
@@ -198,7 +117,8 @@
         self.detailsView.text =
             @"reason=RESULT_FILE_UNAVAILABLE\n"
              "gate2_attempted=NO\n";
-        self.shareButton.enabled = NO;
+        self.fileEvidenceAvailable = NO;
+        self.shareButton.enabled = YES;
         return;
     }
 
@@ -208,25 +128,110 @@
     self.statusLabel.text =
         first.length > 0 ? first : @"GATE_1_NOT_PROVEN";
     self.detailsView.text = text;
+    self.fileEvidenceAvailable = YES;
     self.shareButton.enabled = YES;
 }
 
-- (void)shareEvidence {
-    NSURL* textURL =
-        [NSURL fileURLWithPath:
-            @(vcam::gate1::kResultTextPath)];
-    NSURL* jsonURL =
-        [NSURL fileURLWithPath:
-            @(vcam::gate1::kResultJsonPath)];
+- (void)showHandoffFailure:(int)code {
+    self.statusLabel.text = @"GATE_1_NOT_PROVEN";
+    self.detailsView.text =
+        [NSString stringWithFormat:
+            @"reason=POST_INSTALL_PRIVILEGE_HANDOFF_FAILED\n"
+             "handoff_status=%d\n"
+             "intentional_restart_requests=0\n"
+             "gate2_attempted=NO\n",
+             code];
+    self.fileEvidenceAvailable = NO;
+    self.shareButton.enabled = YES;
+}
 
+- (void)runGate1 {
+    if (self.runInFlight) return;
+
+    self.runInFlight = YES;
+    self.fileEvidenceAvailable = NO;
+    self.runButton.enabled = NO;
+    self.shareButton.enabled = NO;
+    self.statusLabel.text = @"GATE_1_RUNNING";
+    self.detailsView.text =
+        @"reason=OWNER_REQUESTED_EXPLICIT_RUN\n"
+         "gate2_attempted=NO\n";
+
+    dispatch_async(
+        dispatch_get_global_queue(
+            QOS_CLASS_USER_INITIATED,
+            0),
+        ^{
+            pid_t child = -1;
+            char* argv[] = {
+                const_cast<char*>(vcam::gate1::kCoordinatorPath),
+                nullptr,
+            };
+
+            const int spawnStatus =
+                posix_spawn(
+                    &child,
+                    vcam::gate1::kCoordinatorPath,
+                    nullptr,
+                    nullptr,
+                    argv,
+                    environ);
+
+            int handoffStatus =
+                spawnStatus == 0 ? 255 : spawnStatus;
+
+            if (spawnStatus == 0 && child > 0) {
+                int status = 0;
+                pid_t waited = -1;
+                do {
+                    waited = waitpid(child, &status, 0);
+                } while (waited < 0 && errno == EINTR);
+
+                if (waited == child && WIFEXITED(status)) {
+                    handoffStatus = WEXITSTATUS(status);
+                } else if (waited == child && WIFSIGNALED(status)) {
+                    handoffStatus = 128 + WTERMSIG(status);
+                } else {
+                    handoffStatus = 254;
+                }
+            }
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.runInFlight = NO;
+                self.runButton.enabled = YES;
+
+                if (handoffStatus == 0) {
+                    [self reloadResult];
+                } else {
+                    [self showHandoffFailure:handoffStatus];
+                }
+            });
+        });
+}
+
+- (void)shareEvidence {
     NSMutableArray* items = [NSMutableArray array];
-    if ([[NSFileManager defaultManager]
-            fileExistsAtPath:textURL.path]) {
-        [items addObject:textURL];
+
+    if (self.fileEvidenceAvailable) {
+        NSURL* textURL =
+            [NSURL fileURLWithPath:
+                @(vcam::gate1::kResultTextPath)];
+        NSURL* jsonURL =
+            [NSURL fileURLWithPath:
+                @(vcam::gate1::kResultJsonPath)];
+
+        if ([[NSFileManager defaultManager]
+                fileExistsAtPath:textURL.path]) {
+            [items addObject:textURL];
+        }
+        if ([[NSFileManager defaultManager]
+                fileExistsAtPath:jsonURL.path]) {
+            [items addObject:jsonURL];
+        }
     }
-    if ([[NSFileManager defaultManager]
-            fileExistsAtPath:jsonURL.path]) {
-        [items addObject:jsonURL];
+
+    if (items.count == 0 && self.detailsView.text.length > 0) {
+        [items addObject:self.detailsView.text];
     }
     if (items.count == 0) return;
 

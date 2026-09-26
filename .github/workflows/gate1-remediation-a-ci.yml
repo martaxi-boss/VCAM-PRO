@@ -64,30 +64,48 @@ jobs:
           PY
 
           PROD=proofs/gate1_device_runner
-          test -f "$PROD/handoff/Gate1HandoffProtocol.h"
-          test -f "$PROD/handoff/VCAMProGate1Handoff.mm"
-          if grep -R -En             'OSLogStoreSystem|/usr/bin/log|MSHookFunction|MSHookMessageEx|%hook|fishhook|method_exchangeImplementations|AVCapture|CMSampleBuffer|CVPixelBuffer|VideoToolbox|Photos|NSURLSession|nw_connection|socket[[:space:]]*\('             "$PROD/core" "$PROD/remediation" "$PROD/helper" "$PROD/coordinator" "$PROD/witness" "$PROD/handoff" "$PROD/viewer"; then
+          test ! -e "$PROD/handoff/Gate1HandoffProtocol.h"
+          test ! -e "$PROD/handoff/VCAMProGate1Handoff.mm"
+          test ! -e "$PROD/handoff/com.vcampro.gate1.handoff.plist"
+
+          if grep -R -En \
+            'OSLogStoreSystem|/usr/bin/log|MSHookFunction|MSHookMessageEx|%hook|fishhook|method_exchangeImplementations|AVCapture|CMSampleBuffer|CVPixelBuffer|VideoToolbox|Photos|NSURLSession|nw_connection|socket[[:space:]]*\(' \
+            "$PROD/core" "$PROD/remediation" "$PROD/helper" "$PROD/coordinator" "$PROD/witness" "$PROD/viewer"; then
             echo "Forbidden API/token found"
             exit 1
           fi
 
-          grep -F 'OSLogStoreCurrentProcessIdentifier'             "$PROD/witness/VCAMProGate1Witness.mm"
-          grep -F 'VCAM_PRO_LOAD_PROBE_001'             "$PROD/remediation/WitnessProtocol.cpp"
+          grep -F 'OSLogStoreCurrentProcessIdentifier' \
+            "$PROD/witness/VCAMProGate1Witness.mm"
+          grep -F 'VCAM_PRO_LOAD_PROBE_001' \
+            "$PROD/remediation/WitnessProtocol.cpp"
 
       - name: Run original 15 host tests
         run: |
           set -euo pipefail
           mkdir -p build/gate1-remediation-c-tests
-          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/core             proofs/gate1_device_runner/core/Gate1ProofRunner.cpp             proofs/gate1_device_runner/tests/Gate1ProofRunnerTests.cpp             -o build/gate1-remediation-c-tests/original
-          build/gate1-remediation-c-tests/original             | tee build/gate1-remediation-c-tests/original.txt
-          grep -q 'Gate 1 runner host tests run: 15, failures: 0'             build/gate1-remediation-c-tests/original.txt
+          c++ -std=c++17 -Wall -Wextra -Werror \
+            -Iproofs/gate1_device_runner/core \
+            proofs/gate1_device_runner/core/Gate1ProofRunner.cpp \
+            proofs/gate1_device_runner/tests/Gate1ProofRunnerTests.cpp \
+            -o build/gate1-remediation-c-tests/original
+          build/gate1-remediation-c-tests/original \
+            | tee build/gate1-remediation-c-tests/original.txt
+          grep -q 'Gate 1 runner host tests run: 15, failures: 0' \
+            build/gate1-remediation-c-tests/original.txt
 
       - name: Run remediation host tests
         run: |
           set -euo pipefail
-          c++ -std=c++17 -Wall -Wextra -Werror             -Iproofs/gate1_device_runner/remediation             proofs/gate1_device_runner/remediation/WitnessProtocol.cpp             proofs/gate1_device_runner/tests/RemediationATests.cpp             -o build/gate1-remediation-c-tests/remediation
-          build/gate1-remediation-c-tests/remediation             | tee build/gate1-remediation-c-tests/remediation.txt
-          grep -q 'Gate 1 remediation tests run: 11, failures: 0'             build/gate1-remediation-c-tests/remediation.txt
+          c++ -std=c++17 -Wall -Wextra -Werror \
+            -Iproofs/gate1_device_runner/remediation \
+            proofs/gate1_device_runner/remediation/WitnessProtocol.cpp \
+            proofs/gate1_device_runner/tests/RemediationATests.cpp \
+            -o build/gate1-remediation-c-tests/remediation
+          build/gate1-remediation-c-tests/remediation \
+            | tee build/gate1-remediation-c-tests/remediation.txt
+          grep -q 'Gate 1 remediation tests run: 11, failures: 0' \
+            build/gate1-remediation-c-tests/remediation.txt
 
       - name: Validate installation and runtime separation
         run: |
@@ -98,36 +116,26 @@ jobs:
           PRERM=proofs/gate1_device_runner/package/prerm
           POSTRM=proofs/gate1_device_runner/package/postrm
           VIEWER=proofs/gate1_device_runner/viewer/main.mm
-          HANDOFF=proofs/gate1_device_runner/handoff/VCAMProGate1Handoff.mm
-          PLIST=proofs/gate1_device_runner/handoff/com.vcampro.gate1.handoff.plist
+          COORD=proofs/gate1_device_runner/coordinator/main.mm
 
-          ! grep -F 'vcampro-gate1-coordinator' "$POSTINST"
-          ! grep -F 'vcampro-gate1-coordinator' "$PRERM"
-          ! grep -F 'vcampro-gate1-coordinator' "$POSTRM"
+          ! grep -F -- '--auto' "$POSTINST"
+          ! grep -F 'launchctl' "$POSTINST"
+          ! grep -F 'launchctl' "$PRERM"
+          ! grep -F 'launchctl' "$POSTRM"
 
           grep -F 'Run Gate 1' "$VIEWER"
-          grep -F 'runGate1WithReply' "$VIEWER"
-          grep -F 'initWithMachServiceName' "$VIEWER"
-          grep -F 'posix_spawn' "$HANDOFF"
-          test "$(grep -c '/var/jb/usr/libexec/vcampro-gate1-coordinator' "$HANDOFF")" = "1"
+          grep -F 'posix_spawn(' "$VIEWER"
+          grep -F 'kCoordinatorPath' "$VIEWER"
+          grep -F 'self.runInFlight = YES' "$VIEWER"
+          grep -F 'self.runButton.enabled = NO' "$VIEWER"
 
-          python3 - "$PLIST" <<'PY'
-          import plistlib, sys
-          with open(sys.argv[1], "rb") as f:
-              data = plistlib.load(f)
-          assert data["Label"] == "com.vcampro.gate1.handoff"
-          assert data["ProgramArguments"] == ["/var/jb/usr/libexec/vcampro-gate1-handoff"]
-          assert data["UserName"] == "root"
-          assert data["RunAtLoad"] is False
-          assert data["KeepAlive"] is False
-          assert data["MachServices"] == {"com.vcampro.gate1.handoff": True}
-          print("DORMANT_PRIVILEGED_HANDOFF=PASS")
-          PY
+          grep -F 'geteuid() != 0' "$COORD"
 
           echo "POSTINST_DOES_NOT_RUN_GATE1=PASS"
           echo "MAINTAINER_SCRIPTS_DO_NOT_RESTART_MEDIASERVERD=PASS"
           echo "MAINTAINER_SCRIPTS_REPEAT_SAFE=PASS"
           echo "EXPLICIT_OWNER_RUN_PATH=PASS"
+          echo "PRIVILEGED_HANDOFF=SETUID_ROOT_FIXED_COORDINATOR"
 
       - name: Validate one-restart and rollback policy
         run: |
@@ -136,15 +144,25 @@ jobs:
           test "$(grep -c 'kill(pid, SIGTERM)' "$HELPER")" = "1"
           grep -F 'duplicate restart blocked' "$HELPER"
 
-          if grep -R -En             'SIGKILL|killall|pkill|ldrestart|userspace|reboot|SpringBoard'             proofs/gate1_device_runner/package             proofs/gate1_device_runner/helper; then
+          if grep -R -En \
+            'SIGKILL|killall|pkill|ldrestart|userspace|reboot|SpringBoard' \
+            proofs/gate1_device_runner/package \
+            proofs/gate1_device_runner/helper \
+            proofs/gate1_device_runner/coordinator \
+            proofs/gate1_device_runner/viewer; then
             echo "Forbidden restart/rollback behavior found"
             exit 1
           fi
 
-          if grep -R -En             'VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal'             proofs/gate1_device_runner/package; then
+          if grep -R -En \
+            'VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal' \
+            proofs/gate1_device_runner/package; then
             echo "Rollback scripts target protected package/files"
             exit 1
           fi
+
+          echo "MAX_INTENTIONAL_RESTARTS=1"
+          echo "ROLLBACK_POLICY=PASS"
 
       - name: Build rootless arm64 package
         env:
@@ -153,12 +171,13 @@ jobs:
           set -euo pipefail
           bash proofs/gate1_device_runner/build_package.sh
 
-      - name: Inspect package and Mach-O outputs
+      - name: Inspect 0.2.1 package and Mach-O outputs
         id: package
         run: |
           set -euo pipefail
           OUT=build/gate1-remediation-c
           DEB="$OUT/com.vcampro.gate1proofrunner_0.2.1_iphoneos-arm64.deb"
+
           test -f "$DEB"
           test "$(find "$OUT" -maxdepth 1 -name '*.deb' -type f | wc -l | tr -d ' ')" = "1"
           ! find "$OUT" -maxdepth 1 -name '*0.2.0*.deb' -type f | grep .
@@ -170,14 +189,20 @@ jobs:
           ! dpkg-deb -f "$DEB" Depends | grep -F 'uikittools'
           echo "UIKITTOOLS_ABSENT=PASS"
 
-          dpkg-deb -c "$DEB" | tee build/gate1-remediation-c/package-contents.txt
-          if grep -E '\./Library/MobileSubstrate/|\./usr/lib/|\./Applications/' \
-            build/gate1-remediation-c/package-contents.txt; then
+          dpkg-deb -c "$DEB" | tee "$OUT/package-contents.txt"
+          if grep -E \
+            '\./Library/MobileSubstrate/|\./usr/lib/|\./Applications/' \
+            "$OUT/package-contents.txt"; then
             echo "Rootful payload path found"
             exit 1
           fi
           echo "ROOTLESS_PAYLOAD=PASS"
           echo "PACKAGE_0_2_0_SUPERSEDED=PASS"
+
+          grep -E \
+            '^-rwsr-xr-x[[:space:]]+root/root.*\./var/jb/usr/libexec/vcampro-gate1-coordinator$' \
+            "$OUT/package-contents.txt"
+          echo "SETUID_ROOT_COORDINATOR_ARCHIVE=PASS"
 
           EXTRACT="$RUNNER_TEMP/gate1-extract"
           CONTROL="$RUNNER_TEMP/gate1-control"
@@ -189,60 +214,70 @@ jobs:
           test -f "$EXTRACT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.dylib"
           test -f "$EXTRACT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.plist"
           test -f "$EXTRACT/var/jb/usr/libexec/vcampro-gate1-coordinator"
-          test -f "$EXTRACT/var/jb/usr/libexec/vcampro-gate1-handoff"
-          test -f "$EXTRACT/var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist"
+          test ! -e "$EXTRACT/var/jb/usr/libexec/vcampro-gate1-handoff"
+          test ! -e "$EXTRACT/var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist"
           test -f "$EXTRACT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
           test -f "$EXTRACT/var/jb/Applications/VCAMProGate1.app/Info.plist"
 
-          if find "$EXTRACT" -type f | grep -E             'VCAMProLoadProbe|com\.vcam\.universal|/Library/MobileSubstrate'; then
+          if find "$EXTRACT" -type f | grep -E \
+            'VCAMProLoadProbe|com\.vcam\.universal|/Library/MobileSubstrate'; then
             echo "Package overlaps protected payload"
             exit 1
           fi
 
-          test "$(grep -c 'vcampro-gate1-coordinator' "$CONTROL/postinst" || true)" = "0"
-
           for script in postinst prerm postrm; do
             test -f "$CONTROL/$script"
             cat "$CONTROL/$script"
-            if grep -Eqi               'killall|pkill|SIGKILL|ldrestart|userspace|reboot|SpringBoard|VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal'               "$CONTROL/$script"; then
+            if grep -Eqi \
+              'killall|pkill|SIGKILL|SIGTERM|ldrestart|userspace|reboot|SpringBoard|launchctl|VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal' \
+              "$CONTROL/$script"; then
               echo "Forbidden package-script behavior"
               exit 1
             fi
           done
+          ! grep -F -- '--auto' "$CONTROL/postinst"
+
+          echo "POSTINST_DOES_NOT_RUN_GATE1=PASS"
+          echo "MAINTAINER_SCRIPTS_DO_NOT_RESTART_MEDIASERVERD=PASS"
 
           WITNESS="$EXTRACT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.dylib"
           COORD="$EXTRACT/var/jb/usr/libexec/vcampro-gate1-coordinator"
-          HANDOFF="$EXTRACT/var/jb/usr/libexec/vcampro-gate1-handoff"
           VIEWER="$EXTRACT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
 
-          for binary in "$WITNESS" "$COORD" "$HANDOFF" "$VIEWER"; do
+          for binary in "$WITNESS" "$COORD" "$VIEWER"; do
             lipo -info "$binary"
             test "$(lipo -archs "$binary")" = "arm64"
-            otool -l "$binary"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'
-            otool -l "$binary"               | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS'               | grep -q 'minos 15.0'
+            otool -l "$binary" \
+              | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS' \
+              | tee -a "$OUT/minos.txt"
+            otool -l "$binary" \
+              | grep -A 6 -E 'LC_BUILD_VERSION|LC_VERSION_MIN_IPHONEOS' \
+              | grep -q 'minos 15.0'
           done
 
-          otool -L "$WITNESS" | tee build/gate1-remediation-c/witness-deps.txt
-          otool -L "$COORD" | tee build/gate1-remediation-c/coordinator-deps.txt
-          otool -L "$HANDOFF" | tee build/gate1-remediation-c/handoff-deps.txt
-          otool -L "$VIEWER" | tee build/gate1-remediation-c/viewer-deps.txt
+          otool -L "$WITNESS" | tee "$OUT/witness-deps.txt"
+          otool -L "$COORD" | tee "$OUT/coordinator-deps.txt"
+          otool -L "$VIEWER" | tee "$OUT/viewer-deps.txt"
 
-          if otool -L "$WITNESS" "$COORD" "$HANDOFF" "$VIEWER" | grep -E             'PrivateFrameworks|AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Network\.framework|CFNetwork'; then
+          if otool -L "$WITNESS" "$COORD" "$VIEWER" | grep -E \
+            'PrivateFrameworks|AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Network\.framework|CFNetwork'; then
             echo "Forbidden media/network dependency"
             exit 1
           fi
 
-          if nm -u "$WITNESS" "$COORD" "$HANDOFF" "$VIEWER" | grep -E             'MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer'; then
+          if nm -u "$WITNESS" "$COORD" "$VIEWER" | grep -E \
+            'MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer'; then
             echo "Forbidden hook/camera symbol"
             exit 1
           fi
 
-          if strings "$WITNESS" "$COORD" "$HANDOFF" "$VIEWER" | grep -E             'OSLogStoreSystem|/usr/bin/log|private.*logd'; then
-            echo "Forbidden logging dependency"
+          if strings "$WITNESS" "$COORD" "$VIEWER" | grep -E \
+            'OSLogStoreSystem|/usr/bin/log|private.*logd|initWithMachServiceName'; then
+            echo "Forbidden logging/XPC dependency"
             exit 1
           fi
 
-          shasum -a 256 "$DEB" | tee build/gate1-remediation-c/package-sha256.txt
+          shasum -a 256 "$DEB" | tee "$OUT/package-sha256.txt"
           {
             echo "Package=com.vcampro.gate1proofrunner"
             echo "Version=0.2.1"
@@ -250,10 +285,11 @@ jobs:
             echo "Depends=firmware (>= 15.0), mobilesubstrate"
             echo "Head=$GITHUB_SHA"
             echo "Superseded=0.2.0"
-          } | tee build/gate1-remediation-c/package-metadata.txt
+          } | tee "$OUT/package-metadata.txt"
+
           echo "deb=$DEB" >> "$GITHUB_OUTPUT"
 
-      - name: Upload Gate 1 proof package
+      - name: Upload Gate 1 installation candidate
         uses: actions/upload-artifact@v4
         with:
           name: vcampro-gate1-installation-remediation-c
@@ -261,11 +297,11 @@ jobs:
             ${{ steps.package.outputs.deb }}
             build/gate1-remediation-c/package-contents.txt
             build/gate1-remediation-c/package-sha256.txt
+            build/gate1-remediation-c/package-metadata.txt
+            build/gate1-remediation-c/minos.txt
             build/gate1-remediation-c/witness-deps.txt
             build/gate1-remediation-c/coordinator-deps.txt
-            build/gate1-remediation-c/handoff-deps.txt
             build/gate1-remediation-c/viewer-deps.txt
-            build/gate1-remediation-c/package-metadata.txt
             build/gate1-remediation-c-tests/original.txt
             build/gate1-remediation-c-tests/remediation.txt
           if-no-files-found: error

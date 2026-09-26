@@ -2,6 +2,7 @@
 from pathlib import Path
 import os
 import re
+import stat
 import subprocess
 import tempfile
 
@@ -15,14 +16,22 @@ for script in SCRIPTS:
         raise SystemExit(f"{script.name}: missing set +e")
     if not text.rstrip().endswith("exit 0"):
         raise SystemExit(f"{script.name}: missing final exit 0")
-    if "vcampro-gate1-coordinator" in text:
-        raise SystemExit(f"{script.name}: install/remove script reaches coordinator")
+    if "--auto" in text:
+        raise SystemExit(f"{script.name}: automatic Gate 1 execution token")
+    if re.search(
+        r"(^|\n)\s*(?:\"?\$COORDINATOR\"?|/var/jb/usr/libexec/"
+        r"vcampro-gate1-coordinator)(?:\s|$)",
+        text,
+    ):
+        raise SystemExit(f"{script.name}: executes coordinator")
     if re.search(
         r"SIGTERM|SIGKILL|killall|pkill|ldrestart|userspace|reboot|SpringBoard",
         text,
         re.IGNORECASE,
     ):
         raise SystemExit(f"{script.name}: forbidden runtime restart token")
+    if "launchctl" in text:
+        raise SystemExit(f"{script.name}: unexpected service-control dependency")
     if ">>" in text:
         raise SystemExit(f"{script.name}: append-only state is not repeat-safe")
     subprocess.run(["/bin/sh", "-n", str(script)], check=True)
@@ -30,13 +39,10 @@ for script in SCRIPTS:
 with tempfile.TemporaryDirectory() as temporary:
     root = Path(temporary)
     for path in [
-        root / "var/jb/bin",
         root / "var/jb/usr/bin",
+        root / "var/jb/usr/libexec",
         root / "var/jb/Applications/VCAMProGate1.app",
-        root / "var/jb/Library/LaunchDaemons",
         root / "var/tmp",
-        root / "bin",
-        root / "usr/bin",
     ]:
         path.mkdir(parents=True, exist_ok=True)
 
@@ -50,32 +56,40 @@ with tempfile.TemporaryDirectory() as temporary:
         )
         path.chmod(0o755)
 
-    fake_executable(root / "var/jb/bin/launchctl")
+    coordinator = root / "var/jb/usr/libexec/vcampro-gate1-coordinator"
+    fake_executable(coordinator)
     fake_executable(root / "var/jb/usr/bin/uicache")
-
-    (root / "var/jb/Library/LaunchDaemons/com.vcampro.gate1.handoff.plist").write_text(
-        "test"
-    )
 
     replacements = [
         ("/var/jb", str(root / "var/jb")),
         ("/var/tmp", str(root / "var/tmp")),
-        ("/var/mobile", str(root / "var/mobile")),
-        ("/bin/launchctl", str(root / "bin/launchctl")),
-        ("/usr/bin/uicache", str(root / "usr/bin/uicache")),
     ]
 
+    transformed = {}
     for source in SCRIPTS:
-        transformed = source.read_text()
+        text = source.read_text()
         for old, new in replacements:
-            transformed = transformed.replace(old, new)
+            text = text.replace(old, new)
         target = root / source.name
-        target.write_text(transformed)
+        target.write_text(text)
         target.chmod(0o755)
+        transformed[source.name] = target
 
+    for _ in range(2):
+        subprocess.run(
+            ["/bin/sh", str(transformed["postinst"])],
+            check=True,
+            env={**os.environ, "PATH": "/usr/bin:/bin"},
+        )
+
+    mode = coordinator.stat().st_mode
+    if not (mode & stat.S_ISUID):
+        raise SystemExit("postinst did not preserve/normalize setuid coordinator")
+
+    for script_name in ["prerm", "postrm"]:
         for _ in range(2):
             subprocess.run(
-                ["/bin/sh", str(target), "remove"],
+                ["/bin/sh", str(transformed[script_name]), "remove"],
                 check=True,
                 env={**os.environ, "PATH": "/usr/bin:/bin"},
             )
