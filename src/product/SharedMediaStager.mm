@@ -213,13 +213,21 @@ enum class MediaRootState : std::uint8_t {
 
 MediaRootState InspectMediaRoot(
     const std::string& path) {
-    if (StandardizedLocalPath(path) == nil) {
+    NSString* standardized =
+        StandardizedLocalPath(path);
+    if (standardized == nil) {
+        return MediaRootState::Invalid;
+    }
+
+    const std::string exactRoot =
+        StdFromNSString(standardized);
+    if (exactRoot.empty()) {
         return MediaRootState::Invalid;
     }
 
     struct stat info {};
     if (lstat(
-            path.c_str(),
+            exactRoot.c_str(),
             &info) != 0) {
         return errno == ENOENT
             ? MediaRootState::Missing
