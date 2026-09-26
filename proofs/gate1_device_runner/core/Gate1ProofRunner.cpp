@@ -275,6 +275,12 @@ std::string Gate1ProofRunner::renderJson(const Evidence& evidence) {
     out << "\"marker_capture_backend\":\"" << JsonEscape(evidence.markerCaptureBackend) << "\",";
     out << "\"stability_duration_ns\":" << evidence.stabilityDurationNs << ",";
     out << "\"restart_loop_detected\":" << (evidence.restartLoopDetected ? "true" : "false") << ",";
+    out << "\"helper_errors\":[";
+    for (std::size_t i = 0; i < evidence.helperErrors.size(); ++i) {
+        if (i != 0) out << ",";
+        out << "\"" << JsonEscape(evidence.helperErrors[i]) << "\"";
+    }
+    out << "],";
     out << "\"gate2_attempted\":false";
     out << "}";
     return out.str();
@@ -331,6 +337,10 @@ bool Gate1ProofRunner::captureMarkerIfPresent(Evidence* evidence) {
 
     const MarkerObservation marker =
         platform_.pollMarker(evidence->proofStartNs);
+
+    if (!marker.error.empty()) {
+        evidence->helperErrors.push_back(marker.error);
+    }
 
     if (!marker.found) {
         return false;
