@@ -128,7 +128,7 @@ jobs:
             exit 1
           fi
 
-          for script in postinst prerm; do
+          for script in postinst prerm postrm; do
             test -f "$CONTROL/$script"
             cat "$CONTROL/$script"
             if grep -Eqi               'killall|pkill|SIGKILL|ldrestart|userspace|reboot|SpringBoard|VCAMProLoadProbe|com\.vcampro\.loadprobe|com\.vcam\.universal'               "$CONTROL/$script"; then
