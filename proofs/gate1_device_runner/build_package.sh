@@ -59,8 +59,9 @@ EOF
 
 cp "$SOURCE/package/postinst" "$PKGROOT/DEBIAN/postinst"
 cp "$SOURCE/package/prerm" "$PKGROOT/DEBIAN/prerm"
+cp "$SOURCE/package/postrm" "$PKGROOT/DEBIAN/postrm"
 
-chmod 0755 "$PKGROOT/DEBIAN/postinst"   "$PKGROOT/DEBIAN/prerm"   "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-coordinator"   "$PKGROOT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
+chmod 0755 "$PKGROOT/DEBIAN/postinst"   "$PKGROOT/DEBIAN/prerm"   "$PKGROOT/DEBIAN/postrm"   "$PKGROOT/var/jb/usr/libexec/vcampro-gate1-coordinator"   "$PKGROOT/var/jb/Applications/VCAMProGate1.app/VCAMProGate1"
 chmod 0644 "$PKGROOT/DEBIAN/control"   "$PKGROOT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.dylib"   "$PKGROOT/var/jb/usr/lib/TweakInject/VCAMProGate1Witness.plist"   "$PKGROOT/var/jb/Applications/VCAMProGate1.app/Info.plist"
 
 dpkg-deb --root-owner-group --build "$PKGROOT" "$OUT/$PACKAGE_FILE"
