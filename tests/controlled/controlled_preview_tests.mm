@@ -729,7 +729,7 @@ bool TestEmptyStateSafe() {
     CHECK(
         empty.kind ==
         ControlledAcquireKind::
-            Inactive);
+            Unbound);
     return true;
 }
 
