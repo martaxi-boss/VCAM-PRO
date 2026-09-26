@@ -836,8 +836,10 @@ bool TestContentionDoesNotBlockProducer() {
     ControlledFrameConsumer consumer;
     consumer.bind(
         &queue,
-        &state);
+        state.mediaGeneration(),
+        state.timelineEpoch());
     consumer.setEnabled(true);
+    consumer.setPresentationActive(true);
 
     CVPixelBufferRef buffer =
         CreatePixelBuffer();
