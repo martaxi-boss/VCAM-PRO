@@ -246,7 +246,7 @@ jobs:
           grep -q './var/jb/Library/MobileSubstrate/DynamicLibraries/VCAMProControlled.plist' "$evidence/package-tree.txt"
           grep -q './var/jb/var/mobile/Library/VCAMPro/Media/' "$evidence/package-tree.txt"
 
-          if grep -q './Library/MobileSubstrate/' "$evidence/package-tree.txt"; then
+          if grep -Fq './Library/MobileSubstrate/' "$evidence/package-tree.txt"; then
             echo "Rootful payload found."
             exit 1
           fi
