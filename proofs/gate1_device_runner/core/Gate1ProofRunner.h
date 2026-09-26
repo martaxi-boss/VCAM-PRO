@@ -43,6 +43,7 @@ struct ProcessSnapshot {
 
 struct MarkerObservation {
     bool found = false;
+    std::string runNonce;
     std::string text;
     std::string process;
     int pid = -1;
@@ -63,9 +64,10 @@ struct ProofConfig {
 };
 
 struct Evidence {
-    std::string schema = "vcam-pro-gate1-proof/1";
-    std::string runnerVersion = "0.1.0";
+    std::string schema = "vcam-pro-gate1-proof/2";
+    std::string runnerVersion = "0.2.0";
     std::string buildSha;
+    std::string runNonce;
 
     FinalResult finalResult = FinalResult::NotProven;
     std::string reasonCode = "NOT_STARTED";
@@ -109,6 +111,7 @@ public:
 
     virtual bool armMarkerCapture(
         std::uint64_t proofStartNs,
+        std::string* runNonce,
         std::string* backend,
         std::string* error) = 0;
 

@@ -58,6 +58,7 @@ Evidence Gate1ProofRunner::run(const std::string& buildSha) {
     std::string markerError;
     if (!platform_.armMarkerCapture(
             evidence.proofStartNs,
+            &evidence.runNonce,
             &markerBackend,
             &markerError)) {
         if (!markerError.empty()) {
@@ -173,8 +174,7 @@ Evidence Gate1ProofRunner::run(const std::string& buildSha) {
             "MARKER_NOT_OBSERVED");
     }
 
-    if (evidence.markerPid > 0 &&
-        evidence.markerPid != evidence.pidAfter) {
+    if (evidence.markerPid != evidence.pidAfter) {
         return finishNotProven(
             std::move(evidence),
             "MARKER_PID_MISMATCH");
@@ -221,6 +221,12 @@ std::string Gate1ProofRunner::renderText(const Evidence& evidence) {
     out << finalResultString(evidence.finalResult) << "\n";
     out << "reason=" << evidence.reasonCode << "\n";
     out << "state=" << stateString(evidence.finalState) << "\n";
+    out << "device_os=" << evidence.device.osVersion << "\n";
+    out << "device_machine=" << evidence.device.machine << "\n";
+    out << "device_architecture=" << evidence.device.architecture << "\n";
+    out << "runner_version=" << evidence.runnerVersion << "\n";
+    out << "build_sha=" << evidence.buildSha << "\n";
+    out << "run_nonce=" << evidence.runNonce << "\n";
     out << "load_probe=" << evidence.loadProbe.packageId
         << " version=" << evidence.loadProbe.version << "\n";
     out << "package_query_method=" << evidence.loadProbe.queryMethod << "\n";
@@ -232,6 +238,7 @@ std::string Gate1ProofRunner::renderText(const Evidence& evidence) {
     out << "intentional_restart_requests=" << evidence.intentionalRestartRequests << "\n";
     out << "restart_action=" << evidence.restartAction << "\n";
     out << "marker_found=" << (evidence.markerFound ? "YES" : "NO") << "\n";
+    out << "marker_text=" << evidence.markerText << "\n";
     out << "marker_pid=" << evidence.markerPid << "\n";
     out << "marker_capture_backend=" << evidence.markerCaptureBackend << "\n";
     out << "restart_loop_detected=" << (evidence.restartLoopDetected ? "YES" : "NO") << "\n";
@@ -246,6 +253,7 @@ std::string Gate1ProofRunner::renderJson(const Evidence& evidence) {
     out << "\"schema\":\"" << JsonEscape(evidence.schema) << "\",";
     out << "\"runner_version\":\"" << JsonEscape(evidence.runnerVersion) << "\",";
     out << "\"build_sha\":\"" << JsonEscape(evidence.buildSha) << "\",";
+    out << "\"run_nonce\":\"" << JsonEscape(evidence.runNonce) << "\",";
     out << "\"final_result\":\"" << finalResultString(evidence.finalResult) << "\",";
     out << "\"reason_code\":\"" << JsonEscape(evidence.reasonCode) << "\",";
     out << "\"final_state\":\"" << stateString(evidence.finalState) << "\",";
@@ -320,10 +328,7 @@ Evidence Gate1ProofRunner::finishPass(Evidence evidence) {
 void Gate1ProofRunner::appendPid(
     Evidence* evidence,
     int pid) const {
-    if (evidence == nullptr || pid <= 0) {
-        return;
-    }
-
+    if (evidence == nullptr || pid <= 0) return;
     if (evidence->pidHistory.empty() ||
         evidence->pidHistory.back() != pid) {
         evidence->pidHistory.push_back(pid);
@@ -342,15 +347,16 @@ bool Gate1ProofRunner::captureMarkerIfPresent(Evidence* evidence) {
         evidence->helperErrors.push_back(marker.error);
     }
 
-    if (!marker.found) {
-        return false;
-    }
+    if (!marker.found) return false;
+    if (marker.observedAtNs < evidence->proofStartNs) return false;
 
-    if (marker.observedAtNs < evidence->proofStartNs) {
+    if (marker.runNonce != evidence->runNonce) {
+        evidence->helperErrors.push_back("witness nonce mismatch");
         return false;
     }
 
     if (marker.process != "mediaserverd") {
+        evidence->helperErrors.push_back("witness process mismatch");
         return false;
     }
 

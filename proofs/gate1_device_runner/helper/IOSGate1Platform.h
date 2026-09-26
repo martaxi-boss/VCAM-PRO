@@ -3,6 +3,7 @@
 #include "Gate1ProofRunner.h"
 
 #include <memory>
+#include <string>
 
 namespace vcam::gate1 {
 
@@ -22,6 +23,7 @@ public:
 
     bool armMarkerCapture(
         std::uint64_t proofStartNs,
+        std::string* runNonce,
         std::string* backend,
         std::string* error) override;
 
@@ -34,6 +36,9 @@ public:
 
     MarkerObservation pollMarker(
         std::uint64_t proofStartNs) override;
+
+    void setBuildSha(const std::string& buildSha);
+    void cleanupActiveRequest();
 
 private:
     struct Impl;
