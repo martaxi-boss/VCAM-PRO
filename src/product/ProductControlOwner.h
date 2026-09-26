@@ -4,6 +4,7 @@
 #include "SharedControlStore.h"
 #include "SharedMediaStager.h"
 
+#include <cstdint>
 #include <functional>
 #include <mutex>
 #include <string>
@@ -61,11 +62,6 @@ public:
     mediaDirectory() const noexcept;
 
 private:
-    bool commit(
-        const ProductControlSnapshot& next,
-        const std::string& oldPath,
-        const std::string& newPathOnFailure);
-
     static std::uint64_t
     nextGeneration(
         std::uint64_t current) noexcept;
@@ -74,6 +70,8 @@ private:
     SharedControlStore store_;
     SharedMediaStager stager_;
     ProductControlSnapshot current_{};
+    std::uint64_t
+        playbackIntentRevision_ = 0;
     std::string lastStatus_ =
         "VCAM control ready.";
 };

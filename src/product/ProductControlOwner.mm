@@ -5,6 +5,22 @@
 
 namespace vcam::product {
 
+namespace {
+
+bool SameMediaIdentity(
+    const ProductControlSnapshot& left,
+    const ProductControlSnapshot& right) noexcept {
+    return
+        left.mediaKind ==
+            right.mediaKind &&
+        left.mediaPath ==
+            right.mediaPath &&
+        left.selectionGeneration ==
+            right.selectionGeneration;
+}
+
+}  // namespace
+
 ProductControlOwner::ProductControlOwner(
     std::string controlPath,
     std::string notificationName,
@@ -18,18 +34,20 @@ ProductControlOwner::ProductControlOwner(
 }
 
 bool ProductControlOwner::reload() {
+    std::lock_guard<std::mutex>
+        lock(mutex_);
+
     ProductControlSnapshot snapshot;
     if (!store_.load(&snapshot)) {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
         lastStatus_ =
             "Unable to read VCAM control state.";
         return false;
     }
 
-    std::lock_guard<std::mutex>
-        lock(mutex_);
     current_ = std::move(snapshot);
+    playbackIntentRevision_ =
+        nextGeneration(
+            playbackIntentRevision_);
     lastStatus_ =
         current_.hasMedia()
             ? "Existing local media loaded."
@@ -46,33 +64,24 @@ ProductControlOwner::snapshot() const {
 
 bool ProductControlOwner::setEnabled(
     bool enabled) {
-    ProductControlSnapshot next;
-    {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        next = current_;
-    }
+    std::lock_guard<std::mutex>
+        lock(mutex_);
 
+    ProductControlSnapshot next =
+        current_;
     next.enabled = enabled;
 
     if (!store_.save(next)) {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
         lastStatus_ =
             "Unable to update VCAM enabled state.";
         return false;
     }
 
-    {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        current_ = next;
-        lastStatus_ =
-            enabled
-                ? "VCAM ON."
-                : "VCAM OFF — real camera fail-open.";
-    }
-
+    current_ = next;
+    lastStatus_ =
+        enabled
+            ? "VCAM ON."
+            : "VCAM OFF — real camera fail-open.";
     return true;
 }
 
@@ -93,10 +102,15 @@ bool ProductControlOwner::selectFromTemporaryPath(
     const CommitGate& commitGate,
     std::string* errorMessage) {
     ProductControlSnapshot before;
+    std::uint64_t
+        startPlaybackIntentRevision = 0;
+
     {
         std::lock_guard<std::mutex>
             lock(mutex_);
         before = current_;
+        startPlaybackIntentRevision =
+            playbackIntentRevision_;
     }
 
     const std::uint64_t generation =
@@ -127,71 +141,101 @@ bool ProductControlOwner::selectFromTemporaryPath(
         return false;
     }
 
-    ProductControlSnapshot next =
-        before;
-    next.mediaKind = kind;
-    next.mediaPath = stagedPath;
-    next.selectionGeneration =
-        generation;
-    next.playbackIntent =
-        ProductPlaybackIntent::Playing;
-
-    if (kind ==
-        ProductMediaKind::Photo) {
-        next.loopEnabled = false;
-    }
-
-    bool commitAttempted = false;
+    bool commitActionInvoked = false;
+    bool mediaIdentityRejected = false;
+    bool persistenceFailed = false;
+    bool ownerCommitted = false;
+    std::string oldPathToRemove;
 
     const CommitAction commitAction =
         [&]() {
-            commitAttempted = true;
-            return commit(
-                next,
-                before.mediaPath,
-                stagedPath);
+            commitActionInvoked = true;
+
+            std::lock_guard<std::mutex>
+                lock(mutex_);
+
+            if (!SameMediaIdentity(
+                    current_,
+                    before)) {
+                mediaIdentityRejected = true;
+                lastStatus_ =
+                    "Media selection superseded by newer media state.";
+                return false;
+            }
+
+            ProductControlSnapshot next =
+                current_;
+
+            oldPathToRemove =
+                current_.mediaPath;
+
+            next.mediaKind = kind;
+            next.mediaPath = stagedPath;
+            next.selectionGeneration =
+                generation;
+
+            if (kind ==
+                ProductMediaKind::Photo) {
+                next.loopEnabled = false;
+            }
+
+            if (playbackIntentRevision_ ==
+                startPlaybackIntentRevision) {
+                next.playbackIntent =
+                    ProductPlaybackIntent::Playing;
+            }
+
+            if (!store_.save(next)) {
+                persistenceFailed = true;
+                lastStatus_ =
+                    "Unable to persist VCAM control state.";
+                return false;
+            }
+
+            current_ = next;
+            ownerCommitted = true;
+            lastStatus_ =
+                kind == ProductMediaKind::Video
+                    ? "Local video selected."
+                    : "Local photo selected.";
+            return true;
         };
 
-    const bool committed =
+    const bool gateResult =
         commitGate
             ? commitGate(commitAction)
             : commitAction();
 
-    if (!committed) {
-        if (!commitAttempted) {
+    if (!gateResult ||
+        !ownerCommitted) {
+        if (!ownerCommitted) {
             (void)stager_.removeOwnedPath(
                 stagedPath);
+        }
 
-            const std::string superseded =
-                "Media selection superseded by newer request.";
-
-            {
-                std::lock_guard<std::mutex>
-                    lock(mutex_);
-                lastStatus_ =
-                    superseded;
-            }
-
-            if (errorMessage != nullptr) {
+        if (errorMessage != nullptr) {
+            if (!commitActionInvoked) {
                 *errorMessage =
-                    superseded;
+                    "Media selection superseded by newer request.";
+            } else if (mediaIdentityRejected) {
+                *errorMessage =
+                    "Media selection superseded by newer media state.";
+            } else if (persistenceFailed) {
+                *errorMessage =
+                    "Unable to persist VCAM control state.";
+            } else {
+                *errorMessage =
+                    "Unable to commit staged media.";
             }
-        } else if (
-            errorMessage != nullptr) {
-            *errorMessage =
-                "Unable to commit staged media.";
         }
 
         return false;
     }
 
-    {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        lastStatus_ =
-            kind == ProductMediaKind::Video
-                ? "Local video selected."
-                : "Local photo selected.";
+    if (!oldPathToRemove.empty() &&
+        oldPathToRemove != stagedPath) {
+        (void)stager_.removeOwnedPath(
+            oldPathToRemove);
     }
 
     if (errorMessage != nullptr) {
@@ -202,64 +246,72 @@ bool ProductControlOwner::selectFromTemporaryPath(
 }
 
 bool ProductControlOwner::clearMedia() {
-    ProductControlSnapshot before;
+    std::string oldPath;
+
     {
         std::lock_guard<std::mutex>
             lock(mutex_);
-        before = current_;
+
+        ProductControlSnapshot next =
+            current_;
+
+        oldPath =
+            current_.mediaPath;
+
+        next.mediaKind =
+            ProductMediaKind::None;
+        next.mediaPath.clear();
+        next.selectionGeneration =
+            nextGeneration(
+                current_.selectionGeneration);
+        next.loopEnabled = false;
+        next.playbackIntent =
+            ProductPlaybackIntent::Stopped;
+
+        if (!store_.save(next)) {
+            lastStatus_ =
+                "Unable to persist cleared media state.";
+            return false;
+        }
+
+        current_ = next;
+        playbackIntentRevision_ =
+            nextGeneration(
+                playbackIntentRevision_);
+        lastStatus_ =
+            "Media cleared.";
     }
 
-    ProductControlSnapshot next =
-        before;
-    next.mediaKind =
-        ProductMediaKind::None;
-    next.mediaPath.clear();
-    next.selectionGeneration =
-        nextGeneration(
-            before.selectionGeneration);
-    next.loopEnabled = false;
-    next.playbackIntent =
-        ProductPlaybackIntent::Stopped;
-
-    if (!commit(
-            next,
-            before.mediaPath,
-            {})) {
-        return false;
+    if (!oldPath.empty()) {
+        (void)stager_.removeOwnedPath(
+            oldPath);
     }
 
-    std::lock_guard<std::mutex>
-        lock(mutex_);
-    lastStatus_ =
-        "Media cleared.";
     return true;
 }
 
 bool ProductControlOwner::setLoopEnabled(
     bool enabled) {
-    ProductControlSnapshot next;
-    {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        next = current_;
-    }
+    std::lock_guard<std::mutex>
+        lock(mutex_);
 
-    if (next.mediaKind !=
+    if (current_.mediaKind !=
         ProductMediaKind::Video) {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
         lastStatus_ =
             "Loop applies only to video.";
         return false;
     }
 
+    ProductControlSnapshot next =
+        current_;
     next.loopEnabled = enabled;
+
     if (!store_.save(next)) {
+        lastStatus_ =
+            "Unable to update video loop state.";
         return false;
     }
 
-    std::lock_guard<std::mutex>
-        lock(mutex_);
     current_ = next;
     lastStatus_ =
         enabled
@@ -270,29 +322,29 @@ bool ProductControlOwner::setLoopEnabled(
 
 bool ProductControlOwner::setPlaybackIntent(
     ProductPlaybackIntent intent) {
-    ProductControlSnapshot next;
-    {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        next = current_;
-    }
+    std::lock_guard<std::mutex>
+        lock(mutex_);
 
-    if (!next.hasMedia()) {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
+    if (!current_.hasMedia()) {
         lastStatus_ =
             "Select media before playback.";
         return false;
     }
 
+    ProductControlSnapshot next =
+        current_;
     next.playbackIntent = intent;
+
     if (!store_.save(next)) {
+        lastStatus_ =
+            "Unable to update playback state.";
         return false;
     }
 
-    std::lock_guard<std::mutex>
-        lock(mutex_);
     current_ = next;
+    playbackIntentRevision_ =
+        nextGeneration(
+            playbackIntentRevision_);
 
     switch (intent) {
         case ProductPlaybackIntent::Playing:
@@ -320,38 +372,6 @@ ProductControlOwner::lastStatus() const noexcept {
 const std::string&
 ProductControlOwner::mediaDirectory() const noexcept {
     return stager_.mediaDirectory();
-}
-
-bool ProductControlOwner::commit(
-    const ProductControlSnapshot& next,
-    const std::string& oldPath,
-    const std::string& newPathOnFailure) {
-    if (!store_.save(next)) {
-        if (!newPathOnFailure.empty()) {
-            stager_.removeOwnedPath(
-                newPathOnFailure);
-        }
-
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        lastStatus_ =
-            "Unable to persist VCAM control state.";
-        return false;
-    }
-
-    {
-        std::lock_guard<std::mutex>
-            lock(mutex_);
-        current_ = next;
-    }
-
-    if (!oldPath.empty() &&
-        oldPath != next.mediaPath) {
-        stager_.removeOwnedPath(
-            oldPath);
-    }
-
-    return true;
 }
 
 std::uint64_t
