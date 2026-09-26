@@ -29,6 +29,8 @@ using vcam::product::ProductPlaybackIntent;
 @property(nonatomic, strong) UILabel* selectedLabel;
 @property(nonatomic, strong) UILabel* statusLabel;
 @property(nonatomic, strong, nullable) NSURL* ownedMediaURL;
+- (BOOL)claimFileCompletionForRequestToken:
+    (std::uint64_t)requestToken;
 @end
 
 @implementation VCAMInternalGalleryViewController {
@@ -220,6 +222,28 @@ using vcam::product::ProductPlaybackIntent;
     [self refreshControls];
 }
 
+- (BOOL)claimFileCompletionForRequestToken:
+    (std::uint64_t)requestToken {
+    __block BOOL accepted = NO;
+
+    void (^claim)(void) = ^{
+        accepted =
+            _selectionGate
+                .claimFileCompletion(
+                    requestToken);
+    };
+
+    if ([NSThread isMainThread]) {
+        claim();
+    } else {
+        dispatch_sync(
+            dispatch_get_main_queue(),
+            claim);
+    }
+
+    return accepted;
+}
+
 - (void)selectMediaTapped:(id)sender {
     (void)sender;
 
@@ -308,6 +332,12 @@ using vcam::product::ProductPlaybackIntent;
                 strongSelf = weakSelf;
 
             if (strongSelf == nil) {
+                return;
+            }
+
+            if (![strongSelf
+                    claimFileCompletionForRequestToken:
+                        requestToken]) {
                 return;
             }
 
