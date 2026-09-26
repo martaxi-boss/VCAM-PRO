@@ -360,6 +360,14 @@ bool Gate1ProofRunner::captureMarkerIfPresent(Evidence* evidence) {
         return false;
     }
 
+    const std::string expectedMarker =
+        "VCAM_PRO_LOAD_PROBE_001 process=mediaserverd pid=" +
+        std::to_string(marker.pid);
+    if (marker.pid <= 0 || marker.text != expectedMarker) {
+        evidence->helperErrors.push_back("witness marker mismatch");
+        return false;
+    }
+
     evidence->markerFound = true;
     evidence->markerText = marker.text;
     evidence->markerPid = marker.pid;
