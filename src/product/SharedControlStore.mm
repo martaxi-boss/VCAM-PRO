@@ -11,6 +11,8 @@ namespace vcam::product {
 
 namespace {
 
+char kSharedControlNotificationQueueKey;
+
 NSString* NSStringFromStd(
     const std::string& value) {
     return [[NSString alloc]
@@ -85,20 +87,10 @@ SharedControlStore::SharedControlStore(
     std::string notificationName)
     : controlPath_(std::move(controlPath)),
       notificationName_(
-          std::move(notificationName)) {
-    notificationCF_ =
-        CFStringCreateWithCString(
-            kCFAllocatorDefault,
-            notificationName_.c_str(),
-            kCFStringEncodingUTF8);
-}
+          std::move(notificationName)) {}
 
 SharedControlStore::~SharedControlStore() {
     stopObserving();
-    if (notificationCF_ != nullptr) {
-        CFRelease(notificationCF_);
-        notificationCF_ = nullptr;
-    }
 }
 
 bool SharedControlStore::load(
@@ -224,8 +216,7 @@ bool SharedControlStore::save(
 
 bool SharedControlStore::startObserving(
     ChangeCallback callback) {
-    if (notificationCF_ == nullptr ||
-        !callback) {
+    if (!callback) {
         return false;
     }
 
@@ -235,31 +226,68 @@ bool SharedControlStore::startObserving(
         callback_ = std::move(callback);
     }
 
-    if (!observing_) {
-        CFNotificationCenterAddObserver(
-            CFNotificationCenterGetDarwinNotifyCenter(),
-            this,
-            &SharedControlStore::DarwinCallback,
-            notificationCF_,
-            nullptr,
-            CFNotificationSuspensionBehaviorDeliverImmediately);
-        observing_ = true;
+    if (observing_) {
+        return true;
     }
 
+    if (notificationQueue_ == nullptr) {
+        notificationQueue_ =
+            dispatch_queue_create(
+                "com.vcampro.control-notifications",
+                DISPATCH_QUEUE_SERIAL);
+        if (notificationQueue_ == nullptr) {
+            std::lock_guard<std::mutex>
+                lock(callbackMutex_);
+            callback_ = {};
+            return false;
+        }
+
+        dispatch_queue_set_specific(
+            notificationQueue_,
+            &kSharedControlNotificationQueueKey,
+            this,
+            nullptr);
+    }
+
+    int token = 0;
+    const uint32_t status =
+        notify_register_dispatch(
+            notificationName_.c_str(),
+            &token,
+            notificationQueue_,
+            ^(int deliveredToken) {
+                (void)deliveredToken;
+                this->handleDarwinChange();
+            });
+
+    if (status != NOTIFY_STATUS_OK) {
+        std::lock_guard<std::mutex>
+            lock(callbackMutex_);
+        callback_ = {};
+        return false;
+    }
+
+    notifyToken_ = token;
+    observing_ = true;
     return true;
 }
 
 void SharedControlStore::stopObserving() {
-    if (!observing_) {
-        return;
-    }
+    if (observing_) {
+        (void)notify_cancel(
+            notifyToken_);
+        notifyToken_ = 0;
+        observing_ = false;
 
-    CFNotificationCenterRemoveObserver(
-        CFNotificationCenterGetDarwinNotifyCenter(),
-        this,
-        notificationCF_,
-        nullptr);
-    observing_ = false;
+        if (notificationQueue_ != nullptr &&
+            dispatch_get_specific(
+                &kSharedControlNotificationQueueKey) !=
+                this) {
+            dispatch_sync(
+                notificationQueue_,
+                ^{});
+        }
+    }
 
     std::lock_guard<std::mutex>
         lock(callbackMutex_);
@@ -286,25 +314,6 @@ std::uint64_t
 SharedControlStore::diskWriteCount() const noexcept {
     return diskWriteCount_.load(
         std::memory_order_relaxed);
-}
-
-void SharedControlStore::DarwinCallback(
-    CFNotificationCenterRef center,
-    void* observer,
-    CFStringRef name,
-    const void* object,
-    CFDictionaryRef userInfo) {
-    (void)center;
-    (void)name;
-    (void)object;
-    (void)userInfo;
-
-    auto* store =
-        static_cast<SharedControlStore*>(
-            observer);
-    if (store != nullptr) {
-        store->handleDarwinChange();
-    }
 }
 
 void SharedControlStore::handleDarwinChange() {
