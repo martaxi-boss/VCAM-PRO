@@ -7,6 +7,9 @@
 
 #include <memory>
 
+static dispatch_queue_t
+ProductOwnerInitializationQueue();
+
 @interface VCAMProductOverlayWindow : UIWindow
 @end
 
