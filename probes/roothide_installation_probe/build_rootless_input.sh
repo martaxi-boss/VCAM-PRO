@@ -29,6 +29,7 @@ CXX="$(xcrun --sdk iphoneos -f clang++)"
     "$PROBE_DIR/VCAMRootHideProbe.mm" \
     -framework Foundation \
     -framework UIKit \
+    -framework CoreGraphics \
     -Wl,-rpath,@loader_path/.jbroot/Library/Frameworks \
     -Wl,-rpath,@loader_path/.jbroot/usr/lib \
     -Wl,-install_name,@loader_path/VCAMRootHideProbe.dylib \
