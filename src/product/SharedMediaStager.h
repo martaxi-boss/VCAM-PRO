@@ -27,6 +27,13 @@ public:
     bool removeOwnedPath(
         const std::string& path) const;
 
+    bool isExistingOwnedMediaPath(
+        const std::string& path) const;
+
+    bool reconcileOwnedMedia(
+        const std::string& activeOwnedPath,
+        std::string* errorMessage) const;
+
     const std::string&
     mediaDirectory() const noexcept;
 
@@ -37,7 +44,7 @@ private:
         std::string* errorMessage) const;
 
     bool isOwnedPath(
-        const std::string& path) const noexcept;
+        const std::string& path) const;
 
     std::string mediaDirectory_;
 };

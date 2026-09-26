@@ -62,6 +62,8 @@ public:
     mediaDirectory() const noexcept;
 
 private:
+    bool initializeAndRecoverStorage();
+
     static std::uint64_t
     nextGeneration(
         std::uint64_t current) noexcept;
