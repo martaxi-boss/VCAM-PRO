@@ -2,7 +2,7 @@
 
 #include "ProductControlState.h"
 
-#include <CoreFoundation/CoreFoundation.h>
+#include <dispatch/dispatch.h>
 
 #include <atomic>
 #include <cstdint>
@@ -60,18 +60,12 @@ public:
     diskWriteCount() const noexcept;
 
 private:
-    static void DarwinCallback(
-        CFNotificationCenterRef center,
-        void* observer,
-        CFStringRef name,
-        const void* object,
-        CFDictionaryRef userInfo);
-
     void handleDarwinChange();
 
     std::string controlPath_;
     std::string notificationName_;
-    CFStringRef notificationCF_ = nullptr;
+    dispatch_queue_t notificationQueue_ = nullptr;
+    int notifyToken_ = 0;
 
     mutable std::atomic<std::uint64_t>
         diskReadCount_{0};
