@@ -116,7 +116,7 @@ chmod 0644 "$TWEAK_DIR/VCAMProFullProductRealHookWitness.plist"
 chmod 0644 "$TWEAK_DIR/VCAMProLocalPhotoPipelineReadyWitness.plist"
 chmod 0644 "$PKG_ROOT/DEBIAN/control"
 
-INPUT_DEB="$INPUT_DIR/com.vcampro.camera_0.1.0+roothide10~photoready1_iphoneos-arm64.deb"
+INPUT_DEB="$INPUT_DIR/com.vcampro.camera_0.1.0+roothide10~photoready2_iphoneos-arm64.deb"
 dpkg-deb -Zzstd --build --root-owner-group "$PKG_ROOT" "$INPUT_DEB"
 
 printf '%s\n' "$INPUT_DEB"
