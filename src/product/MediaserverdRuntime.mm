@@ -219,6 +219,7 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
                                 this->beginOrStopFirstPhotoSubstitutionDiagnostic();
 #endif
+                                this->prepareBlackFallbackForObservedGeometry();
                                 this->applyCachedState(
                                     false);
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
