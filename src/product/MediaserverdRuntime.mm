@@ -530,10 +530,6 @@ struct MediaserverdRuntime::Impl {
 
         old.reset();
         applied_ = snapshot;
-#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
-        beginLocalPhotoReadyCheck(
-            snapshot);
-#endif
     }
 
     void applyMutableControls(
@@ -591,6 +587,28 @@ struct MediaserverdRuntime::Impl {
 
     void bindCurrentSession(
         bool producerHealthy) {
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+        const ProductControlSnapshot proofSnapshot =
+            cache_.snapshot();
+        recordLocalPhotoProducerState(
+            proofSnapshot.selectionGeneration,
+            producerHealthy);
+#endif
+
+        if (session_ == nullptr) {
+            adapter_.unbindQueue();
+            return;
+        }
+
+        adapter_.bindQueue(
+            &session_->readyQueue(),
+            session_->state()
+                .mediaGeneration(),
+            session_->state()
+                .timelineEpoch(),
+            producerHealthy);
+    }
+
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
     static constexpr std::uint32_t
         kPhotoProofControlEnabled =
