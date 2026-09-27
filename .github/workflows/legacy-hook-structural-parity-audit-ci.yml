@@ -1,4 +1,5 @@
 name: VCAM PRO Legacy Hook Structural Parity Audit 001
+# Static-only audit; no runtime/device action.
 
 on:
   push:
