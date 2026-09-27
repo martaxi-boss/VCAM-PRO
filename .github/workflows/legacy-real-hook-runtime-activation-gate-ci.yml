@@ -1,9 +1,9 @@
-name: VCAM PRO Legacy-Equivalent Real Hook Runtime Activation Gate 001
+name: VCAM PRO Legacy Real Hook Runtime Activation Visible Witness Remediation 001
 
 on:
   push:
     branches:
-      - builder/legacy-real-hook-runtime-activation-gate-001
+      - builder/legacy-real-hook-runtime-activation-visible-witness-remediation-001
     paths:
       - "product/legacy_real_hook_runtime_activation_gate/**"
       - ".github/workflows/legacy-real-hook-runtime-activation-gate-ci.yml"
@@ -13,17 +13,17 @@ permissions:
   contents: read
 
 concurrency:
-  group: vcampro-legacy-real-hook-runtime-activation-gate-001
+  group: vcampro-legacy-real-hook-runtime-activation-visible-witness-remediation-001
   cancel-in-progress: true
 
 jobs:
   validate:
-    name: Static certify real-hook runtime activation package
+    name: Certify real-hook visible witness package
     runs-on: macos-26
     timeout-minutes: 120
 
     steps:
-      - name: Checkout isolated gate branch
+      - name: Checkout isolated remediation branch
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -37,17 +37,17 @@ jobs:
           GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
           echo "$GNU_PATH" >> "$GITHUB_PATH"
 
-      - name: Build, patch, and audit activation package
+      - name: Build, patch, and audit visible witness package
         shell: bash
         run: sh product/legacy_real_hook_runtime_activation_gate/ci_build_package_and_audit.sh
 
-      - name: Upload static certification evidence
+      - name: Upload certification evidence
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-legacy-real-hook-runtime-activation-gate-001
+          name: vcampro-legacy-real-hook-runtime-activation-visible-witness-gate-001
           path: |
-            build/legacy-real-hook-runtime-activation-gate-001/final/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Gate-001.deb
-            build/legacy-real-hook-runtime-activation-gate-001/final/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Gate-001.deb.sha256
-            build/legacy-real-hook-runtime-activation-gate-001/evidence/**
+            build/legacy-real-hook-runtime-activation-visible-witness-remediation-001/final/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Visible-Witness-Gate-001.deb
+            build/legacy-real-hook-runtime-activation-visible-witness-remediation-001/final/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Visible-Witness-Gate-001.deb.sha256
+            build/legacy-real-hook-runtime-activation-visible-witness-remediation-001/evidence/**
           if-no-files-found: error
           retention-days: 14
