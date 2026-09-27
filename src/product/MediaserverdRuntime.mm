@@ -4,6 +4,10 @@
 #include "InternalGalleryMediaSession.h"
 #include "SharedControlStore.h"
 
+#if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
+#include "RealCameraCallbackPassThroughProof.h"
+#endif
+
 #import <Foundation/Foundation.h>
 
 #include <CoreVideo/CoreVideo.h>
@@ -107,6 +111,10 @@ struct MediaserverdRuntime::Impl {
             return true;
         }
 
+#if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
+        proof::ResetRealCameraCallbackPassThroughProofState();
+#endif
+
         controlQueue_ =
             dispatch_queue_create(
                 "com.vcampro.mediaserverd.control",
@@ -122,6 +130,11 @@ struct MediaserverdRuntime::Impl {
         }
 
         cache_.replace(initial);
+#if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
+        proofHasMedia_.store(
+            initial.hasMedia(),
+            std::memory_order_release);
+#endif
         adapter_.setEnabled(
             initial.enabled);
 
@@ -130,6 +143,11 @@ struct MediaserverdRuntime::Impl {
                     const ProductControlSnapshot&
                         snapshot) {
                     cache_.replace(snapshot);
+#if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
+                    proofHasMedia_.store(
+                        snapshot.hasMedia(),
+                        std::memory_order_release);
+#endif
                     adapter_.setEnabled(
                         snapshot.enabled);
 
@@ -207,8 +225,58 @@ struct MediaserverdRuntime::Impl {
 
     CameraDecision decide(
         CVPixelBufferRef original) noexcept {
+#if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
+        const bool controlEnabled =
+            cache_.enabledFast();
+        const bool controlHasMedia =
+            proofHasMedia_.load(
+                std::memory_order_acquire);
+        const std::uint64_t decisionCountBefore =
+            adapter_.decisionCount();
+        const std::uint64_t virtualDecisionCountBefore =
+            adapter_.virtualDecisionCount();
+
+        CameraDecision decision =
+            adapter_.decide(
+                original);
+
+        const std::uint64_t decisionCountAfter =
+            adapter_.decisionCount();
+        const std::uint64_t virtualDecisionCountAfter =
+            adapter_.virtualDecisionCount();
+
+        proof::RealCameraCallbackPassThroughFacts facts;
+        facts.originalNonNull =
+            original != nullptr;
+        facts.controlEnabled =
+            controlEnabled;
+        facts.controlHasMedia =
+            controlHasMedia;
+        facts.decisionOriginal =
+            decision.kind ==
+            CameraDecisionKind::Original;
+        facts.disabledReason =
+            decision.reason ==
+            CameraFailOpenReason::Disabled;
+        facts.originalBufferReturned =
+            decision.pixelBuffer == original;
+        facts.decisionCountBefore =
+            decisionCountBefore;
+        facts.decisionCountAfter =
+            decisionCountAfter;
+        facts.virtualDecisionCountBefore =
+            virtualDecisionCountBefore;
+        facts.virtualDecisionCountAfter =
+            virtualDecisionCountAfter;
+
+        proof::ObserveRealCameraCallbackPassThroughDecision(
+            facts);
+
+        return decision;
+#else
         return adapter_.decide(
             original);
+#endif
     }
 
     void applyCachedState(
@@ -425,6 +493,11 @@ struct MediaserverdRuntime::Impl {
 
     std::atomic<std::uint64_t>
         observedGeometry_{0};
+
+#if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
+    std::atomic<bool>
+        proofHasMedia_{false};
+#endif
 
     bool started_ = false;
 };
