@@ -927,6 +927,9 @@ int main() {
                 return TestInvalidReplacementPreservesSelection(
                     video);
             });
+        Run(
+            "activation parity black photo black original",
+            TestActivationParityBlackPhotoBlackOriginal);
 
         RemoveTree(root);
 
