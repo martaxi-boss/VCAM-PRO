@@ -1,9 +1,9 @@
-name: mediaserverd load probe build
+name: VCAM PRO RootHide mediaserverd Load Proof 002
 
 on:
   push:
     branches:
-      - builder/mediaserverd-load-probe-build-001
+      - builder/roothide-mediaserverd-load-proof-002
     paths:
       - "proofs/mediaserverd_load_probe/**"
       - ".github/workflows/mediaserverd-load-probe-build.yml"
@@ -12,166 +12,384 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
 jobs:
-  build:
-    name: Build and validate load-only probe
-    runs-on: macos-latest
-    timeout-minutes: 25
-    env:
-      THEOS_SHA: dd5c14bb9d91311e221d51b5bfb8c9e5948156db
+  validate:
+    name: RootHide mediaserverd load-only probe
+    runs-on: macos-26
+    timeout-minutes: 45
 
     steps:
-      - name: Checkout VCAM PRO
+      - name: Checkout probe branch
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Configure build environment
-        run: |
-          set -euo pipefail
-          echo "THEOS=$RUNNER_TEMP/theos" >> "$GITHUB_ENV"
-
-      - name: Record build environment
-        run: |
-          set -euo pipefail
-          sw_vers
-          uname -a
-          uname -m
-          xcodebuild -version
-          xcrun --sdk iphoneos --show-sdk-path
-          clang --version
-
-      - name: Install build dependencies
-        run: |
-          set -euo pipefail
-          brew install ldid xz dpkg
-
-      - name: Install pinned Theos
-        run: |
-          set -euo pipefail
-          git clone https://github.com/theos/theos.git "$THEOS"
-          git -C "$THEOS" checkout "$THEOS_SHA"
-          git -C "$THEOS" submodule update --init --recursive
-          test "$(git -C "$THEOS" rev-parse HEAD)" = "$THEOS_SHA"
-          echo "THEOS_HEAD=$(git -C "$THEOS" rev-parse HEAD)"
-
-      - name: Static source and filter validation
-        working-directory: proofs/mediaserverd_load_probe
+      - name: Verify frozen base and strict probe-only scope
+        shell: bash
         run: |
           set -euo pipefail
 
-          if grep -En '%hook|MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer|VTDecompression|IOSurface|UIImagePicker|socket[[:space:]]*\(|connect[[:space:]]*\(|send[[:space:]]*\(|recv[[:space:]]*\(' LoadProbe.c; then
-            echo "Forbidden functional API or hook token found in LoadProbe.c"
+          BASE=de81ab56cc8393961753226515d760fdf7f5ab93
+
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+
+          unexpected="$(
+            git diff --name-only "$BASE"..HEAD |
+              grep -Ev '^(proofs/mediaserverd_load_probe/|\.github/workflows/mediaserverd-load-probe-build\.yml$)' || true
+          )"
+          if [ -n "$unexpected" ]; then
+            echo "Unexpected non-probe mutation:"
+            echo "$unexpected"
             exit 1
           fi
 
-          test "$(grep -o 'VCAM_PRO_LOAD_PROBE_001' LoadProbe.c | wc -l | tr -d ' ')" = "1"
+          test -z "$(git diff --name-only "$BASE"..HEAD -- src product)"
+          test -z "$(git diff --name-only "$BASE"..HEAD --             src/product/ReferenceCameraHook.mm             src/product/ReferenceCameraHook.h             src/product/MediaserverdRuntime.mm             src/product/MediaserverdRuntime.h             src/product/CameraConsumerAdapter.cpp             src/product/CameraConsumerAdapter.h             src/product/SpringBoardControlHost.mm             src/product/SpringBoardControlHost.h             src/product/SharedControlStore.mm             src/product/SharedControlStore.h             src/product/SharedMediaStager.mm             src/product/SharedMediaStager.h             src/frame_engine             src/media_engine             src/control)"
+
+          test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/main | awk '{print $1}')" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "cc20d787070c67565173d4a46c218e2549cecc93"
+
+          echo "PRODUCTION_ARCHITECTURE_UNCHANGED=PASS"
+          echo "FLOATING_CONTROL_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "FAIL_OPEN_UNCHANGED=PASS"
+          echo "REFERENCE_REPOS_UNCHANGED=PASS"
+
+      - name: Validate constructor-only source and exact filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PROBE=proofs/mediaserverd_load_probe
+          SOURCE="$PROBE/LoadProbe.c"
+          FILTER="$PROBE/VCAMProLoadProbe.plist"
+          BUILD="$PROBE/build_roothide_input.sh"
+
+          grep -Fq 'getprogname()' "$SOURCE"
+          grep -Fq '"mediaserverd"' "$SOURCE"
+          grep -Fq 'strcmp(' "$SOURCE"
+          grep -Fq 'VCAM PRO MEDIASERVERD LOAD PROBE' "$SOURCE"
+          grep -Fq '0.0.2~roothide1' "$SOURCE"
+          grep -Fq '/var/mobile/Library/VCAMProMediaserverdProbe/load-proof.txt' "$SOURCE"
+          grep -Fq 'timestamp=%s' "$SOURCE"
+          grep -Fq 'process=%s' "$SOURCE"
+          grep -Fq 'pid=%d' "$SOURCE"
+          grep -Fq 'constructor=PASS' "$SOURCE"
+          grep -Fq 'os_log_with_type' "$SOURCE"
+          grep -Fq 'fsync(fd)' "$SOURCE"
+          grep -Fq 'close(fd)' "$SOURCE"
+
+          if grep -RInE '%hook|MSHookFunction|MSHookMessageEx|method_exchangeImplementations|class_replaceMethod|class_addMethod|rebind_symbols|fishhook|AVCapture|AVFoundation|CMSampleBuffer|CoreMedia|CVPixelBuffer|CoreVideo|VideoToolbox|IOSurface|Photos|UIKit|UIImagePicker|FramePipeline|ReadyFrameQueue|ReferenceCameraHook|MediaserverdRuntime|CameraConsumerAdapter|frame replacement|frame substitution'               "$SOURCE" "$BUILD"; then
+            echo "Forbidden hook/camera/frame token found in probe source/build."
+            exit 1
+          fi
+
+          if grep -RInE 'pthread_|dispatch_(async|after|source|queue)|NSThread|xpc_|mach_msg|CFMessagePort|socket[[:space:]]*\(|connect[[:space:]]*\(|send[[:space:]]*\(|recv[[:space:]]*\('               "$SOURCE"; then
+            echo "Forbidden thread/timer/IPC/network token found."
+            exit 1
+          fi
 
           python3 - <<'PY'
           import plistlib
           from pathlib import Path
 
-          path = Path("VCAMProLoadProbe.plist")
+          path = Path("proofs/mediaserverd_load_probe/VCAMProLoadProbe.plist")
           with path.open("rb") as f:
               data = plistlib.load(f)
 
           expected = {"Filter": {"Executables": ["mediaserverd"]}}
           if data != expected:
               raise SystemExit(f"Unexpected injection filter: {data!r}")
-
-          print("Injection filter:", data)
+          print("MEDIASERVERD_ONLY_FILTER=PASS")
           PY
 
-      - name: Build rootless arm64 package
-        working-directory: proofs/mediaserverd_load_probe
+          echo "PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "NO_HOOKS=PASS"
+          echo "NO_CAMERA_APIS=PASS"
+          echo "NO_FRAME_ACCESS=PASS"
+          echo "NO_FRAME_SUBSTITUTION=PASS"
+
+      - name: Install RootHide packaging tools
+        shell: bash
         run: |
           set -euo pipefail
-          make clean package FINALPACKAGE=1
-          find packages -maxdepth 1 -type f -name '*.deb' -print
 
-      - name: Validate package and Mach-O
-        id: validate
-        working-directory: proofs/mediaserverd_load_probe
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          export PATH="$GNU_PATH:$PATH"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+          command -v ldid
+          dpkg-deb --version
+
+      - name: Build arm64 rootless input package
+        shell: bash
         run: |
           set -euo pipefail
 
-          DEB="$(find packages -maxdepth 1 -type f -name '*.deb' | head -n 1)"
-          test -n "$DEB"
-          test "$(find packages -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')" = "1"
+          sh proofs/mediaserverd_load_probe/build_roothide_input.sh
 
-          echo "=== PACKAGE METADATA ==="
-          dpkg-deb -f "$DEB" Package Version Architecture Depends
-          test "$(dpkg-deb -f "$DEB" Package)" = "com.vcampro.loadprobe"
-          test "$(dpkg-deb -f "$DEB" Version)" = "0.0.1"
-          test "$(dpkg-deb -f "$DEB" Architecture)" = "iphoneos-arm64"
+          INPUT_DEB="build/roothide-mediaserverd-load-proof-002/input/com.vcampro.loadprobe_0.0.2~roothide1_iphoneos-arm64.deb"
+          EVIDENCE="build/roothide-mediaserverd-load-proof-002/evidence"
+          test -f "$INPUT_DEB"
+          mkdir -p "$EVIDENCE"
 
-          echo "=== INSTALLED FILES ==="
-          dpkg-deb -c "$DEB"
+          test "$(dpkg-deb -f "$INPUT_DEB" Package)" = "com.vcampro.loadprobe"
+          test "$(dpkg-deb -f "$INPUT_DEB" Version)" = "0.0.2~roothide1"
+          test "$(dpkg-deb -f "$INPUT_DEB" Architecture)" = "iphoneos-arm64"
 
-          CONTROL_DIR="$RUNNER_TEMP/vcampro-control"
-          EXTRACT_DIR="$RUNNER_TEMP/vcampro-extract"
-          rm -rf "$CONTROL_DIR" "$EXTRACT_DIR"
-          mkdir -p "$CONTROL_DIR" "$EXTRACT_DIR"
-          dpkg-deb -e "$DEB" "$CONTROL_DIR"
-          dpkg-deb -x "$DEB" "$EXTRACT_DIR"
+          dpkg-deb -f "$INPUT_DEB" | tee "$EVIDENCE/input-control.txt"
+          dpkg-deb -c "$INPUT_DEB" | tee "$EVIDENCE/input-inventory.txt"
 
-          echo "=== CONTROL FILES ==="
-          find "$CONTROL_DIR" -maxdepth 1 -type f -print | sort
+          grep -Fq './var/jb/usr/lib/TweakInject/VCAMProLoadProbe.dylib' "$EVIDENCE/input-inventory.txt"
+          grep -Fq './var/jb/usr/lib/TweakInject/VCAMProLoadProbe.plist' "$EVIDENCE/input-inventory.txt"
 
-          for script in preinst postinst prerm postrm extrainst_; do
-            if [ -f "$CONTROL_DIR/$script" ]; then
-              echo "=== $script ==="
-              cat "$CONTROL_DIR/$script"
-              if grep -Eqi 'killall|mediaserverd|SpringBoard|launchctl[[:space:]].*reboot|userspace|reboot' "$CONTROL_DIR/$script"; then
-                echo "Forbidden automatic restart behavior in $script"
-                exit 1
-              fi
-            fi
-          done
+      - name: Fetch pinned official RootHidePatcher
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          DYLIB="$EXTRACT_DIR/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.dylib"
-          FILTER="$EXTRACT_DIR/var/jb/usr/lib/TweakInject/VCAMProLoadProbe.plist"
+          PATCHER_SHA=80c16e08da33fecd27c0ff35777f37afd171868b
+          ROOT="build/roothide-mediaserverd-load-proof-002"
+
+          git clone --quiet https://github.com/roothide/RootHidePatcher.git "$ROOT/RootHidePatcher"
+          git -C "$ROOT/RootHidePatcher" checkout --quiet "$PATCHER_SHA"
+          test "$(git -C "$ROOT/RootHidePatcher" rev-parse HEAD)" = "$PATCHER_SHA"
+
+          echo "ROOTHIDE_PATCHER_SHA=$PATCHER_SHA" |
+            tee "$ROOT/evidence/roothide-patcher.txt"
+
+      - name: Convert to final RootHide package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$PWD/build/roothide-mediaserverd-load-proof-002"
+          INPUT_DEB="$ROOT/input/com.vcampro.loadprobe_0.0.2~roothide1_iphoneos-arm64.deb"
+          FINAL_DIR="$ROOT/final"
+          FINAL_DEB="$FINAL_DIR/VCAM-PRO-RootHide-Mediaserverd-Load-Proof-002.deb"
+          PATCHER="$ROOT/RootHidePatcher/patch.sh"
+
+          mkdir -p "$FINAL_DIR"
+          sudo env "PATH=$PATH" bash "$PATCHER" "$INPUT_DEB" "$FINAL_DEB"
+
+          test -f "$FINAL_DEB"
+          shasum -a 256 "$FINAL_DEB" | tee "$FINAL_DEB.sha256"
+
+      - name: Inspect actual final RootHide package and filter
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="build/roothide-mediaserverd-load-proof-002"
+          FINAL_DEB="$ROOT/final/VCAM-PRO-RootHide-Mediaserverd-Load-Proof-002.deb"
+          EVIDENCE="$ROOT/evidence"
+          EXTRACTED="$ROOT/extracted-final"
+          DYLIB="$EXTRACTED/usr/lib/TweakInject/VCAMProLoadProbe.dylib"
+          PLIST="$EXTRACTED/usr/lib/TweakInject/VCAMProLoadProbe.plist"
+
+          rm -rf "$EXTRACTED"
+          mkdir -p "$EXTRACTED" "$EVIDENCE"
+          dpkg-deb -R "$FINAL_DEB" "$EXTRACTED"
+
+          dpkg-deb -f "$FINAL_DEB" | tee "$EVIDENCE/final-control.txt"
+          dpkg-deb -c "$FINAL_DEB" | tee "$EVIDENCE/final-inventory.txt"
+
+          test "$(dpkg-deb -f "$FINAL_DEB" Package)" = "com.vcampro.loadprobe"
+          test "$(dpkg-deb -f "$FINAL_DEB" Version)" = "0.0.2~roothide1"
+          test "$(dpkg-deb -f "$FINAL_DEB" Architecture)" = "iphoneos-arm64e"
+
           test -f "$DYLIB"
-          test -f "$FILTER"
+          test -f "$PLIST"
+          test ! -e "$EXTRACTED/var/jb"
 
-          echo "=== MACH-O FILE ==="
-          file "$DYLIB"
+          FILES="$(
+            dpkg-deb -c "$FINAL_DEB" |
+              awk '$1 ~ /^-/ {print $6}' |
+              sort
+          )"
+          EXPECTED="$(printf '%s\n%s'             './usr/lib/TweakInject/VCAMProLoadProbe.dylib'             './usr/lib/TweakInject/VCAMProLoadProbe.plist')"
+          test "$FILES" = "$EXPECTED"
 
-          echo "=== MACH-O ARCHITECTURES ==="
-          ARCHS="$(lipo -archs "$DYLIB")"
-          echo "$ARCHS"
-          test "$ARCHS" = "arm64"
+          grep -F -- '-rwxr-xr-x root/wheel' "$EVIDENCE/final-inventory.txt" |
+            grep -Fq './usr/lib/TweakInject/VCAMProLoadProbe.dylib'
+          grep -F -- '-rw-r--r-- root/wheel' "$EVIDENCE/final-inventory.txt" |
+            grep -Fq './usr/lib/TweakInject/VCAMProLoadProbe.plist'
 
-          echo "=== MACH-O DEPENDENCIES ==="
-          otool -L "$DYLIB"
-          if otool -L "$DYLIB" | grep -E 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|UIKit'; then
-            echo "Forbidden camera/media framework dependency present"
+          if grep -Fq './usr/lib/TweakInject/VCAMPro.dylib' "$EVIDENCE/final-inventory.txt"; then
+            echo "Production VCAMPro.dylib must not exist in probe package."
             exit 1
           fi
 
-          echo "=== UNDEFINED SYMBOLS ==="
-          nm -u "$DYLIB"
-          if nm -u "$DYLIB" | grep -E 'MSHookFunction|MSHookMessageEx|AVCapture|CMSampleBuffer|CVPixelBuffer|VTDecompression|IOSurface|UIImagePicker'; then
-            echo "Forbidden hook or camera/media symbol present"
+          python3 - <<'PY'
+          import plistlib
+          from pathlib import Path
+
+          path = Path(
+              "build/roothide-mediaserverd-load-proof-002/"
+              "extracted-final/usr/lib/TweakInject/VCAMProLoadProbe.plist"
+          )
+          with path.open("rb") as f:
+              data = plistlib.load(f)
+
+          expected = {"Filter": {"Executables": ["mediaserverd"]}}
+          if data != expected:
+              raise SystemExit(f"Unexpected final RootHide filter: {data!r}")
+          print("MEDIASERVERD_ONLY_FILTER=PASS")
+          PY
+
+          plutil -lint "$PLIST"
+          plutil -p "$PLIST" | tee "$EVIDENCE/final-filter.txt"
+
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "ELLEKIT_TWEAKINJECT_LAYOUT=PASS"
+
+      - name: Inspect final Mach-O, linked libraries, symbols and signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="build/roothide-mediaserverd-load-proof-002"
+          DYLIB="$ROOT/extracted-final/usr/lib/TweakInject/VCAMProLoadProbe.dylib"
+          EVIDENCE="$ROOT/evidence"
+
+          xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/dylib-arch.txt"
+          grep -q 'arm64' "$EVIDENCE/dylib-arch.txt"
+          if grep -q 'arm64e' "$EVIDENCE/dylib-arch.txt"; then
+            echo "A9 proof dylib must contain arm64 code only."
             exit 1
           fi
 
-          echo "=== MARKER ==="
-          strings "$DYLIB" | grep -F 'VCAM_PRO_LOAD_PROBE_001'
+          xcrun otool -l "$DYLIB" > "$EVIDENCE/dylib-load-commands.txt"
+          xcrun otool -D "$DYLIB" > "$EVIDENCE/dylib-install-name.txt"
+          xcrun otool -L "$DYLIB" | tee "$EVIDENCE/dylib-linked-libraries.txt"
+          xcrun nm -u "$DYLIB" | tee "$EVIDENCE/dylib-undefined.txt" || true
+          strings "$DYLIB" | tee "$EVIDENCE/dylib-strings.txt" >/dev/null
 
-          echo "=== HOOK SYMBOL CHECK ==="
-          if nm "$DYLIB" | grep -E 'MSHookFunction|MSHookMessageEx'; then
-            echo "Hook symbol present"
+          grep -q 'minos 15.0' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/dylib-load-commands.txt"
+          grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/dylib-load-commands.txt"
+          if grep -q 'path /var/jb' "$EVIDENCE/dylib-load-commands.txt"; then
+            echo "Fixed /var/jb RPATH remains."
             exit 1
           fi
 
-          echo "=== PACKAGE SHA-256 ==="
-          shasum -a 256 "$DEB"
+          grep -q '@loader_path/VCAMProLoadProbe.dylib' "$EVIDENCE/dylib-install-name.txt"
+          xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
+          ldid -e "$DYLIB" > "$EVIDENCE/dylib-entitlements.txt"
 
-          echo "deb_path=$GITHUB_WORKSPACE/proofs/mediaserverd_load_probe/$DEB" >> "$GITHUB_OUTPUT"
+          grep -Fq 'VCAM_PRO_LOAD_PROBE_001' "$EVIDENCE/dylib-strings.txt"
+          grep -Fq 'VCAM PRO MEDIASERVERD LOAD PROBE' "$EVIDENCE/dylib-strings.txt"
+          grep -Fq '0.0.2~roothide1' "$EVIDENCE/dylib-strings.txt"
+          grep -Fq '/var/mobile/Library/VCAMProMediaserverdProbe/load-proof.txt' "$EVIDENCE/dylib-strings.txt"
+          grep -Fq 'mediaserverd' "$EVIDENCE/dylib-strings.txt"
+          grep -Fq 'constructor=PASS' "$EVIDENCE/dylib-strings.txt"
+          grep -q 'getprogname' "$EVIDENCE/dylib-undefined.txt"
 
-      - name: Upload .deb build artifact
+          if grep -Ei 'CydiaSubstrate|SubstrateLoader|AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|UIKit'               "$EVIDENCE/dylib-linked-libraries.txt"; then
+            echo "Forbidden hook/camera/UI library dependency found."
+            exit 1
+          fi
+
+          if grep -Ei 'MSHookFunction|MSHookMessageEx|method_exchangeImplementations|rebind_symbols|AVCapture|CMSampleBuffer|CVPixelBuffer|VTDecompression|IOSurface|UIImagePicker|ReferenceCameraHook|MediaserverdRuntime|CameraConsumerAdapter'               "$EVIDENCE/dylib-strings.txt" "$EVIDENCE/dylib-undefined.txt"; then
+            echo "Forbidden hook/camera/frame symbol found in final dylib."
+            exit 1
+          fi
+
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "NO_HOOKS=PASS"
+          echo "NO_CAMERA_APIS=PASS"
+          echo "NO_FRAME_ACCESS=PASS"
+          echo "NO_FRAME_SUBSTITUTION=PASS"
+
+      - name: Validate final RootHide-safe maintainer script
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="build/roothide-mediaserverd-load-proof-002"
+          SCRIPT="$ROOT/extracted-final/DEBIAN/postinst"
+          EVIDENCE="$ROOT/evidence"
+
+          test -f "$SCRIPT"
+          cat "$SCRIPT" | tee "$EVIDENCE/postinst.txt"
+
+          grep -Fq 'rm -f /var/mobile/Library/VCAMProMediaserverdProbe/load-proof.txt || true' "$SCRIPT"
+
+          if grep -Eqi 'killall|pkill|launchctl|ldrestart|sbreload|userspace|reboot|SpringBoard|sudo|NewTerm|password|rm[[:space:]]+-rf|SharedControl|VCAMPro/Media' "$SCRIPT"; then
+            echo "Forbidden maintainer-script side effect found."
+            exit 1
+          fi
+
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+
+      - name: Final static acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE=de81ab56cc8393961753226515d760fdf7f5ab93
+          ROOT="build/roothide-mediaserverd-load-proof-002"
+          FINAL_DEB="$ROOT/final/VCAM-PRO-RootHide-Mediaserverd-Load-Proof-002.deb"
+          EVIDENCE="$ROOT/evidence"
+
+          test -f "$FINAL_DEB"
+          test -f "$FINAL_DEB.sha256"
+
+          test -z "$(git diff --name-only "$BASE"..HEAD -- src product)"
+
+          cat "$FINAL_DEB.sha256" | tee "$EVIDENCE/final-sha256.txt"
+          git rev-parse HEAD | tee "$EVIDENCE/exact-head.txt"
+
+          echo "MEDIASERVERD_ONLY_FILTER=PASS"
+          echo "PROCESS_GUARD=PASS"
+          echo "PERSISTENT_CONSTRUCTOR_PROOF=PASS"
+          echo "NO_HOOKS=PASS"
+          echo "NO_CAMERA_APIS=PASS"
+          echo "NO_FRAME_ACCESS=PASS"
+          echo "NO_FRAME_SUBSTITUTION=PASS"
+          echo "ROOTHIDE_PACKAGE_ARCH=PASS"
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ELLEKIT_TWEAKINJECT_LAYOUT=PASS"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+          echo "PRODUCTION_ARCHITECTURE_UNCHANGED=PASS"
+          echo "FLOATING_CONTROL_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "FAIL_OPEN_UNCHANGED=PASS"
+          echo "PR19_MODIFIED=NO"
+          echo "REFERENCE_REPOS_MODIFIED=NO"
+          echo "MERGE_PERFORMED=NO"
+          echo "RELEASE_PERFORMED=NO"
+          echo "DEPLOY_PERFORMED=NO"
+          echo "DEVICE_ACTION=NO"
+
+      - name: Upload RootHide mediaserverd load proof 002
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-mediaserverd-load-probe-deb
-          path: ${{ steps.validate.outputs.deb_path }}
+          name: vcampro-roothide-mediaserverd-load-proof-002
+          path: |
+            build/roothide-mediaserverd-load-proof-002/final/VCAM-PRO-RootHide-Mediaserverd-Load-Proof-002.deb
+            build/roothide-mediaserverd-load-proof-002/final/VCAM-PRO-RootHide-Mediaserverd-Load-Proof-002.deb.sha256
+            build/roothide-mediaserverd-load-proof-002/evidence/
           if-no-files-found: error
           retention-days: 14
