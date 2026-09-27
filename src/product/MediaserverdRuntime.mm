@@ -759,6 +759,42 @@ struct MediaserverdRuntime::Impl {
 #endif
     }
 
+    void prepareBlackFallbackForObservedGeometry() {
+        const std::uint64_t geometry =
+            observedGeometry_.load(
+                std::memory_order_acquire);
+
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+
+        DecodeGeometryKey(
+            geometry,
+            &width,
+            &height,
+            &pixelFormat);
+
+        if (width == 0 ||
+            height == 0 ||
+            !SupportedCameraFormat(
+                pixelFormat)) {
+            adapter_.clearBlackFallback();
+            return;
+        }
+
+        CVPixelBufferRef black =
+            virtualBlackFrame_.prepare(
+                width,
+                height,
+                pixelFormat);
+
+        if (black == nullptr ||
+            !adapter_.bindBlackFallback(
+                black)) {
+            adapter_.clearBlackFallback();
+        }
+    }
+
     void applyCachedState(
         bool forceRebuild) {
         const ProductControlSnapshot snapshot =
