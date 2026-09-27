@@ -2,6 +2,7 @@
 
 #include "InternalGalleryViewController.h"
 #include "ProductControlOwner.h"
+#include "SpringBoardFloatingButtonGeometry.h"
 
 #import <UIKit/UIKit.h>
 
@@ -9,6 +10,11 @@
 
 static dispatch_queue_t
 ProductOwnerInitializationQueue();
+
+static constexpr CGFloat
+    kFloatingButtonSize = 56.0;
+static constexpr CGFloat
+    kFloatingButtonEdgeMargin = 10.0;
 
 @interface VCAMProductOverlayWindow : UIWindow
 @end
@@ -40,6 +46,12 @@ ProductOwnerInitializationQueue();
         vcam::product::ProductControlOwner>
         _owner;
     UIButton* _floatingButton;
+    NSLayoutConstraint*
+        _floatingButtonCenterXConstraint;
+    NSLayoutConstraint*
+        _floatingButtonCenterYConstraint;
+    CGPoint _floatingButtonDragStartCenter;
+    BOOL _floatingButtonPositionInitialized;
     BOOL _ownerInitializationStarted;
     BOOL _ownerReady;
 }
@@ -71,7 +83,7 @@ ProductOwnerInitializationQueue();
             UIControlStateNormal];
 
     _floatingButton.layer.cornerRadius =
-        28.0;
+        kFloatingButtonSize * 0.5;
     _floatingButton.translatesAutoresizingMaskIntoConstraints =
         NO;
     _floatingButton.enabled = NO;
@@ -82,31 +94,287 @@ ProductOwnerInitializationQueue();
  forControlEvents:
      UIControlEventTouchUpInside];
 
+    UIPanGestureRecognizer* pan =
+        [[UIPanGestureRecognizer alloc]
+            initWithTarget:self
+                    action:
+                        @selector(
+                            handleFloatingButtonPan:)];
+
+    pan.cancelsTouchesInView = YES;
+    pan.delaysTouchesBegan = NO;
+    pan.maximumNumberOfTouches = 1;
+
+    [_floatingButton
+        addGestureRecognizer:pan];
+
     [self.view
         addSubview:_floatingButton];
+
+    _floatingButtonCenterXConstraint =
+        [[_floatingButton centerXAnchor]
+            constraintEqualToAnchor:
+                self.view.leadingAnchor];
+
+    _floatingButtonCenterYConstraint =
+        [[_floatingButton centerYAnchor]
+            constraintEqualToAnchor:
+                self.view.topAnchor];
 
     [NSLayoutConstraint
         activateConstraints:@[
             [[_floatingButton
                 widthAnchor]
                 constraintEqualToConstant:
-                    56.0],
+                    kFloatingButtonSize],
             [[_floatingButton
                 heightAnchor]
                 constraintEqualToConstant:
-                    56.0],
-            [[_floatingButton
-                trailingAnchor]
-                constraintEqualToAnchor:
-                    self.view
-                        .safeAreaLayoutGuide
-                        .trailingAnchor
-                constant:-18.0],
-            [[_floatingButton
-                centerYAnchor]
-                constraintEqualToAnchor:
-                    self.view.centerYAnchor]
+                    kFloatingButtonSize],
+            _floatingButtonCenterXConstraint,
+            _floatingButtonCenterYConstraint
         ]];
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+
+    CGPoint desired;
+
+    if (!_floatingButtonPositionInitialized) {
+        const UIEdgeInsets safeInsets =
+            self.view.safeAreaInsets;
+
+        const auto region =
+            vcam::product::ui::
+                MakeFloatingButtonSafeRegion(
+                    {
+                        self.view.bounds.size.width,
+                        self.view.bounds.size.height,
+                    },
+                    {
+                        safeInsets.top,
+                        safeInsets.left,
+                        safeInsets.bottom,
+                        safeInsets.right,
+                    },
+                    {
+                        kFloatingButtonSize,
+                        kFloatingButtonSize,
+                    },
+                    kFloatingButtonEdgeMargin);
+
+        desired = CGPointMake(
+            region.maxX,
+            (region.minY + region.maxY) * 0.5);
+
+        _floatingButtonPositionInitialized =
+            YES;
+    } else {
+        desired = CGPointMake(
+            _floatingButtonCenterXConstraint
+                .constant,
+            _floatingButtonCenterYConstraint
+                .constant);
+    }
+
+    const CGPoint bounded =
+        [self
+            clampedFloatingButtonCenter:
+                desired];
+
+    _floatingButtonCenterXConstraint
+        .constant = bounded.x;
+    _floatingButtonCenterYConstraint
+        .constant = bounded.y;
+}
+
+- (CGPoint)clampedFloatingButtonCenter:
+    (CGPoint)point {
+    const UIEdgeInsets safeInsets =
+        self.view.safeAreaInsets;
+
+    const auto bounded =
+        vcam::product::ui::
+            ClampFloatingButtonCenter(
+                {
+                    point.x,
+                    point.y,
+                },
+                {
+                    self.view.bounds.size.width,
+                    self.view.bounds.size.height,
+                },
+                {
+                    safeInsets.top,
+                    safeInsets.left,
+                    safeInsets.bottom,
+                    safeInsets.right,
+                },
+                {
+                    kFloatingButtonSize,
+                    kFloatingButtonSize,
+                },
+                kFloatingButtonEdgeMargin);
+
+    return CGPointMake(
+        bounded.x,
+        bounded.y);
+}
+
+- (CGPoint)snappedFloatingButtonCenter:
+    (CGPoint)point {
+    const UIEdgeInsets safeInsets =
+        self.view.safeAreaInsets;
+
+    const auto snapped =
+        vcam::product::ui::
+            SnapFloatingButtonCenterToNearestEdge(
+                {
+                    point.x,
+                    point.y,
+                },
+                {
+                    self.view.bounds.size.width,
+                    self.view.bounds.size.height,
+                },
+                {
+                    safeInsets.top,
+                    safeInsets.left,
+                    safeInsets.bottom,
+                    safeInsets.right,
+                },
+                {
+                    kFloatingButtonSize,
+                    kFloatingButtonSize,
+                },
+                kFloatingButtonEdgeMargin);
+
+    return CGPointMake(
+        snapped.x,
+        snapped.y);
+}
+
+- (void)setFloatingButtonCenter:
+    (CGPoint)center
+                     animated:
+    (BOOL)animated {
+    if (!animated) {
+        _floatingButtonCenterXConstraint
+            .constant = center.x;
+        _floatingButtonCenterYConstraint
+            .constant = center.y;
+        [self.view layoutIfNeeded];
+        return;
+    }
+
+    [self.view layoutIfNeeded];
+
+    [UIView
+        animateWithDuration:0.2
+                 animations:^{
+                     self
+                         ->_floatingButtonCenterXConstraint
+                         .constant = center.x;
+                     self
+                         ->_floatingButtonCenterYConstraint
+                         .constant = center.y;
+                     [self.view
+                         layoutIfNeeded];
+                 }];
+}
+
+- (void)handleFloatingButtonPan:
+    (UIPanGestureRecognizer*)gesture {
+    NSAssert(
+        [NSThread isMainThread],
+        @"VCAM floating control drag must remain on the main thread.");
+
+    switch (gesture.state) {
+        case UIGestureRecognizerStateBegan: {
+            [self.view layoutIfNeeded];
+
+            _floatingButtonDragStartCenter =
+                CGPointMake(
+                    _floatingButtonCenterXConstraint
+                        .constant,
+                    _floatingButtonCenterYConstraint
+                        .constant);
+
+            [gesture
+                setTranslation:CGPointZero
+                       inView:self.view];
+            break;
+        }
+
+        case UIGestureRecognizerStateChanged: {
+            const CGPoint translation =
+                [gesture
+                    translationInView:
+                        self.view];
+
+            const CGPoint desired =
+                CGPointMake(
+                    _floatingButtonDragStartCenter.x +
+                        translation.x,
+                    _floatingButtonDragStartCenter.y +
+                        translation.y);
+
+            [self
+                setFloatingButtonCenter:
+                    [self
+                        clampedFloatingButtonCenter:
+                            desired]
+                                 animated:NO];
+            break;
+        }
+
+        case UIGestureRecognizerStateEnded: {
+            const CGPoint translation =
+                [gesture
+                    translationInView:
+                        self.view];
+
+            const CGPoint desired =
+                CGPointMake(
+                    _floatingButtonDragStartCenter.x +
+                        translation.x,
+                    _floatingButtonDragStartCenter.y +
+                        translation.y);
+
+            const CGPoint snapped =
+                [self
+                    snappedFloatingButtonCenter:
+                        desired];
+
+            [self
+                setFloatingButtonCenter:
+                    snapped
+                                 animated:YES];
+            break;
+        }
+
+        case UIGestureRecognizerStateCancelled:
+        case UIGestureRecognizerStateFailed: {
+            const CGPoint current =
+                CGPointMake(
+                    _floatingButtonCenterXConstraint
+                        .constant,
+                    _floatingButtonCenterYConstraint
+                        .constant);
+
+            [self
+                setFloatingButtonCenter:
+                    [self
+                        clampedFloatingButtonCenter:
+                            current]
+                                 animated:NO];
+            break;
+        }
+
+        default:
+            break;
+    }
 }
 
 - (void)viewDidAppear:(BOOL)animated {
