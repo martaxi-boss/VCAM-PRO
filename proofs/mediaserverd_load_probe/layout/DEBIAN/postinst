@@ -1,6 +1,6 @@
 #!/bin/sh
 set -e
 
-rm -f /var/mobile/Library/VCAMProMediaserverdProbe/load-proof.txt || true
+rm -f /var/mobile/Library/VCAMProMediaserverdProbe/witness-proof.txt || true
 
 exit 0
