@@ -18,6 +18,10 @@
 #include "FirstLocalPhotoVirtualSubstitutionProof.h"
 #endif
 
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+#include "IOS15ActivationParityProof.h"
+#endif
+
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
 #include "FirstLocalPhotoSubstitutionDiagnosticProof.h"
 #include "FirstLocalPhotoSubstitutionDiagnosticProofState.h"
