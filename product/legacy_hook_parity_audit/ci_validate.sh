@@ -179,7 +179,7 @@ install = entry.index("InstallReferenceCameraHook()", start)
 if not (guard < start < install):
     raise SystemExit("VCAM-PRO mediaserverd startup/call relationship changed")
 
-adapter_compact = re.sub(r"\\s+", "", adapter)
+adapter_compact = re.sub(r"\s+", "", adapter)
 for token in (
     "decision.pixelBuffer=original;",
     "CameraFailOpenReason::Disabled",
