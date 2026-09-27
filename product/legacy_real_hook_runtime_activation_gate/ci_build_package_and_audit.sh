@@ -52,6 +52,9 @@ git diff --quiet "$START"..HEAD -- product/VCAMPro.RootHideIntegration.plist
 test "$(git hash-object src/product/ReferenceCameraHook.mm)" = "$HOOK_BLOB"
 test "$(git hash-object src/product/MediaserverdRuntime.mm)" = "$RUNTIME_BLOB"
 test "$(git hash-object src/product/VCAMProEntry.mm)" = "$ENTRY_BLOB"
+test "$(git rev-parse "$ACCEPTED_BASE:src/product/ReferenceCameraHook.mm")" = "$HOOK_BLOB"
+test "$(git rev-parse "$ACCEPTED_BASE:src/product/MediaserverdRuntime.mm")" = "$RUNTIME_BLOB"
+test "$(git rev-parse "$ACCEPTED_BASE:src/product/VCAMProEntry.mm")" = "$ENTRY_BLOB"
 
 python3 - <<'PY'
 from pathlib import Path
@@ -106,8 +109,6 @@ if 'if (!hookInstalled)' not in entry:
     raise SystemExit("Proof publication is not gated on hook success")
 if entry.index("if (!hookInstalled)") > entry.index("PublishRealHookInstallProof();"):
     raise SystemExit("Proof publication can precede hook-success guard")
-if "ResetProofState();" > entry:
-    pass
 if entry.index("ResetProofState();") > entry.index("runtime.start()"):
     raise SystemExit("Proof state is not cleared before runtime attempt")
 
@@ -298,9 +299,11 @@ data = path.read_bytes()
 
 if len(data) < 32:
     raise SystemExit("Mach-O too small")
+
 magic, = struct.unpack_from("<I", data, 0)
 if magic != 0xfeedfacf:
     raise SystemExit(f"Unexpected Mach-O magic: 0x{magic:08x}")
+
 _, _, _, _, ncmds, sizeofcmds, _, _ = struct.unpack_from("<IiiIIIII", data, 0)
 offset = 32
 end_commands = offset + sizeofcmds
@@ -314,7 +317,7 @@ for _ in range(ncmds):
         raise SystemExit("Truncated load command")
     cmd, cmdsize = struct.unpack_from("<II", data, offset)
     if cmdsize < 8 or offset + cmdsize > end_commands:
-        raise SystemExit("Invalid load command")
+        raise SystemExit("Invalid load command size")
     if cmd == LC_CODE_SIGNATURE:
         if cmdsize < 16:
             raise SystemExit("Invalid LC_CODE_SIGNATURE")
@@ -323,15 +326,17 @@ for _ in range(ncmds):
     offset += cmdsize
 
 if sig_off is None or sig_size is None or sig_size == 0:
-    raise SystemExit("LC_CODE_SIGNATURE missing")
+    raise SystemExit("LC_CODE_SIGNATURE missing or empty")
 if sig_off + sig_size > len(data):
     raise SystemExit("Code signature range exceeds file")
 
 CSMAGIC_EMBEDDED_SIGNATURE = 0xFADE0CC0
 CSMAGIC_CODEDIRECTORY = 0xFADE0C02
+CSSLOT_CODEDIRECTORY = 0
+
 magic, total_len, count = struct.unpack_from(">III", data, sig_off)
 if magic != CSMAGIC_EMBEDDED_SIGNATURE:
-    raise SystemExit("Unexpected signature superblob")
+    raise SystemExit(f"Unexpected signature superblob magic: 0x{magic:08x}")
 if total_len > sig_size or total_len < 12 + count * 8:
     raise SystemExit("Invalid signature superblob length")
 
@@ -340,26 +345,35 @@ for i in range(count):
     slot_type, rel_off = struct.unpack_from(">II", data, sig_off + 12 + i * 8)
     if rel_off >= total_len:
         raise SystemExit("Signature blob offset out of range")
-    if slot_type == 0:
+    if slot_type == CSSLOT_CODEDIRECTORY:
         cd_off = sig_off + rel_off
         break
+
 if cd_off is None:
     raise SystemExit("Primary CodeDirectory missing")
+if cd_off + 44 > sig_off + total_len:
+    raise SystemExit("Truncated CodeDirectory header")
 
-cd_magic, cd_len, _, _, hash_off, _, _, n_code, code_limit = struct.unpack_from(
+cd_magic, cd_len, cd_version, cd_flags, hash_off, ident_off, n_special, n_code, code_limit = struct.unpack_from(
     ">IIIIIIIII", data, cd_off
 )
 if cd_magic != CSMAGIC_CODEDIRECTORY:
-    raise SystemExit("Unexpected CodeDirectory")
-if cd_off + cd_len > sig_off + total_len:
-    raise SystemExit("CodeDirectory exceeds signature")
-hash_size, hash_type, _, page_log2 = struct.unpack_from("BBBB", data, cd_off + 36)
+    raise SystemExit(f"Unexpected CodeDirectory magic: 0x{cd_magic:08x}")
+if cd_len < 44 or cd_off + cd_len > sig_off + total_len:
+    raise SystemExit("Invalid CodeDirectory length")
+
+hash_size, hash_type, platform, page_log2 = struct.unpack_from("BBBB", data, cd_off + 36)
 if hash_type != 2 or hash_size != 32:
-    raise SystemExit("CodeDirectory is not SHA-256")
+    raise SystemExit(f"Expected SHA-256 CodeDirectory, got type={hash_type} size={hash_size}")
+if page_log2 > 20:
+    raise SystemExit("Unreasonable CodeDirectory page size")
+
 page_size = 1 << page_log2
 expected_slots = (code_limit + page_size - 1) // page_size
 if n_code != expected_slots:
-    raise SystemExit("CodeDirectory slot count mismatch")
+    raise SystemExit(f"Code slot count mismatch: {n_code} != {expected_slots}")
+if code_limit > sig_off:
+    raise SystemExit("CodeDirectory codeLimit overlaps embedded signature")
 if hash_off + n_code * hash_size > cd_len:
     raise SystemExit("Code hash array exceeds CodeDirectory")
 
@@ -368,15 +382,28 @@ for i in range(n_code):
     end = min(start + page_size, code_limit)
     calculated = hashlib.sha256(data[start:end]).digest()
     stored_off = cd_off + hash_off + i * hash_size
-    if calculated != data[stored_off:stored_off + hash_size]:
+    stored = data[stored_off:stored_off + hash_size]
+    if calculated != stored:
         raise SystemExit(f"CodeDirectory page hash mismatch at slot {i}")
 
-cdhash = hashlib.sha256(data[cd_off:cd_off + cd_len]).digest()[:20].hex()
+cd_blob = data[cd_off:cd_off + cd_len]
+cdhash = hashlib.sha256(cd_blob).digest()[:20].hex()
+
 evidence.write_text(
-    "LC_CODE_SIGNATURE=PASS\n"
-    "CODEDIRECTORY_SHA256=PASS\n"
-    "CODEDIRECTORY_PAGE_HASHES=PASS\n"
-    f"CDHASH={cdhash}\n"
+    "\n".join([
+        "LC_CODE_SIGNATURE=PASS",
+        "CODE_SIGNATURE_SUPERBLOB=PASS",
+        "CODEDIRECTORY_SHA256=PASS",
+        "CODEDIRECTORY_PAGE_HASHES=PASS",
+        f"CODEDIRECTORY_VERSION=0x{cd_version:08x}",
+        f"CODEDIRECTORY_FLAGS=0x{cd_flags:08x}",
+        f"CODEDIRECTORY_PLATFORM={platform}",
+        f"CODEDIRECTORY_CODE_LIMIT={code_limit}",
+        f"CODEDIRECTORY_CODE_SLOTS={n_code}",
+        f"CODEDIRECTORY_PAGE_SIZE={page_size}",
+        f"CDHASH={cdhash}",
+        "",
+    ])
 )
 print(evidence.read_text(), end="")
 PY
@@ -395,6 +422,7 @@ strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
 verify_signature "$DYLIB" "$EVIDENCE/dylib-code-signature.txt"
 
 grep -q 'architecture: arm64' "$EVIDENCE/dylib-arch.txt"
+test -z "$(grep 'arm64e' "$EVIDENCE/dylib-arch.txt" || true)"
 grep -q 'minos 15.0' "$EVIDENCE/dylib-load-commands.txt"
 grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/dylib-load-commands.txt"
 grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/dylib-load-commands.txt"
@@ -404,7 +432,12 @@ grep -Fq 'HookedCMSampleBufferGetImageBuffer' "$EVIDENCE/dylib-symbols.txt"
 grep -Fq 'gOriginalCMSampleBufferGetImageBuffer' "$EVIDENCE/dylib-symbols.txt"
 grep -Fxq '_MSHookFunction' "$EVIDENCE/dylib-undefined.txt"
 grep -Fxq '_CMSampleBufferGetImageBuffer' "$EVIDENCE/dylib-undefined.txt"
+grep -Fq 'RUNTIME_START' "$EVIDENCE/dylib-strings.txt"
+grep -Fq 'REAL_REFERENCE_HOOK_INSTALL' "$EVIDENCE/dylib-strings.txt"
+grep -Fq 'ORIGINAL_TRAMPOLINE_NON_NULL' "$EVIDENCE/dylib-strings.txt"
 test -z "$(grep -E 'ReferenceCameraHook.*Stub|hookselftest|MSHookFunctionStub' "$EVIDENCE/dylib-symbols.txt" "$EVIDENCE/dylib-strings.txt" || true)"
+test -z "$(grep -E 'UIKit|PhotosUI' "$EVIDENCE/dylib-linked-libraries.txt" || true)"
+test -z "$(grep -F 'path /var/jb/' "$EVIDENCE/dylib-load-commands.txt" || true)"
 
 xcrun lipo -info "$WITNESS" | tee "$EVIDENCE/witness-arch.txt"
 xcrun otool -l "$WITNESS" > "$EVIDENCE/witness-load-commands.txt"
@@ -425,6 +458,7 @@ grep -Fq 'original-trampoline=NON_NULL' "$EVIDENCE/witness-strings.txt"
 grep -Fq 'callback=NOT_EXERCISED' "$EVIDENCE/witness-strings.txt"
 grep -Fq 'frame-substitution=INACTIVE' "$EVIDENCE/witness-strings.txt"
 grep -Fq 'gate/version=%s' "$EVIDENCE/witness-strings.txt"
+grep -Fq '0.1.0+roothide7~realhookruntime2' "$EVIDENCE/witness-strings.txt"
 test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/witness-linked-libraries.txt" || true)"
 echo "WITNESS_CAMERA_FRAMEWORKS_ABSENT=PASS"
 
