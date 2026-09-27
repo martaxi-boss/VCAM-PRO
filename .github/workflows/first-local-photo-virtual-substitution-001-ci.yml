@@ -1,14 +1,7 @@
 name: VCAM PRO First Local Photo Substitution Diagnostic Remediation A
 
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "product/first_local_photo_virtual_substitution_001/**"
-      - "src/product/MediaserverdRuntime.mm"
-      - "docs/CANONICAL_PROJECT_STATE.md"
-      - ".github/workflows/first-local-photo-virtual-substitution-001-ci.yml"
+  workflow_dispatch:
 
 permissions:
   contents: read
