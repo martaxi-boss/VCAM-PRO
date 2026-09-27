@@ -1,4 +1,4 @@
-name: VCAM PRO First Local Photo Virtual Substitution 001
+name: VCAM PRO First Local Photo Substitution Diagnostic Remediation A
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   certify:
-    name: Certify first genuine local photo virtual substitution
+    name: Certify first local photo substitution diagnostic remediation A
     runs-on: macos-26
     timeout-minutes: 120
 
@@ -95,19 +95,19 @@ jobs:
           grep -q 'PASS valid snapshot round trip' build/first-photo-substitution-tests/shared-control-store.txt
           grep -q 'PASS observer corruption fail open' build/first-photo-substitution-tests/shared-control-store.txt
 
-      - name: Build, RootHide patch, and statically audit substitution package
+      - name: Build, RootHide patch, and audit substitution diagnostic package
         shell: bash
         run: sh product/first_local_photo_virtual_substitution_001/ci_build_package_and_audit.sh
 
       - name: Upload certified package and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-first-local-photo-virtual-substitution-001
+          name: vcampro-first-local-photo-substitution-diagnostic-remediation-a
           path: |
-            build/first-local-photo-virtual-substitution-001/final/VCAM-PRO-RootHide-First-Local-Photo-Virtual-Substitution-001.deb
-            build/first-local-photo-virtual-substitution-001/final/VCAM-PRO-RootHide-First-Local-Photo-Virtual-Substitution-001.deb.sha256
+            build/first-local-photo-virtual-substitution-001/final/VCAM-PRO-RootHide-First-Local-Photo-Substitution-Diagnostic-Remediation-A.deb
+            build/first-local-photo-virtual-substitution-001/final/VCAM-PRO-RootHide-First-Local-Photo-Substitution-Diagnostic-Remediation-A.deb.sha256
             build/first-local-photo-virtual-substitution-001/evidence/**
-            build/first-photo-substitution-state/results.txt
+            build/first-photo-substitution-diagnostic-state/results.txt
             build/first-photo-substitution-tests/*.txt
             build/regressions/*.txt
           if-no-files-found: error
