@@ -185,6 +185,10 @@ struct MediaserverdRuntime::Impl {
         updateFirstPhotoSubstitutionDiagnosticControlSnapshot(
             initial);
 #endif
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+        updateIOS15ActivationParityControlSnapshot(
+            initial);
+#endif
         adapter_.setEnabled(
             initial.enabled);
 
@@ -210,6 +214,10 @@ struct MediaserverdRuntime::Impl {
 #endif
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
                     updateFirstPhotoSubstitutionDiagnosticControlSnapshot(
+                        snapshot);
+#endif
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+                    updateIOS15ActivationParityControlSnapshot(
                         snapshot);
 #endif
                     adapter_.setEnabled(
