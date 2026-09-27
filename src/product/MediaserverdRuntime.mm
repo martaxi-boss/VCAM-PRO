@@ -238,6 +238,7 @@ struct MediaserverdRuntime::Impl {
         dispatch_sync(
             controlQueue_,
             ^{
+                this->prepareBlackFallbackForObservedGeometry();
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
                 this->beginOrRefreshLocalPhotoDiagnostic();
 #endif
