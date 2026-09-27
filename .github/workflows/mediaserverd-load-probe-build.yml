@@ -329,7 +329,7 @@ jobs:
           test -f "$SCRIPT"
           cat "$SCRIPT" | tee "$EVIDENCE/postinst.txt"
 
-          grep -Fq 'rm -f /var/mobile/Library/VCAMProMediaserverdProbe/load-proof.txt || true' "$SCRIPT"
+          grep -Eq 'rm -f (/rootfs)?/var/mobile/Library/VCAMProMediaserverdProbe/load-proof\.txt \|\| true' "$SCRIPT"
 
           if grep -Eqi 'killall|pkill|launchctl|ldrestart|sbreload|userspace|reboot|SpringBoard|sudo|NewTerm|password|rm[[:space:]]+-rf|SharedControl|VCAMPro/Media' "$SCRIPT"; then
             echo "Forbidden maintainer-script side effect found."
