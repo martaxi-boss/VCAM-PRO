@@ -452,9 +452,9 @@ struct MediaserverdRuntime::Impl {
                     decision.kind ==
                             CameraDecisionKind::Virtual
                         ? static_cast<std::uint32_t>(
-                              proof::FirstPhotoSubDiagnosticDecision::Virtual)
+                              FirstPhotoSubDiagnosticDecision::Virtual)
                         : static_cast<std::uint32_t>(
-                              proof::FirstPhotoSubDiagnosticDecision::Original),
+                              FirstPhotoSubDiagnosticDecision::Original),
                     std::memory_order_release);
                 firstPhotoSubDiagnosticLastReason_.store(
                     firstPhotoSubDiagnosticReasonCode(
@@ -1026,7 +1026,7 @@ struct MediaserverdRuntime::Impl {
 
     static std::uint32_t firstPhotoSubDiagnosticReasonCode(
         CameraFailOpenReason reason) noexcept {
-        using proof::FirstPhotoSubDiagnosticReason;
+        using FirstPhotoSubDiagnosticReason;
         switch (reason) {
             case CameraFailOpenReason::Disabled:
                 return static_cast<std::uint32_t>(
@@ -1058,10 +1058,10 @@ struct MediaserverdRuntime::Impl {
         }
     }
 
-    static proof::FirstPhotoSubDiagnosticPlaybackState
+    static FirstPhotoSubDiagnosticPlaybackState
     firstPhotoSubDiagnosticPlaybackState(
         frame_engine::PlaybackState state) noexcept {
-        using proof::FirstPhotoSubDiagnosticPlaybackState;
+        using FirstPhotoSubDiagnosticPlaybackState;
         switch (state) {
             case frame_engine::PlaybackState::Empty:
                 return FirstPhotoSubDiagnosticPlaybackState::Empty;
@@ -1080,10 +1080,10 @@ struct MediaserverdRuntime::Impl {
         }
     }
 
-    static proof::FirstPhotoSubDiagnosticMediaKind
+    static FirstPhotoSubDiagnosticMediaKind
     firstPhotoSubDiagnosticSelectedMediaKind(
         media_engine::SelectedMediaKind kind) noexcept {
-        using proof::FirstPhotoSubDiagnosticMediaKind;
+        using FirstPhotoSubDiagnosticMediaKind;
         switch (kind) {
             case media_engine::SelectedMediaKind::Photo:
                 return FirstPhotoSubDiagnosticMediaKind::Photo;
@@ -1348,11 +1348,11 @@ struct MediaserverdRuntime::Impl {
             std::memory_order_release);
         firstPhotoSubDiagnosticLastDecision_.store(
             static_cast<std::uint32_t>(
-                proof::FirstPhotoSubDiagnosticDecision::None),
+                FirstPhotoSubDiagnosticDecision::None),
             std::memory_order_release);
         firstPhotoSubDiagnosticLastReason_.store(
             static_cast<std::uint32_t>(
-                proof::FirstPhotoSubDiagnosticReason::None),
+                FirstPhotoSubDiagnosticReason::None),
             std::memory_order_release);
         firstPhotoSubDiagnosticLastVirtualFlags_.store(
             0,
@@ -1415,12 +1415,12 @@ struct MediaserverdRuntime::Impl {
         return 0;
     }
 
-    proof::FirstPhotoSubDiagnosticClassification
+    FirstPhotoSubDiagnosticClassification
     classifyFirstPhotoSubstitutionDiagnostic(
         const proof::
             FirstLocalPhotoSubstitutionDiagnosticSnapshot&
                 snapshot) const noexcept {
-        using proof::FirstPhotoSubDiagnosticClassification;
+        using FirstPhotoSubDiagnosticClassification;
 
         if (snapshot.decisionVirtualCount > 0 ||
             snapshot.virtualDecisionCountDelta > 0) {
@@ -1599,12 +1599,12 @@ struct MediaserverdRuntime::Impl {
 
         snapshot.lastDecision =
             static_cast<
-                proof::FirstPhotoSubDiagnosticDecision>(
+                FirstPhotoSubDiagnosticDecision>(
                     firstPhotoSubDiagnosticLastDecision_.load(
                         std::memory_order_acquire));
         snapshot.lastFailOpenReason =
             static_cast<
-                proof::FirstPhotoSubDiagnosticReason>(
+                FirstPhotoSubDiagnosticReason>(
                     firstPhotoSubDiagnosticLastReason_.load(
                         std::memory_order_acquire));
 
