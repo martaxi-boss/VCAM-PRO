@@ -12,7 +12,7 @@ ADAPTER_CPP_BLOB=c49806ae6af94f65d3d8d4b9158dd9eb38b9eec8
 ADAPTER_H_BLOB=3577bd2935c72a69529c855c8730d6c75054ab34
 
 ROOT="$PWD/build/local-photo-pipeline-ready-pass-through-001"
-SCOPE=product/real_camera_callback_pass_through_001
+SCOPE=product/local_photo_pipeline_ready_pass_through_001
 FULL_SCOPE=product/full_product_real_hook_001
 INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide10~photoready1_iphoneos-arm64.deb"
 FINAL_DIR="$ROOT/final"
