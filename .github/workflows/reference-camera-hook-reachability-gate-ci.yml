@@ -263,7 +263,7 @@ jobs:
           SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
           CXX="$(xcrun --sdk iphoneos -f clang++)"
 
-          "$CXX"             -std=c++17             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror             -Werror=unguarded-availability-new             -pedantic             -Isrc/product             -c src/product/ReferenceCameraHook.mm             -o build/reference-hook-compile-only/ReferenceCameraHook.compile-only.o
+          "$CXX"             -std=c++17             -arch arm64             -isysroot "$SDKROOT"             -miphoneos-version-min=15.0             -Wall -Wextra -Werror             -Werror=unguarded-availability-new             -pedantic             -Isrc/frame_engine             -Isrc/media_engine             -Isrc/product             -c src/product/ReferenceCameraHook.mm             -o build/reference-hook-compile-only/ReferenceCameraHook.compile-only.o
 
           xcrun lipo -info build/reference-hook-compile-only/ReferenceCameraHook.compile-only.o |
             tee build/reference-hook-compile-only/arch.txt
