@@ -1,0 +1,152 @@
+name: VCAM PRO Real Camera Callback Pass-Through 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "product/real_camera_callback_pass_through_001/**"
+      - "src/product/MediaserverdRuntime.mm"
+      - "docs/CANONICAL_PROJECT_STATE.md"
+      - ".github/workflows/real-camera-callback-pass-through-001-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-real-camera-callback-pass-through-001
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    name: Certify real camera callback pass-through product
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout exact canonical head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+      - name: Frame Engine A through F2 regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+
+      - name: Internal Gallery integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/product-tests
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic \
+            -Wno-deprecated-declarations \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            tests/media_engine/internal_gallery_integration_tests.mm \
+            -framework Accelerate \
+            -framework Foundation \
+            -framework AVFoundation \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -framework ImageIO \
+            -o build/product-tests/internal-gallery
+          build/product-tests/internal-gallery | tee build/product-tests/internal-gallery.txt
+          grep -q 'Internal gallery tests run: 20, failures: 0' build/product-tests/internal-gallery.txt
+
+      - name: Camera consumer fail-open tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -Wall -Wextra -Werror -pedantic -pthread \
+            -Isrc/frame_engine -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/product/ControlStateCache.cpp \
+            src/product/CameraConsumerAdapter.cpp \
+            tests/product/camera_consumer_adapter_tests.cpp \
+            -framework CoreFoundation \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -o build/product-tests/camera-consumer
+          build/product-tests/camera-consumer | tee build/product-tests/camera-consumer.txt
+          grep -q 'Camera consumer tests run: 13, failures: 0' build/product-tests/camera-consumer.txt
+
+      - name: Full Product Control and media lifecycle tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            tests/product/full_product_integration_tests.mm \
+            -framework Accelerate \
+            -framework Foundation \
+            -framework AVFoundation \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -framework ImageIO \
+            -o build/product-tests/full-product
+          build/product-tests/full-product | tee build/product-tests/full-product.txt
+          grep -q 'Product integration tests run: 8, failures: 0' build/product-tests/full-product.txt
+
+      - name: Build, RootHide patch, and statically audit callback proof package
+        shell: bash
+        run: sh product/real_camera_callback_pass_through_001/ci_build_package_and_audit.sh
+
+      - name: Upload certified package and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-real-camera-callback-pass-through-001
+          path: |
+            build/real-camera-callback-pass-through-001/final/VCAM-PRO-RootHide-Real-Camera-Callback-Pass-Through-001.deb
+            build/real-camera-callback-pass-through-001/final/VCAM-PRO-RootHide-Real-Camera-Callback-Pass-Through-001.deb.sha256
+            build/real-camera-callback-pass-through-001/evidence/**
+            build/callback-pass-through-static-tests/proof-state-tests.txt
+            build/product-tests/*.txt
+            build/regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14
