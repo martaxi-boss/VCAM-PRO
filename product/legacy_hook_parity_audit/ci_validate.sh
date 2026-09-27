@@ -179,8 +179,9 @@ install = entry.index("InstallReferenceCameraHook()", start)
 if not (guard < start < install):
     raise SystemExit("VCAM-PRO mediaserverd startup/call relationship changed")
 
+adapter_compact = re.sub(r"\\s+", "", adapter)
 for token in (
-    "decision.pixelBuffer = original;",
+    "decision.pixelBuffer=original;",
     "CameraFailOpenReason::Disabled",
     "CameraFailOpenReason::ReconfigurationContended",
     "CameraFailOpenReason::ProducerUnavailable",
@@ -188,7 +189,7 @@ for token in (
     "CameraFailOpenReason::InvalidLease",
     "CameraFailOpenReason::GeometryMismatch",
 ):
-    if token not in adapter:
+    if token not in adapter_compact:
         raise SystemExit(f"VCAM-PRO fail-open evidence missing: {token}")
 
 for token in (
