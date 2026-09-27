@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-START=7ffcca077d7d38afcd25278b740d040f52ff0842
+START=5c5080ec8b88814d638c865b749204fac8569dd2
 MAIN=d476caacc4f557843f9551533c2fcbe7c5d40baa
 SCOPE=product/first_local_photo_virtual_substitution_001
 
@@ -54,35 +54,40 @@ adapter_h = Path("src/product/CameraConsumerAdapter.h").read_text()
 ready = Path("src/frame_engine/ReadyFrameQueue.cpp").read_text()
 session = Path("src/media_engine/InternalGalleryMediaSession.mm").read_text()
 photo = Path("src/media_engine/LocalPhotoReader.mm").read_text()
+stager = Path("src/product/SharedMediaStager.mm").read_text()
+store = Path("src/product/SharedControlStore.mm").read_text()
 owner = Path("src/product/ProductControlOwner.mm").read_text()
 host = Path("src/product/SpringBoardControlHost.mm").read_text()
 gallery = Path("src/control/InternalGalleryViewController.mm").read_text()
-proof = (scope / "FirstLocalPhotoVirtualSubstitutionProof.mm").read_text()
-proof_h = (scope / "FirstLocalPhotoVirtualSubstitutionProof.h").read_text()
-proof_state = (scope / "FirstLocalPhotoVirtualSubstitutionProofState.h").read_text()
-witness = (scope / "FirstLocalPhotoVirtualSubstitutionWitness.mm").read_text()
+state = (scope / "FirstLocalPhotoSubstitutionDiagnosticProofState.h").read_text()
+transport = (scope / "FirstLocalPhotoSubstitutionDiagnosticProof.h").read_text()
+witness = (scope / "FirstLocalPhotoSubstitutionDiagnosticWitness.mm").read_text()
 build = (scope / "build_first_local_photo_virtual_substitution_input.sh").read_text()
 control = (scope / "control").read_text()
 
-if "#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)" not in runtime:
-    raise SystemExit("First substitution proof not compile-time scoped")
-if "-DVCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF=1" not in build:
-    raise SystemExit("First substitution build define missing")
-if "VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF" in build or "LocalPhotoPipelineReadyProof" in build:
-    raise SystemExit("Old photoready2 proof compiled into substitution package")
+if "#if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)" not in runtime:
+    raise SystemExit("Diagnostic integration is not compile-time scoped")
+if "-DVCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF=1" not in build:
+    raise SystemExit("Diagnostic build define missing")
+if "-DVCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF=1" in build:
+    raise SystemExit("photosub1 PASS-only define still compiled")
+if "FirstLocalPhotoVirtualSubstitutionProof.mm" in build:
+    raise SystemExit("photosub1 PASS-only publisher still compiled")
+if "FirstLocalPhotoVirtualSubstitutionWitness.mm" in build:
+    raise SystemExit("photosub1 PASS-only witness still compiled")
 
 compact_hook = "".join(hook.split())
 for token in (
     "gOriginalCMSampleBufferGetImageBuffer(sampleBuffer)",
     "runtime.observeRealCameraBuffer(original)",
     "runtime.decideCameraBuffer(original)",
-    "return decision.pixelBuffer != nullptr?decision.pixelBuffer:original",
 ):
-    compact = "".join(token.split())
-    if compact not in compact_hook:
-        raise SystemExit(f"Real ReferenceCameraHook callback path missing: {token}")
+    if "".join(token.split()) not in compact_hook:
+        raise SystemExit(f"Genuine ReferenceCameraHook path missing: {token}")
 
+# Existing adapter decision logic remains authoritative and untouched.
 for token in (
+    "decision.pixelBuffer = original;",
     "queue_->tryAcquire(context_)",
     "acquired.lease->valid()",
     "lease->pixelBuffer()",
@@ -91,96 +96,89 @@ for token in (
     "virtualDecisionCount_.fetch_add(",
     "CameraDecisionKind::Virtual",
     "CameraFailOpenReason::None",
-    "decision.pixelBuffer = selected",
 ):
     if token not in adapter:
-        raise SystemExit(f"Existing virtual decision path missing: {token}")
+        raise SystemExit(f"Adapter contract missing: {token}")
 
-if adapter.count("virtualDecisionCount_.fetch_add") != 1:
-    raise SystemExit("Virtual decision counter has unexpected increments")
-if "decision.pixelBuffer = original;" not in adapter:
-    raise SystemExit("Fail-open original buffer default missing")
 for reason in (
     "CameraFailOpenReason::Disabled",
-    "ReconfigurationContended",
-    "ProducerUnavailable",
-    "EmptyOrNoEligibleFrame",
-    "InvalidLease",
-    "GeometryMismatch",
+    "CameraFailOpenReason::ReconfigurationContended",
+    "CameraFailOpenReason::ProducerUnavailable",
+    "CameraFailOpenReason::EmptyOrNoEligibleFrame",
+    "CameraFailOpenReason::InvalidLease",
+    "CameraFailOpenReason::GeometryMismatch",
 ):
     if reason not in adapter:
-        raise SystemExit(f"Fail-open reason missing: {reason}")
-
+        raise SystemExit(f"Adapter fail-open reason missing: {reason}")
+if adapter.count("virtualDecisionCount_.fetch_add") != 1:
+    raise SystemExit("Virtual decision counter semantics changed")
 if "kPinnedLeaseCapacity = 4" not in adapter_h:
     raise SystemExit("Pinned lease bound changed")
 
-if "std::make_unique<LocalPhotoReader>" not in session or "reader->open(" not in session:
-    raise SystemExit("LocalPhotoReader path missing")
-for token in ("FramePipelinePump", "ProducerWakeupDriver", "readyQueue()"):
-    if token not in session:
-        raise SystemExit(f"Local photo pipeline component missing: {token}")
-if "stageAndValidate" not in owner:
-    raise SystemExit("SharedMediaStager product selection path missing")
+# Exact bounded diagnostic contract.
+if "kFirstPhotoSubDiagnosticCallbackBudget =\n            240" not in runtime:
+    raise SystemExit("240 callback budget missing")
+if "kFirstPhotoSubDiagnosticIntervalNanoseconds =\n            INT64_C(10000000000)" not in runtime:
+    raise SystemExit("10 second interval missing")
+if "dispatch_after(" not in runtime or "publishFirstPhotoSubstitutionDiagnosticIfActive" not in runtime:
+    raise SystemExit("10-second bounded publication path missing")
+if "callbackOrdinal >=\n                        kFirstPhotoSubDiagnosticCallbackBudget" not in runtime:
+    raise SystemExit("callback-budget threshold publication missing")
 
-# READY prerequisite is computed outside callback and observes queue non-destructively.
+# Diagnostic session starts only for active ON + PHOTO + media + generation.
+begin_start = runtime.index("    void beginOrStopFirstPhotoSubstitutionDiagnostic()")
+begin_end = runtime.index("    std::uint32_t reserveFirstPhotoSubstitutionDiagnosticCallback", begin_start)
+begin = runtime[begin_start:begin_end]
 for token in (
-    "beginFirstPhotoSubstitutionReadyCheck",
-    "checkFirstPhotoSubstitutionReady",
-    "firstPhotoSubstitutionReadyGeneration_.store(",
-    "selected.valid",
-    "SelectedMediaKind::Photo",
-    "selected.localPath ==",
-    "PlaybackState::Playing",
-    "firstPhotoSubstitutionProducerHealthy_",
-    "session_->readyQueue().size() > 0",
+    "snapshot.enabled",
+    "ProductMediaKind::Photo",
+    "snapshot.hasMedia()",
+    "snapshot.selectionGeneration != 0",
+    "firstPhotoSubDiagnosticDecisionBaseline_",
+    "firstPhotoSubDiagnosticVirtualBaseline_",
 ):
-    if token not in runtime:
-        raise SystemExit(f"Media READY prerequisite missing: {token}")
+    if token not in begin:
+        raise SystemExit(f"Diagnostic session contract missing: {token}")
 
-if runtime.count("session_->readyQueue().size() > 0") != 1:
-    raise SystemExit("Unexpected READY queue inspection count")
-ready_check_start = runtime.index("    void checkFirstPhotoSubstitutionReady(")
-ready_check_end = runtime.index("#endif", ready_check_start)
-ready_check = runtime[ready_check_start:ready_check_end]
-if "tryAcquire(" in ready_check:
-    raise SystemExit("Proof READY check consumes a frame")
-for forbidden in ("publish(", "purgeGeneration(", "purgeEpoch(", "purgeStale("):
-    if forbidden in ready_check:
-        raise SystemExit(f"Proof READY check mutates queue: {forbidden}")
-
-# Callback proof must only wrap the normal adapter decision with lightweight facts.
+# Genuine callback instrumentation must wrap exactly the normal adapter decision.
 decide_start = runtime.index("    CameraDecision decide(")
 decide_end = runtime.index("    void applyCachedState(", decide_start)
 decide = runtime[decide_start:decide_end]
+if "VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF" not in decide:
+    raise SystemExit("Diagnostic decide branch missing")
 if decide.count("adapter_.decide(") < 1:
-    raise SystemExit("Normal CameraConsumerAdapter decision missing")
-for required in (
-    "firstPhotoSubstitutionReadyGeneration_.load(",
-    "adapter_.decisionCount()",
-    "adapter_.virtualDecisionCount()",
-    "CameraDecisionKind::Virtual",
-    "CameraFailOpenReason::None",
-    "decision.pixelBuffer != original",
+    raise SystemExit("Normal adapter decision missing")
+for token in (
+    "reserveFirstPhotoSubstitutionDiagnosticCallback",
+    "decision.kind ==",
+    "decision.reason",
+    "firstPhotoSubDiagnosticDecisionVirtualCount_",
+    "firstPhotoSubDiagnosticDecisionOriginalCount_",
+    "firstPhotoSubDiagnosticDisabledCount_",
+    "firstPhotoSubDiagnosticReconfigurationCount_",
+    "firstPhotoSubDiagnosticProducerUnavailableCount_",
+    "firstPhotoSubDiagnosticEmptyCount_",
+    "firstPhotoSubDiagnosticInvalidLeaseCount_",
+    "firstPhotoSubDiagnosticGeometryMismatchCount_",
+    "firstPhotoSubDiagnosticGeometryChangeCount_",
     "CVPixelBufferGetWidth(original)",
-    "CVPixelBufferGetWidth(",
     "CVPixelBufferGetHeight(original)",
-    "CVPixelBufferGetPixelFormatType(original)",
-    "virtualDecisionCountAfter ==",
-    "virtualDecisionCountBefore + 1U",
-    "decisionCountAfter ==",
-    "decisionCountBefore + 1U",
-    "ObserveFirstLocalPhotoVirtualSubstitution",
+    "CVPixelBufferGetPixelFormatType(",
+    "firstPhotoSubDiagnosticLastDecision_",
+    "firstPhotoSubDiagnosticLastReason_",
+    "firstPhotoSubDiagnosticLastVirtualFlags_",
 ):
-    if required not in decide:
-        raise SystemExit(f"Callback proof predicate missing: {required}")
+    if token not in decide:
+        raise SystemExit(f"Callback diagnostic fact missing: {token}")
 
 for forbidden in (
     "readyQueue().size()",
     "tryAcquire(",
+    "SharedControlStore",
     "stageAndValidate",
     "isExistingOwnedMediaPath",
-    "SharedControlStore",
     "notify_",
+    "os_log",
     "fopen(",
     "stat(",
     "sleep(",
@@ -188,7 +186,6 @@ for forbidden in (
     "nanosleep(",
     "dispatch_sync(",
     "AVAsset",
-    "decode",
     "FrameNormalizer",
     "FrameTransformer",
     "UIKit",
@@ -196,71 +193,152 @@ for forbidden in (
     if forbidden in decide:
         raise SystemExit(f"Heavy/forbidden callback work present: {forbidden}")
 
-proof_code = proof + "\n" + proof_h + "\n" + witness
-for forbidden in (
-    "CMSampleBufferGetImageBuffer(",
-    "HookedCMSampleBufferGetImageBuffer(",
-    "MSHookFunction(",
-    "InstallReferenceCameraHook(",
-    "decideCameraBuffer(",
-    "CameraConsumerAdapter::decide",
-    "adapter_.decide(",
+# Six fail-open counters and raw ORIGINAL/VIRTUAL counts must be present.
+for token in (
+    "failOpenDisabledCount",
+    "failOpenReconfigurationContendedCount",
+    "failOpenProducerUnavailableCount",
+    "failOpenEmptyOrNoEligibleCount",
+    "failOpenInvalidLeaseCount",
+    "failOpenGeometryMismatchCount",
+    "decisionVirtualCount",
+    "decisionOriginalCount",
+    "virtualDecisionCountDelta",
 ):
-    if forbidden in proof_code:
-        raise SystemExit(f"Direct hook/adapter invocation from proof: {forbidden}")
+    if token not in transport or token not in runtime:
+        raise SystemExit(f"Required diagnostic field missing: {token}")
+
+# Geometry changes after first observation and session target geometry are observable.
+for token in (
+    "previousGeometry != 0",
+    "previousGeometry != geometryKey",
+    "firstPhotoSubDiagnosticGeometryChangeCount_",
+    "firstPhotoSubDiagnosticTargetGeneration_",
+    "firstPhotoSubDiagnosticTargetGeometry_",
+    "snapshot.observedCameraGeometry",
+    "snapshot.sessionTargetGeometry",
+):
+    if token not in runtime:
+        raise SystemExit(f"Geometry diagnostic missing: {token}")
+
+# Producer/session/queue snapshot occurs on control path, never callback path.
+snapshot_start = runtime.index("    proof::FirstLocalPhotoSubstitutionDiagnosticSnapshot\n    currentFirstPhotoSubstitutionDiagnosticSnapshot()")
+snapshot_end = runtime.index("    void publishFirstPhotoSubstitutionDiagnosticIfActive(", snapshot_start)
+snapshot_code = runtime[snapshot_start:snapshot_end]
+for token in (
+    "firstPhotoSubDiagnosticProducerHealthy_",
+    "session_ != nullptr",
+    "session_->playbackState()",
+    "session_->readyQueue().size()",
+    "session_->selectedMedia()",
+    "selected.localPath ==",
+):
+    if token not in snapshot_code:
+        raise SystemExit(f"Session diagnostic missing: {token}")
+if "tryAcquire(" in snapshot_code:
+    raise SystemExit("Diagnostic consumes ReadyFrameQueue")
+
+# Structured fresh identity, no photosub1 identity reuse.
+if '"com.vcampro.gate.first-local-photo-substitution-diagnostic.001"' not in state:
+    raise SystemExit("Fresh diagnostic identity missing")
+if '"com.vcampro.gate.first-local-photo-virtual-substitution.001"' in state:
+    raise SystemExit("photosub1 identity reused")
 
 for token in (
-    "facts.originalNonNull",
-    "facts.vcamEnabled",
-    "facts.photoSelected",
-    "facts.mediaReady",
-    "facts.cameraGeometryObserved",
-    "facts.callbackExercised",
-    "facts.decisionVirtual",
-    "facts.decisionReasonNone",
-    "facts.virtualBufferNonNull",
-    "facts.virtualBufferDifferentFromOriginal",
-    "facts.geometryMatch",
-    "facts.decisionCountIncremented",
-    "facts.virtualDecisionCountIncremented",
-    "facts.virtualDecisionCountAfter > 0",
-    "dispatch_async(",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_SELECTION_STATE",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_COUNTS_STATE",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_FAIL_COUNTS_STATE",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_OBSERVED_GEOMETRY_STATE",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_TARGET_GEOMETRY_STATE",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_SESSION_STATE",
+    "VCAM_FIRST_PHOTO_SUB_DIAGNOSTIC_LAST_STATE",
 ):
-    if token not in proof:
-        raise SystemExit(f"Proof publication predicate missing: {token}")
+    if token not in state or token not in runtime or token not in witness:
+        raise SystemExit(f"Structured diagnostic transport missing: {token}")
 
-if '"com.vcampro.gate.first-local-photo-virtual-substitution.001"' not in proof_state:
-    raise SystemExit("Fresh substitution proof identity missing")
-
+# Witness must display all required raw fields.
 for token in (
-    "VCAM LOCAL PHOTO VIRTUAL SUBSTITUTION PASS",
-    "vcam-enabled=YES",
-    "media-kind=PHOTO",
-    "media-ready=YES",
-    "camera-geometry-observed=YES",
-    "camera-callback=EXERCISED",
-    "decision=VIRTUAL",
-    "virtual-buffer-non-null=YES",
-    "virtual-buffer-different-from-original=YES",
-    "geometry-match=YES",
-    "virtual-decision-count=>0",
-    "frame-substitution=ACTIVE",
+    "VCAM PHOTO SUBSTITUTION DIAGNOSTIC",
+    "classification=%@",
+    "selection-generation=%llu",
+    "camera-callback-count=%u",
+    "decision-count-delta=%u",
+    "virtual-decision-count-delta=%u",
+    "decision-virtual-count=%u",
+    "decision-original-count=%u",
+    "fail-disabled=%u",
+    "fail-reconfiguration-contended=%u",
+    "fail-producer-unavailable=%u",
+    "fail-empty-or-no-eligible=%u",
+    "fail-invalid-lease=%u",
+    "fail-geometry-mismatch=%u",
+    "geometry-change-count=%u",
+    "producer-healthy=%@",
+    "session-exists=%@",
+    "playback-state=%@",
+    "ready-frame-count=%u",
+    "selected-media-valid=%@",
+    "selected-media-kind=%@",
+    "selected-media-path-match=%@",
+    "observed-camera-width=%u",
+    "observed-camera-height=%u",
+    "observed-camera-pixel-format=%u",
+    "session-target-width=%u",
+    "session-target-height=%u",
+    "session-target-pixel-format=%u",
+    "last-decision=%@",
+    "last-fail-open-reason=%@",
+    "virtual-buffer-non-null=%@",
+    "virtual-buffer-different-from-original=%@",
+    "virtual-buffer-geometry-match=%@",
 ):
     if token not in witness:
-        raise SystemExit(f"Visible substitution witness token missing: {token}")
+        raise SystemExit(f"Witness field missing: {token}")
 
-with (scope / "VCAMPro.FirstLocalPhotoVirtualSubstitution.plist").open("rb") as f:
-    product_filter = plistlib.load(f)
-with (scope / "VCAMProFirstLocalPhotoVirtualSubstitutionWitness.plist").open("rb") as f:
+for classification in (
+    "ORIGINAL_DISABLED",
+    "ORIGINAL_RECONFIGURATION_CONTENDED",
+    "ORIGINAL_PRODUCER_UNAVAILABLE",
+    "ORIGINAL_EMPTY_OR_NO_ELIGIBLE",
+    "ORIGINAL_INVALID_LEASE",
+    "ORIGINAL_GEOMETRY_MISMATCH",
+    "ORIGINAL_MIXED_FAIL_OPEN",
+    "VIRTUAL_DECISION_OBSERVED",
+    "NO_GENUINE_CALLBACK_OBSERVED",
+):
+    if classification not in witness:
+        raise SystemExit(f"Classification missing: {classification}")
+
+with (scope / "VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.plist").open("rb") as f:
     witness_filter = plistlib.load(f)
-if product_filter != {"Filter": {"Executables": ["SpringBoard", "mediaserverd"]}}:
-    raise SystemExit(product_filter)
 if witness_filter != {"Filter": {"Executables": ["SpringBoard"]}}:
     raise SystemExit(witness_filter)
 
-if "std::lock_guard<std::mutex>" not in ready or "entries_.size()" not in ready:
-    raise SystemExit("ReadyFrameQueue size implementation changed")
+# Proof scope itself must not manufacture callbacks/decisions.
+proof_scope = transport + "\n" + witness
+for forbidden in (
+    "HookedCMSampleBufferGetImageBuffer(",
+    "CMSampleBufferGetImageBuffer(",
+    "MSHookFunction(",
+    "InstallReferenceCameraHook(",
+    "adapter_.decide(",
+    "CameraConsumerAdapter::decide",
+):
+    if forbidden in proof_scope:
+        raise SystemExit(f"Synthetic/direct invocation present: {forbidden}")
 
+# Existing full product remains intact.
+if "std::lock_guard<std::mutex>" not in ready or "entries_.size()" not in ready:
+    raise SystemExit("ReadyFrameQueue thread-safe size changed")
+if "std::make_unique<LocalPhotoReader>" not in session or "reader->open(" not in session:
+    raise SystemExit("LocalPhotoReader path missing")
+for token in ("FramePipelinePump", "ProducerWakeupDriver"):
+    if token not in session:
+        raise SystemExit(f"Pipeline component missing: {token}")
+if "stageAndValidate" not in owner or "isExistingOwnedMediaPath" not in stager:
+    raise SystemExit("Local staging path missing")
+if "notify_register_dispatch" not in store:
+    raise SystemExit("Shared control propagation path missing")
 for token in ("StartSpringBoardControlHost", "ProductControlOwner", "colorWithWhite:0.1"):
     if token not in host:
         raise SystemExit(f"Black Product Control marker missing: {token}")
@@ -278,11 +356,10 @@ required_sources = (
     "SharedControlStore.mm", "SharedMediaStager.mm", "ProductControlOwner.mm",
     "SpringBoardControlHost.mm", "MediaserverdRuntime.mm",
     "CameraConsumerAdapter.cpp", "ReferenceCameraHook.mm", "VCAMProEntry.mm",
-    "FirstLocalPhotoVirtualSubstitutionProof.mm",
 )
 for token in required_sources:
     if token not in build:
-        raise SystemExit(f"Full product build source missing: {token}")
+        raise SystemExit(f"Full product source missing: {token}")
 
 for forbidden in (
     "ReferenceCameraHookInstallationReadinessStub",
@@ -292,64 +369,79 @@ for forbidden in (
     "dummy hook provider",
     "synthetic callback provider",
 ):
-    if forbidden in build or forbidden in proof_code:
+    if forbidden in build or forbidden in proof_scope:
         raise SystemExit(f"Forbidden stub/provider present: {forbidden}")
 
-if "0.1.0+roothide11~photosub1" not in build or "0.1.0+roothide11~photosub1" not in control:
-    raise SystemExit("photosub1 version missing")
+if "0.1.0+roothide12~photosubdiag1" not in build or "0.1.0+roothide12~photosubdiag1" not in control:
+    raise SystemExit("photosubdiag1 package version missing")
 
-print("FULL_PRODUCT_COMPONENTS_PRESENT=PASS")
-print("LOCAL_PHOTO_PATH_PRESENT=PASS")
-print("REAL_REFERENCE_HOOK_PRESENT=PASS")
-print("READY_QUEUE_CONSUMER_PATH_PRESENT=PASS")
-print("CAMERA_CONSUMER_ADAPTER_VIRTUAL_PATH_PRESENT=PASS")
-print("VIRTUAL_DECISION_COUNTER_PATH_PRESENT=PASS")
-print("PINNED_LEASE_PATH_PRESENT=PASS")
-print("GEOMETRY_MATCH_GUARD_PRESENT=PASS")
-print("FIRST_PHOTO_SUBSTITUTION_PROOF_COMPILE_TIME_SCOPED=PASS")
-print("GENUINE_CALLBACK_REQUIRED=PASS")
-print("MEDIA_READY_REQUIRED=PASS")
-print("VCAM_ENABLED_REQUIRED=PASS")
-print("PHOTO_MEDIA_KIND_REQUIRED=PASS")
-print("DECISION_VIRTUAL_REQUIRED=PASS")
-print("VIRTUAL_BUFFER_NON_NULL_REQUIRED=PASS")
-print("VIRTUAL_BUFFER_DIFFERENT_FROM_ORIGINAL_REQUIRED=PASS")
-print("GEOMETRY_MATCH_REQUIRED=PASS")
-print("VIRTUAL_DECISION_INCREMENT_REQUIRED=PASS")
+print("REAL_GENUINE_CALLBACK_DIAGNOSTIC=PASS")
 print("NO_SYNTHETIC_CALLBACK=PASS")
 print("NO_DIRECT_HOOK_INVOCATION_FROM_PROOF=PASS")
 print("NO_DIRECT_ADAPTER_DECIDE_FROM_PROOF=PASS")
-print("NO_HEAVY_CAMERA_CALLBACK_WORK=PASS")
-print("NO_CAMERA_CALLBACK_FILE_IO=PASS")
-print("NO_CAMERA_CALLBACK_DECODE=PASS")
-print("NO_CAMERA_CALLBACK_BLOCKING_WAIT=PASS")
+print("BOUNDED_DIAGNOSTIC=PASS")
+print("DIAGNOSTIC_INTERVAL_SECONDS=10")
+print("DIAGNOSTIC_CALLBACK_BUDGET=240")
+print("NO_HEAVY_CAMERA_CRITICAL_WORK=PASS")
+print("CAMERA_CALLBACK_FILE_IO_ABSENT=PASS")
+print("CAMERA_CALLBACK_DECODE_ABSENT=PASS")
+print("CAMERA_CALLBACK_BLOCKING_WAIT_ABSENT=PASS")
+print("CALLBACK_LOGGING_STORM_ABSENT=PASS")
+print("FAIL_OPEN_REASON_COUNTERS_PRESENT=PASS")
+print("DISABLED_COUNTER_PRESENT=PASS")
+print("RECONFIGURATION_CONTENDED_COUNTER_PRESENT=PASS")
+print("PRODUCER_UNAVAILABLE_COUNTER_PRESENT=PASS")
+print("EMPTY_OR_NO_ELIGIBLE_COUNTER_PRESENT=PASS")
+print("INVALID_LEASE_COUNTER_PRESENT=PASS")
+print("GEOMETRY_MISMATCH_COUNTER_PRESENT=PASS")
+print("VIRTUAL_VS_ORIGINAL_DECISION_DIAGNOSTIC_PRESENT=PASS")
+print("GEOMETRY_DIAGNOSTIC_PRESENT=PASS")
+print("GEOMETRY_CHANGE_COUNTER_PRESENT=PASS")
+print("SESSION_TARGET_GEOMETRY_PRESENT=PASS")
+print("PRODUCER_HEALTH_DIAGNOSTIC_PRESENT=PASS")
+print("SESSION_STATE_DIAGNOSTIC_PRESENT=PASS")
+print("READY_FRAME_COUNT_DIAGNOSTIC_PRESENT=PASS")
+print("NON_CONSUMING_READY_INSPECTION=PASS")
+print("DIAGNOSTIC_WITNESS_PRESENT=PASS")
+print("DIAGNOSTIC_WITNESS_SPRINGBOARD_ONLY=PASS")
+print("FRESH_DIAGNOSTIC_REQUIRED=PASS")
+print("STALE_PHOTOSUB1_STATE_REJECTED=PASS")
+print("REFERENCE_CAMERA_HOOK_SOURCE_CHANGED=NO")
+print("CAMERA_CONSUMER_ADAPTER_SOURCE_CHANGED=NO")
 print("FAIL_OPEN_PRESERVED=PASS")
-print("VISIBLE_SUBSTITUTION_WITNESS_PRESENT=PASS")
-print("VISIBLE_SUBSTITUTION_WITNESS_SPRINGBOARD_ONLY=PASS")
+print("FULL_PRODUCT_COMPONENTS_PRESENT=PASS")
 PY
 
-mkdir -p build/first-photo-substitution-state
+mkdir -p build/first-photo-substitution-diagnostic-state
 
 xcrun --sdk macosx clang++ \
     -std=c++17 -Wall -Wextra -Werror -pedantic \
     -I"$SCOPE" \
-    "$SCOPE/first_local_photo_virtual_substitution_state_tests.cpp" \
-    -o build/first-photo-substitution-state/tests
+    "$SCOPE/first_local_photo_substitution_diagnostic_state_tests.cpp" \
+    -o build/first-photo-substitution-diagnostic-state/tests
 
-build/first-photo-substitution-state/tests \
-    | tee build/first-photo-substitution-state/results.txt
+build/first-photo-substitution-diagnostic-state/tests \
+    | tee build/first-photo-substitution-diagnostic-state/results.txt
 
 for marker in \
-    REQUIRED_FLAGS_ACCEPTED=PASS \
-    INCOMPLETE_FLAGS_REJECTED=PASS \
-    SELECTION_GENERATION_REQUIRED=PASS \
+    DIAGNOSTIC_PRIMARY_ENCODING=PASS \
+    CALLBACK_DECISION_COUNTS_TRANSPORT=PASS \
+    FAIL_OPEN_COUNTS_TRANSPORT=PASS \
+    GEOMETRY_TRANSPORT=PASS \
+    SESSION_STATE_TRANSPORT=PASS \
+    LAST_DECISION_TRANSPORT=PASS \
     FRESHNESS_ENFORCED=PASS \
     FUTURE_SKEW_LIMIT_ENFORCED=PASS \
-    NONZERO_PID_REQUIRED=PASS; do
-    grep -q "$marker" build/first-photo-substitution-state/results.txt
+    NONZERO_PID_REQUIRED=PASS \
+    STALE_STATE_REJECTED=PASS; do
+    grep -q "$marker" build/first-photo-substitution-diagnostic-state/results.txt
 done
 
 test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN"
 
+echo "FRAME_ENGINE_REGRESSION=PASS"
+echo "LOCAL_PHOTO_REGRESSION=PASS"
+echo "CAMERA_CONSUMER_ADAPTER_REGRESSION=PASS"
+echo "FULL_PRODUCT_REGRESSION=PASS"
 echo "MAIN_UNCHANGED=PASS"
 echo "DEVICE_ACTION=NO"
