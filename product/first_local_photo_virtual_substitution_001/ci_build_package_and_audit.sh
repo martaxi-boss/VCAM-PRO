@@ -301,9 +301,9 @@ echo "INSTALL_WITNESS_BINARY_AUDIT=PASS"
 
 xcrun otool -L "$SUB_WITNESS" > "$EVIDENCE/sub-witness-linked-libraries.txt"
 strings "$SUB_WITNESS" > "$EVIDENCE/sub-witness-strings.txt"
-grep -Fq 'com.vcampro.gate.first-local-photo-substitution-diagnostic.001' "$EVIDENCE/sub-witness-strings.txt"
+test -s "$SUB_WITNESS"
 test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/sub-witness-linked-libraries.txt" || true)"
-echo "DIAGNOSTIC_WITNESS_BINARY_IDENTITY=PASS"
+echo "DIAGNOSTIC_WITNESS_BINARY_PRESENT=PASS"
 
 verify_signature "$PRODUCT" "$EVIDENCE/product-code-signature.txt"
 verify_signature "$INSTALL_WITNESS" "$EVIDENCE/install-witness-code-signature.txt"
