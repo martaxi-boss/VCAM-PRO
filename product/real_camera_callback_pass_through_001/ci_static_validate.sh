@@ -75,12 +75,16 @@ if "ObserveRealCameraCallbackPassThroughDecision" not in runtime:
     raise SystemExit("Runtime callback observation missing")
 if runtime.count("adapter_.decide(") != 2:
     raise SystemExit("Unexpected adapter decide call structure")
-if "proofHasMedia_" not in runtime:
-    raise SystemExit("Atomic media-state proof shadow missing")
-if "std::atomic<bool>" not in runtime:
-    raise SystemExit("Proof media-state shadow is not atomic")
-if "cache_.enabledFast()" not in runtime:
-    raise SystemExit("Atomic control-enabled fact not observed")
+if "proofControlState_" not in runtime:
+    raise SystemExit("Atomic proof control-state word missing")
+if "std::atomic<std::uint32_t>" not in runtime:
+    raise SystemExit("Proof control-state word is not atomic")
+if "proofControlState_.load(" not in runtime:
+    raise SystemExit("Callback does not atomically load proof control facts")
+if "(snapshot.enabled ? UINT32_C(0x01)" not in runtime:
+    raise SystemExit("Enabled proof fact is not derived from the control snapshot")
+if "(snapshot.hasMedia() ? UINT32_C(0x02)" not in runtime:
+    raise SystemExit("Media proof fact is not derived from the same control snapshot")
 if "decisionCountBefore" not in runtime or "decisionCountAfter" not in runtime:
     raise SystemExit("Decision counter provenance missing")
 if "virtualDecisionCountBefore" not in runtime or "virtualDecisionCountAfter" not in runtime:
