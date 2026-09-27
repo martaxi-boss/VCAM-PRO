@@ -811,14 +811,10 @@ struct MediaserverdRuntime::Impl {
         }
 
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
-        if (firstPhotoSubDiagnosticActive_ &&
-            firstPhotoSubDiagnosticGeneration_ ==
-                snapshot.selectionGeneration) {
-            firstPhotoSubDiagnosticTargetGeneration_ =
-                snapshot.selectionGeneration;
-            firstPhotoSubDiagnosticTargetGeometry_ =
-                geometry;
-        }
+        firstPhotoSubDiagnosticTargetGeneration_ =
+            snapshot.selectionGeneration;
+        firstPhotoSubDiagnosticTargetGeometry_ =
+            geometry;
 #endif
 
         media_engine::
@@ -1365,8 +1361,6 @@ struct MediaserverdRuntime::Impl {
             false,
             std::memory_order_release);
 
-        firstPhotoSubDiagnosticTargetGeneration_ = 0;
-        firstPhotoSubDiagnosticTargetGeometry_ = 0;
         firstPhotoSubDiagnosticProducerGeneration_ = 0;
         firstPhotoSubDiagnosticProducerHealthy_ = false;
 
