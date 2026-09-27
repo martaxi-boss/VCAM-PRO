@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -eux
 
 BASE=ade6887fa6214ac1cd26b56f13e0d4f64e07e1d4
 PARITY=ff2df5125e2e6f131b3b79ccb311a41105f950df
