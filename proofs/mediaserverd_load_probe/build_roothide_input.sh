@@ -55,7 +55,6 @@ COMMON_LDFLAGS="
     "$PROBE_DIR/LoadWitness.mm" \
     -framework Foundation \
     -framework UIKit \
-    -framework CoreGraphics \
     -Wl,-rpath,@loader_path/.jbroot/Library/Frameworks \
     -Wl,-rpath,@loader_path/.jbroot/usr/lib \
     -Wl,-install_name,@loader_path/VCAMProLoadWitness.dylib \
