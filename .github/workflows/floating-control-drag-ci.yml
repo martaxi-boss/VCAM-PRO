@@ -132,23 +132,28 @@ jobs:
           build/floating-control-drag/geometry-tests |
             tee build/floating-control-drag/geometry-results.txt
 
-          grep -q 'Floating button geometry tests run: 6, failures: 0' build/floating-control-drag/geometry-results.txt
-          grep -q 'SAFE_SCREEN_BOUNDS=PASS' build/floating-control-drag/geometry-results.txt
-          grep -q 'EDGE_SNAP=PASS' build/floating-control-drag/geometry-results.txt
+          grep -q 'Floating button geometry tests run: 7, failures: 0' build/floating-control-drag/geometry-results.txt
+          grep -q 'FREE_DRAG_XY=PASS' build/floating-control-drag/geometry-results.txt
+          grep -q 'USER_SELECTED_POSITION_PRESERVED=PASS' build/floating-control-drag/geometry-results.txt
+          grep -q 'SAFE_REACHABLE_BOUNDS=PASS' build/floating-control-drag/geometry-results.txt
+          grep -q 'NO_FORCED_EDGE_SNAP=PASS' build/floating-control-drag/geometry-results.txt
 
-          echo "SAFE_SCREEN_BOUNDS=PASS"
-          echo "EDGE_SNAP=PASS"
+          echo "FREE_DRAG_XY=PASS"
+          echo "USER_SELECTED_POSITION_PRESERVED=PASS"
+          echo "SAFE_REACHABLE_BOUNDS=PASS"
+          echo "NO_FORCED_EDGE_SNAP=PASS"
 
-      - name: Verify floating gesture and preserved tap-owner contracts
+      - name: Verify free-drag, always-on-top and preserved control contracts
         shell: bash
         run: |
           set -euo pipefail
 
           BASE=bd3d6d99275d6a94aa0eaa949534ca2b7268717a
           HOST=src/product/SpringBoardControlHost.mm
+          GEOMETRY=src/product/SpringBoardFloatingButtonGeometry.h
+          TESTS=tests/product/floating_control_drag_geometry_tests.cpp
 
           grep -Fq 'UIPanGestureRecognizer* pan' "$HOST"
-          grep -Fq '@selector(' "$HOST"
           grep -Fq 'handleFloatingButtonPan:' "$HOST"
           grep -Fq 'pan.cancelsTouchesInView = YES' "$HOST"
           grep -Fq 'pan.maximumNumberOfTouches = 1' "$HOST"
@@ -156,9 +161,17 @@ jobs:
           grep -Fq '@selector(openControl)' "$HOST"
           grep -Fq '_floatingButtonCenterXConstraint' "$HOST"
           grep -Fq '_floatingButtonCenterYConstraint' "$HOST"
-          grep -Fq 'ClampFloatingButtonCenter' "$HOST"
-          grep -Fq 'SnapFloatingButtonCenterToNearestEdge' "$HOST"
-          grep -Fq 'animateWithDuration:0.2' "$HOST"
+          grep -Fq 'MoveFloatingButtonByTranslation' "$HOST"
+          grep -Fq 'setTranslation:CGPointZero' "$HOST"
+          grep -Fq 'bringSubviewToFront' "$HOST"
+          grep -Fq 'attachFloatingButtonToOverlayWindow' "$HOST"
+          grep -Fq 'windowLevel =' "$HOST"
+          grep -Fq 'UIWindowLevelAlert + 5.0' "$HOST"
+
+          if grep -RInE 'SnapFloatingButton|snappedFloatingButton|nearest[^[:alnum:]]+edge|animateWithDuration' "$HOST" "$GEOMETRY" "$TESTS"; then
+            echo "Forced edge snap behavior is forbidden."
+            exit 1
+          fi
 
           python3 - <<'PY'
           import pathlib
@@ -182,15 +195,47 @@ jobs:
           if between(before, owner_start, owner_end) != between(after, owner_start, owner_end):
               raise SystemExit("Product owner async initialization changed")
 
+          overlay_start = "@implementation VCAMProductOverlayWindow"
+          overlay_end = "@end"
+          if between(before, overlay_start, overlay_end) != between(after, overlay_start, overlay_end):
+              raise SystemExit("Overlay touch passthrough changed")
+
           control_start = "- (void)openControl {"
-          control_end = "\n@end"
-          if between(before, control_start, control_end) != between(after, control_start, control_end):
-              raise SystemExit("Existing openControl flow changed")
+          present_start = "    [self\n        presentViewController:navigation"
+          before_prefix = between(before, control_start, present_start)
+          after_prefix = between(after, control_start, present_start)
+          if before_prefix != after_prefix:
+              raise SystemExit("Existing openControl construction/navigation flow changed")
+
+          required = (
+              "presentViewController:navigation",
+              "animated:YES",
+              "raiseFloatingButtonAboveOverlayContent",
+          )
+          current_control = between(after, control_start, "\n@end")
+          for token in required:
+              if token not in current_control:
+                  raise SystemExit(f"Missing preserved/overlay control token: {token}")
+
+          start_host = between(
+              after,
+              "void StartSpringBoardControlHost() {",
+              "}  // namespace vcam::product",
+          )
+          if "UIWindowLevelAlert + 5.0" not in start_host:
+              raise SystemExit("High overlay window level changed")
           PY
 
           echo "FLOATING_BUTTON_PAN_GESTURE=PASS"
+          echo "FREE_DRAG_XY=PASS"
+          echo "USER_SELECTED_POSITION_PRESERVED=PASS"
           echo "TAP_ACTION_PRESERVED=PASS"
           echo "DRAG_TAP_DISAMBIGUATION=PASS"
+          echo "SAFE_REACHABLE_BOUNDS=PASS"
+          echo "NO_FORCED_EDGE_SNAP=PASS"
+          echo "FLOATING_BUTTON_ALWAYS_ON_TOP=PASS"
+          echo "VCAM_PANEL_OPENS_UNDER_BUTTON=PASS"
+          echo "OVERLAY_TOUCH_PASSTHROUGH=PASS"
           echo "PRODUCT_OWNER_ASYNC_INIT_UNCHANGED=PASS"
 
       - name: Run shared media root containment suite
@@ -475,10 +520,10 @@ jobs:
 
           sh product/build_roothide_integration_input.sh
 
-          INPUT_DEB="build/roothide-product-integration/input/com.vcampro.camera_0.1.0+roothide2_iphoneos-arm64.deb"
+          INPUT_DEB="build/roothide-product-integration/input/com.vcampro.camera_0.1.0+roothide3_iphoneos-arm64.deb"
           test -f "$INPUT_DEB"
           test "$(dpkg-deb -f "$INPUT_DEB" Architecture)" = "iphoneos-arm64"
-          test "$(dpkg-deb -f "$INPUT_DEB" Version)" = "0.1.0+roothide2"
+          test "$(dpkg-deb -f "$INPUT_DEB" Version)" = "0.1.0+roothide3"
 
           mkdir -p build/roothide-product-integration/evidence
           dpkg-deb -f "$INPUT_DEB" > build/roothide-product-integration/evidence/input-control.txt
@@ -504,7 +549,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          INPUT_DEB="$PWD/build/roothide-product-integration/input/com.vcampro.camera_0.1.0+roothide2_iphoneos-arm64.deb"
+          INPUT_DEB="$PWD/build/roothide-product-integration/input/com.vcampro.camera_0.1.0+roothide3_iphoneos-arm64.deb"
           FINAL_DIR="$PWD/build/roothide-product-integration/final"
           FINAL_DEB="$FINAL_DIR/VCAM-PRO-Floating-Control-Drag-001.deb"
           PATCHER="$PWD/build/roothide-product-integration/RootHidePatcher/patch.sh"
@@ -532,7 +577,7 @@ jobs:
           dpkg-deb -c "$FINAL_DEB" | tee "$EVIDENCE/final-inventory.txt"
 
           test "$(dpkg-deb -f "$FINAL_DEB" Package)" = "com.vcampro.camera"
-          test "$(dpkg-deb -f "$FINAL_DEB" Version)" = "0.1.0+roothide2"
+          test "$(dpkg-deb -f "$FINAL_DEB" Version)" = "0.1.0+roothide3"
           test "$(dpkg-deb -f "$FINAL_DEB" Architecture)" = "iphoneos-arm64e"
           test "$(dpkg-deb -f "$FINAL_DEB" Depends)" = "mobilesubstrate, firmware (>= 15.0)"
 
@@ -635,10 +680,15 @@ jobs:
           git rev-parse HEAD | tee "$EVIDENCE/exact-head.txt"
 
           echo "FLOATING_BUTTON_PAN_GESTURE=PASS"
+          echo "FREE_DRAG_XY=PASS"
+          echo "USER_SELECTED_POSITION_PRESERVED=PASS"
           echo "TAP_ACTION_PRESERVED=PASS"
           echo "DRAG_TAP_DISAMBIGUATION=PASS"
-          echo "SAFE_SCREEN_BOUNDS=PASS"
-          echo "EDGE_SNAP=PASS"
+          echo "SAFE_REACHABLE_BOUNDS=PASS"
+          echo "NO_FORCED_EDGE_SNAP=PASS"
+          echo "FLOATING_BUTTON_ALWAYS_ON_TOP=PASS"
+          echo "VCAM_PANEL_OPENS_UNDER_BUTTON=PASS"
+          echo "OVERLAY_TOUCH_PASSTHROUGH=PASS"
           echo "PRODUCT_OWNER_ASYNC_INIT_UNCHANGED=PASS"
           echo "ROOT_HIDE_PACKAGING_UNCHANGED=PASS"
           echo "NO_MEDIASERVERD_ACTIVATION=PASS"
