@@ -2,6 +2,7 @@
 set -eu
 
 BASE=2895d40391a344dd5325affa05bda2cb0b1612bf
+STARTING=5295f9a3f7bf279ef5dd34f72c0bbc11a2b1ead5
 PR19=2475bd51953b536c32d12e37475fd32eaf7c4a67
 IOS15=a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
 MOTION=5ede3a1973a01cb13fe7f3ab562b47513feec1b1
@@ -12,19 +13,21 @@ HOOK_BLOB=b3b5360757d17951b0c508ab455d7ea4ffb0d6fe
 RUNTIME_BLOB=37c613ab2c0746b34a86b74e20ce8814dee0a7da
 ENTRY_BLOB=0003e5e7b8d2b6973cb8feae699bd25e545e2658
 
-ROOT="$PWD/build/legacy-real-hook-runtime-activation-gate-001"
+ROOT="$PWD/build/legacy-real-hook-runtime-activation-visible-witness-remediation-001"
 GATE=product/legacy_real_hook_runtime_activation_gate
-INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide7~realhookruntime1_iphoneos-arm64.deb"
+INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide7~realhookruntime2_iphoneos-arm64.deb"
 FINAL_DIR="$ROOT/final"
-FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Gate-001.deb"
+FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Visible-Witness-Gate-001.deb"
 EXTRACT="$ROOT/extracted-final"
 EVIDENCE="$ROOT/evidence"
 DYLIB_REL="usr/lib/TweakInject/VCAMProRealHookRuntimeActivationGate.dylib"
 PLIST_REL="usr/lib/TweakInject/VCAMProRealHookRuntimeActivationGate.plist"
+WITNESS_DYLIB_REL="usr/lib/TweakInject/VCAMProRealHookRuntimeWitness.dylib"
+WITNESS_PLIST_REL="usr/lib/TweakInject/VCAMProRealHookRuntimeWitness.plist"
 
-test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+test "$(git merge-base "$STARTING" HEAD)" = "$STARTING"
 
-changed="$(git diff --name-only "$BASE"..HEAD)"
+changed="$(git diff --name-only "$STARTING"..HEAD)"
 printf '%s\n' "$changed" | while IFS= read -r path; do
     test -n "$path" || continue
     case "$path" in
@@ -37,7 +40,7 @@ printf '%s\n' "$changed" | while IFS= read -r path; do
     esac
 done
 
-git diff --quiet "$BASE"..HEAD -- src
+git diff --quiet "$STARTING"..HEAD -- src
 git diff --quiet "$BASE"..HEAD -- product/hook_installation_readiness_gate
 git diff --quiet "$BASE"..HEAD -- product/legacy_real_hook_linkage_gate
 git diff --quiet "$BASE"..HEAD -- product/roothide_integration
@@ -108,6 +111,122 @@ print("REAL_HOOK_SUCCESS_PREDICATE_STATIC_INVARIANT=PASS")
 print("GATE_ENTRY_PRODUCTION_ORDERING=PASS")
 PY
 
+python3 - <<'PY'
+from pathlib import Path
+
+gate = Path("product/legacy_real_hook_runtime_activation_gate")
+entry = (gate / "RealHookRuntimeActivationGateEntry.mm").read_text()
+proof = (gate / "RealHookRuntimeProofState.h").read_text()
+witness = (gate / "RealHookRuntimeWitness.mm").read_text()
+
+identity = "com.vcampro.gate.real-hook-runtime-install.002"
+if proof.count(identity) != 1:
+    raise SystemExit("New proof notification identity missing or duplicated")
+for prior in (
+    Path("product/runtime_gate/RuntimeGateProofState.h"),
+    Path("product/hook_reachability_gate/HookReachabilityProofState.h"),
+    Path("product/hook_installation_readiness_gate/HookInstallationReadinessProofState.h"),
+):
+    if identity in prior.read_text():
+        raise SystemExit(f"Proof identity collides with prior gate: {prior}")
+
+if 'VCAM_REAL_HOOK_RUNTIME_GATE_VERSION "0.1.0+roothide7~realhookruntime2"' not in proof:
+    raise SystemExit("Gate version mismatch")
+if "VCAM_REAL_HOOK_RUNTIME_GATE_FRESHNESS_SECONDS 180U" not in proof:
+    raise SystemExit("Freshness contract changed")
+if "VCAM_REAL_HOOK_RUNTIME_GATE_FUTURE_SKEW_SECONDS 5U" not in proof:
+    raise SystemExit("Future skew contract changed")
+
+for flag in (
+    "VCAM_REAL_HOOK_RUNTIME_FLAG_RUNTIME_START_PASS",
+    "VCAM_REAL_HOOK_RUNTIME_FLAG_REAL_HOOK_INSTALL_PASS",
+    "VCAM_REAL_HOOK_RUNTIME_FLAG_ORIGINAL_TRAMPOLINE_NON_NULL",
+    "VCAM_REAL_HOOK_RUNTIME_FLAG_CALLBACK_NOT_EXERCISED",
+    "VCAM_REAL_HOOK_RUNTIME_FLAG_FRAME_SUBSTITUTION_INACTIVE",
+):
+    if flag not in proof:
+        raise SystemExit(f"Required proof flag missing: {flag}")
+
+constructor = entry.split(
+    "VCAMProRealHookRuntimeActivationGateInitialize()", 1
+)[1]
+required_order = (
+    "runtime.start();",
+    "if (!runtimeStarted)",
+    "vcam::product::InstallReferenceCameraHook();",
+    "if (!hookInstalled)",
+    "PublishRealHookInstallProof();",
+)
+last = -1
+for token in required_order:
+    position = constructor.find(token)
+    if position < 0 or position <= last:
+        raise SystemExit(f"Publisher ordering invalid at: {token}")
+    last = position
+
+publisher = entry.split(
+    "bool PublishRealHookInstallProof() noexcept {", 1
+)[1].split("\n}\n\n}  // namespace", 1)[0]
+if publisher.count("notify_post(") != 1:
+    raise SystemExit("PASS publisher must have exactly one notify_post path")
+
+reset = entry.split(
+    "void ResetProofState() noexcept {", 1
+)[1].split("\n}\n\nbool PublishRealHookInstallProof", 1)[0]
+if "notify_post(" in reset:
+    raise SystemExit("Fresh-state reset must not publish a proof notification")
+if "notify_set_state(token, UINT64_C(0))" not in reset:
+    raise SystemExit("Fresh local proof-state reset missing")
+
+for source_name, source in (("entry", entry), ("witness", witness)):
+    for forbidden in (
+        "CMSampleBufferGetImageBuffer(",
+        "CMSampleBufferCreate",
+        "CVPixelBufferCreate",
+        "decideCameraBuffer(",
+    ):
+        if forbidden in source:
+            raise SystemExit(
+                f"{source_name} contains prohibited callback/frame path: {forbidden}"
+            )
+
+for required_banner in (
+    "VCAM REAL HOOK INSTALL PASS",
+    "runtime.start=PASS",
+    "real-reference-hook-install=PASS",
+    "original-trampoline=NON_NULL",
+    "callback=NOT_EXERCISED",
+    "frame-substitution=INACTIVE",
+    "gate/version=%s",
+):
+    if required_banner not in witness:
+        raise SystemExit(f"Required PASS banner text missing: {required_banner}")
+
+if "vcam_real_hook_runtime_state_is_valid_fresh" not in witness:
+    raise SystemExit("PASS banner is not conditional on validated fresh proof")
+if "ValidateTokenState(token);" not in witness:
+    raise SystemExit("Immediate witness state validation missing")
+if "notify_register_dispatch" not in witness:
+    raise SystemExit("SpringBoard witness notify registration missing")
+
+print("PROOF_NOTIFICATION_IDENTITY_UNIQUE=PASS")
+print("PROOF_REQUIRES_RUNTIME_START=PASS")
+print("PROOF_REQUIRES_REAL_HOOK_INSTALL=PASS")
+print("PROOF_REQUIRES_ORIGINAL_TRAMPOLINE_NON_NULL=PASS")
+print("PROOF_PUBLISHED_ONLY_AFTER_REAL_HOOK_SUCCESS=PASS")
+print("PASS_BANNER_CONDITIONAL_ON_VALID_PROOF=PASS")
+print("CALLBACK_DIRECT_INVOCATION_ABSENT=PASS")
+print("SYNTHETIC_CALLBACK_TEST_ABSENT=PASS")
+print("FRAME_SUBSTITUTION_TEST_ABSENT=PASS")
+PY
+
+mkdir -p "$ROOT/host-tests"
+c++ -std=c++17 -Wall -Wextra -Werror -pedantic \
+  -I"$GATE" \
+  "$GATE/real_hook_runtime_state_tests.cpp" \
+  -o "$ROOT/host-tests/real_hook_runtime_state_tests"
+"$ROOT/host-tests/real_hook_runtime_state_tests"
+
 test "$(git ls-remote origin refs/pull/19/head | awk '{print $1}')" = "$PR19"
 test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/main | awk '{print $1}')" = "$IOS15"
 test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "$MOTION"
@@ -123,7 +242,7 @@ sh "$GATE/build_runtime_activation_gate_input.sh"
 
 test -f "$INPUT"
 test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide7~realhookruntime1"
+test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide7~realhookruntime2"
 test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
 
 mkdir -p "$EVIDENCE"
@@ -146,29 +265,35 @@ dpkg-deb -f "$FINAL" > "$EVIDENCE/final-control.txt"
 dpkg-deb -c "$FINAL" > "$EVIDENCE/final-inventory.txt"
 
 test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide7~realhookruntime1"
+test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide7~realhookruntime2"
 test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
 test ! -e "$EXTRACT/var/jb"
 
 test -f "$EXTRACT/$DYLIB_REL"
 test -f "$EXTRACT/$PLIST_REL"
+test -f "$EXTRACT/$WITNESS_DYLIB_REL"
+test -f "$EXTRACT/$WITNESS_PLIST_REL"
 
 data_files="$(find "$EXTRACT/usr/lib/TweakInject" -type f | sed "s#^$EXTRACT/##" | sort)"
-expected_files="$(printf '%s\n%s\n' "$DYLIB_REL" "$PLIST_REL" | sort)"
+expected_files="$(printf '%s\n%s\n%s\n%s\n' "$DYLIB_REL" "$PLIST_REL" "$WITNESS_DYLIB_REL" "$WITNESS_PLIST_REL" | sort)"
 test "$data_files" = "$expected_files"
 
 python3 - <<'PY'
 from pathlib import Path
 import plistlib
 
-root = Path("build/legacy-real-hook-runtime-activation-gate-001/extracted-final")
-plist_path = root / "usr/lib/TweakInject/VCAMProRealHookRuntimeActivationGate.plist"
-with plist_path.open("rb") as f:
-    value = plistlib.load(f)
+root = Path("build/legacy-real-hook-runtime-activation-visible-witness-remediation-001/extracted-final")
+real_plist = root / "usr/lib/TweakInject/VCAMProRealHookRuntimeActivationGate.plist"
+witness_plist = root / "usr/lib/TweakInject/VCAMProRealHookRuntimeWitness.plist"
+with real_plist.open("rb") as f:
+    real_value = plistlib.load(f)
+with witness_plist.open("rb") as f:
+    witness_value = plistlib.load(f)
 
-expected = {"Filter": {"Executables": ["mediaserverd"]}}
-if value != expected:
-    raise SystemExit(value)
+if real_value != {"Filter": {"Executables": ["mediaserverd"]}}:
+    raise SystemExit(real_value)
+if witness_value != {"Filter": {"Executables": ["SpringBoard"]}}:
+    raise SystemExit(witness_value)
 
 expected_postinst = "#!/bin/sh\nset -e\n\nexit 0\n"
 actual_postinst = (root / "DEBIAN/postinst").read_text()
@@ -191,12 +316,14 @@ for forbidden in (
     if any(forbidden.lower() in p.lower() for p in inventory):
         raise SystemExit(f"Forbidden packaged payload: {forbidden}")
 
-print("MEDIASERVERD_ONLY_FILTER=PASS")
+print("REAL_HOOK_DYLIB_FILTER_MEDIASERVERD_ONLY=PASS")
+print("WITNESS_FILTER_SPRINGBOARD_ONLY=PASS")
 print("INERT_MAINTAINER_SCRIPT=PASS")
 print("NO_PACKAGED_CONTROL_OR_MEDIA_FILES=PASS")
 PY
 
 DYLIB="$EXTRACT/$DYLIB_REL"
+WITNESS_DYLIB="$EXTRACT/$WITNESS_DYLIB_REL"
 xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/dylib-arch.txt"
 xcrun otool -l "$DYLIB" > "$EVIDENCE/dylib-load-commands.txt"
 xcrun otool -D "$DYLIB" > "$EVIDENCE/dylib-install-name.txt"
@@ -346,9 +473,34 @@ grep -Fq 'ORIGINAL_TRAMPOLINE_NON_NULL' "$EVIDENCE/dylib-strings.txt"
 test -z "$(grep -E 'ReferenceCameraHook.*Stub|hookselftest|MSHookFunctionStub' "$EVIDENCE/dylib-symbols.txt" "$EVIDENCE/dylib-strings.txt" || true)"
 test -z "$(grep -E 'UIKit|PhotosUI' "$EVIDENCE/dylib-linked-libraries.txt" || true)"
 
+xcrun lipo -info "$WITNESS_DYLIB" | tee "$EVIDENCE/witness-arch.txt"
+xcrun otool -l "$WITNESS_DYLIB" > "$EVIDENCE/witness-load-commands.txt"
+xcrun otool -D "$WITNESS_DYLIB" > "$EVIDENCE/witness-install-name.txt"
+xcrun otool -L "$WITNESS_DYLIB" > "$EVIDENCE/witness-linked-libraries.txt"
+strings "$WITNESS_DYLIB" > "$EVIDENCE/witness-strings.txt"
+
+grep -q 'architecture: arm64' "$EVIDENCE/witness-arch.txt"
+grep -q 'minos 15.0' "$EVIDENCE/witness-load-commands.txt"
+grep -q '@loader_path/VCAMProRealHookRuntimeWitness.dylib' "$EVIDENCE/witness-install-name.txt"
+grep -q 'LC_CODE_SIGNATURE' "$EVIDENCE/witness-load-commands.txt"
+test -z "$(grep -E 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/witness-linked-libraries.txt" || true)"
+for marker in \
+    'VCAM REAL HOOK INSTALL PASS' \
+    'runtime.start=PASS' \
+    'real-reference-hook-install=PASS' \
+    'original-trampoline=NON_NULL' \
+    'callback=NOT_EXERCISED' \
+    'frame-substitution=INACTIVE' \
+    'gate/version=0.1.0+roothide7~realhookruntime2'; do
+    grep -Fq "$marker" "$EVIDENCE/witness-strings.txt"
+done
+
+echo "WITNESS_CAMERA_FRAMEWORKS_ABSENT=PASS"
+
 {
-    echo "TASK_ID=VCAM-PRO-LEGACY-EQUIVALENT-REAL-HOOK-RUNTIME-ACTIVATION-GATE-001"
+    echo "TASK_ID=VCAM-PRO-LEGACY-REAL-HOOK-RUNTIME-ACTIVATION-VISIBLE-WITNESS-REMEDIATION-001"
     echo "BASE_SHA=$BASE"
+    echo "STARTING_HEAD=$STARTING"
     echo "REFERENCE_CAMERA_HOOK_SOURCE_BLOB=$HOOK_BLOB"
     echo "MEDIASERVERD_RUNTIME_SOURCE_BLOB=$RUNTIME_BLOB"
     echo "VCAMPRO_ENTRY_SOURCE_BLOB=$ENTRY_BLOB"
@@ -369,7 +521,24 @@ test -z "$(grep -E 'UIKit|PhotosUI' "$EVIDENCE/dylib-linked-libraries.txt" || tr
     echo "MINIMUM_IOS_15=PASS"
     echo "ROOTHIDE_RPATH_INSTALL_NAME=PASS"
     echo "VALID_CODE_SIGNATURE=PASS"
-    echo "MEDIASERVERD_ONLY_FILTER=PASS"
+    echo "REAL_HOOK_DYLIB_FILTER_MEDIASERVERD_ONLY=PASS"
+    echo "WITNESS_FILTER_SPRINGBOARD_ONLY=PASS"
+    echo "PROOF_NOTIFICATION_IDENTITY_UNIQUE=PASS"
+    echo "PROOF_REQUIRES_RUNTIME_START=PASS"
+    echo "PROOF_REQUIRES_REAL_HOOK_INSTALL=PASS"
+    echo "PROOF_REQUIRES_ORIGINAL_TRAMPOLINE_NON_NULL=PASS"
+    echo "PROOF_PUBLISHED_ONLY_AFTER_REAL_HOOK_SUCCESS=PASS"
+    echo "PROOF_STATE_PID_REQUIRED=PASS"
+    echo "PROOF_STATE_FRESHNESS_ENFORCED=PASS"
+    echo "PROOF_STATE_FUTURE_SKEW_ENFORCED=PASS"
+    echo "STALE_PASS_REJECTED=PASS"
+    echo "INCOMPLETE_FLAGS_REJECTED=PASS"
+    echo "ZERO_PID_REJECTED=PASS"
+    echo "PASS_BANNER_CONDITIONAL_ON_VALID_PROOF=PASS"
+    echo "CALLBACK_DIRECT_INVOCATION_ABSENT=PASS"
+    echo "SYNTHETIC_CALLBACK_TEST_ABSENT=PASS"
+    echo "FRAME_SUBSTITUTION_TEST_ABSENT=PASS"
+    echo "WITNESS_CAMERA_FRAMEWORKS_ABSENT=PASS"
     echo "NO_PACKAGED_CONTROL_PLIST=PASS"
     echo "NO_PACKAGED_SELECTED_MEDIA=PASS"
     echo "NO_GALLERY_UI_ACTIVATION=PASS"
@@ -379,7 +548,7 @@ test -z "$(grep -E 'UIKit|PhotosUI' "$EVIDENCE/dylib-linked-libraries.txt" || tr
     echo "REFERENCE_REPOS_MODIFIED=NO"
     echo "MERGE_PERFORMED=NO"
     echo "RELEASE_PERFORMED=NO"
-    echo "DEPLOY_PERFORMED=NO"
+    echo "PRODUCTION_DEPLOY_PERFORMED=NO"
     echo "DEVICE_ACTION=NO"
 } | tee "$EVIDENCE/validation-report.txt"
 
