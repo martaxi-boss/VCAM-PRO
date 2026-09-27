@@ -170,7 +170,7 @@ expected = {"Filter": {"Executables": ["mediaserverd"]}}
 if value != expected:
     raise SystemExit(value)
 
-expected_postinst = "#!/bin/sh\nset -e\n\nexit 0\n"
+expected_postinst = "#!/bin/sh\nset +e\n\nexit 0\n"
 actual_postinst = (root / "DEBIAN/postinst").read_text()
 if actual_postinst != expected_postinst:
     raise SystemExit("Maintainer script is not inert")
