@@ -1,0 +1,53 @@
+name: VCAM PRO Legacy-Equivalent Real Hook Runtime Activation Gate 001
+
+on:
+  push:
+    branches:
+      - builder/legacy-real-hook-runtime-activation-gate-001
+    paths:
+      - "product/legacy_real_hook_runtime_activation_gate/**"
+      - ".github/workflows/legacy-real-hook-runtime-activation-gate-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-legacy-real-hook-runtime-activation-gate-001
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Static certify real-hook runtime activation package
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout isolated gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install RootHide packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+      - name: Build, patch, and audit activation package
+        shell: bash
+        run: sh product/legacy_real_hook_runtime_activation_gate/ci_build_package_and_audit.sh
+
+      - name: Upload static certification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-legacy-real-hook-runtime-activation-gate-001
+          path: |
+            build/legacy-real-hook-runtime-activation-gate-001/final/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Gate-001.deb
+            build/legacy-real-hook-runtime-activation-gate-001/final/VCAM-PRO-RootHide-Legacy-Real-Hook-Runtime-Activation-Gate-001.deb.sha256
+            build/legacy-real-hook-runtime-activation-gate-001/evidence/**
+          if-no-files-found: error
+          retention-days: 14
