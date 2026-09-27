@@ -50,12 +50,4 @@ struct FirstLocalPhotoSubstitutionDiagnosticSnapshot {
     bool virtualGeometryMatch = false;
 };
 
-void ResetFirstLocalPhotoSubstitutionDiagnosticProofState() noexcept;
-
-void BeginFirstLocalPhotoSubstitutionDiagnosticSession(
-    std::uint64_t selectionGeneration) noexcept;
-
-bool PublishFirstLocalPhotoSubstitutionDiagnostic(
-    const FirstLocalPhotoSubstitutionDiagnosticSnapshot& snapshot) noexcept;
-
 }  // namespace vcam::product::proof
