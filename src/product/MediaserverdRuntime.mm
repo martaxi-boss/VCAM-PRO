@@ -2588,6 +2588,7 @@ struct MediaserverdRuntime::Impl {
 
     SharedControlStore store_;
     ControlStateCache cache_;
+    VirtualBlackFrame virtualBlackFrame_;
     CameraConsumerAdapter adapter_;
 
     dispatch_queue_t controlQueue_ =
