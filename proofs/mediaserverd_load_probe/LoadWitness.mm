@@ -23,7 +23,6 @@ constexpr int64_t kRetryIntervalNanoseconds =
 constexpr int64_t kVisibleDurationNanoseconds =
     60 * NSEC_PER_SEC;
 
-int gNotifyToken = 0;
 uint64_t gAcceptedState = 0;
 bool gAcceptedProof = false;
 bool gBannerPresented = false;
@@ -394,8 +393,6 @@ void RegisterWitness() {
         NOTIFY_STATUS_OK) {
         return;
     }
-
-    gNotifyToken = token;
 
     ValidateTokenState(token);
 }
