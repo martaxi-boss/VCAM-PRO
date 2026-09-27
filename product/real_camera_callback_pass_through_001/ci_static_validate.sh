@@ -258,22 +258,22 @@ print("FAIL_OPEN_BEHAVIOR_PRESERVED=PASS")
 print("BLACK_VCAM_PRODUCT_CONTROL_PRESENT=PASS")
 PY
 
-mkdir -p build/real-camera-callback-pass-through-001/tests
+mkdir -p build/callback-pass-through-static-tests
 
 xcrun --sdk macosx clang++ \
     -std=c++17 -Wall -Wextra -Werror -pedantic \
     -I"$SCOPE" \
     "$SCOPE/callback_pass_through_state_tests.cpp" \
-    -o build/real-camera-callback-pass-through-001/tests/proof-state
+    -o build/callback-pass-through-static-tests/proof-state
 
-build/real-camera-callback-pass-through-001/tests/proof-state \
-    | tee build/real-camera-callback-pass-through-001/proof-state-tests.txt
+build/callback-pass-through-static-tests/proof-state \
+    | tee build/callback-pass-through-static-tests/proof-state-tests.txt
 
-grep -q 'REQUIRED_FLAGS_ACCEPTED=PASS' build/real-camera-callback-pass-through-001/proof-state-tests.txt
-grep -q 'INCOMPLETE_FLAGS_REJECTED=PASS' build/real-camera-callback-pass-through-001/proof-state-tests.txt
-grep -q 'STALE_STATE_REJECTED=PASS' build/real-camera-callback-pass-through-001/proof-state-tests.txt
-grep -q 'FUTURE_SKEW_LIMIT_ENFORCED=PASS' build/real-camera-callback-pass-through-001/proof-state-tests.txt
-grep -q 'NONZERO_PID_REQUIRED=PASS' build/real-camera-callback-pass-through-001/proof-state-tests.txt
+grep -q 'REQUIRED_FLAGS_ACCEPTED=PASS' build/callback-pass-through-static-tests/proof-state-tests.txt
+grep -q 'INCOMPLETE_FLAGS_REJECTED=PASS' build/callback-pass-through-static-tests/proof-state-tests.txt
+grep -q 'STALE_STATE_REJECTED=PASS' build/callback-pass-through-static-tests/proof-state-tests.txt
+grep -q 'FUTURE_SKEW_LIMIT_ENFORCED=PASS' build/callback-pass-through-static-tests/proof-state-tests.txt
+grep -q 'NONZERO_PID_REQUIRED=PASS' build/callback-pass-through-static-tests/proof-state-tests.txt
 
 test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN"
 
