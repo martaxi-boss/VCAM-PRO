@@ -15,6 +15,7 @@ struct IOS15ActivationParityFacts {
     bool mediaPhoto = false;
     bool decisionVirtual = false;
     bool decisionOriginal = false;
+    bool decisionReasonNone = false;
     bool virtualBufferNonNull = false;
     bool virtualBufferDifferentFromOriginal = false;
     bool geometryMatch = false;
