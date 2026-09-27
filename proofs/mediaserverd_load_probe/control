@@ -1,8 +1,8 @@
 Package: com.vcampro.loadprobe
 Name: VCAM PRO Load Probe
-Version: 0.0.1
+Version: 0.0.2~roothide1
 Architecture: iphoneos-arm64
-Description: Build-only load marker probe for supervised mediaserverd research. No hooks, frame access, or device deployment.
+Description: RootHide load-only constructor proof for supervised mediaserverd research. No hooks, camera APIs, frame access, or frame substitution.
 Maintainer: VCAM PRO
 Author: VCAM PRO
 Section: Development
