@@ -135,10 +135,23 @@ jobs:
           if live_callback < 0:
               raise SystemExit("Live notification callback missing")
 
+          emitter_source = (probe / "LoadProbe.c").read_text()
+          register = emitter_source.index("notify_register_check")
+          set_state = emitter_source.index("notify_set_state", register)
+          post = emitter_source.index("notify_post", set_state)
+          retain = emitter_source.index("g_load_probe_state_token = token;", post)
+          if not (register < set_state < post < retain):
+              raise SystemExit("Emitter state publication/retention ordering invalid")
+          if emitter_source.count("notify_cancel(token)") != 2:
+              raise SystemExit("Emitter token must cancel only on the two notify failure paths")
+          if "notify_cancel" in emitter_source[retain:]:
+              raise SystemExit("Emitter cancels retained state token after successful publication")
+
           print("MEDIASERVERD_EMITTER_FILTER=PASS")
           print("SPRINGBOARD_WITNESS_FILTER=PASS")
           print("NO_BROAD_FILTER=PASS")
           print("STARTUP_ORDER_INDEPENDENT_PROOF=PASS")
+          print("STARTUP_ORDER_STATE_RETAINED=PASS")
           PY
 
           if grep -RInE '%hook|MSHookFunction|MSHookMessageEx|method_exchangeImplementations|class_replaceMethod|class_addMethod|rebind_symbols|fishhook|AVCapture|CMSampleBuffer|CVPixelBuffer|VideoToolbox|IOSurface|ReadyFrameQueue|FramePipeline|ReferenceCameraHook|MediaserverdRuntime|CameraConsumerAdapter|frame replacement|frame substitution'               "$EMITTER" "$WITNESS" "$STATE"; then
