@@ -1026,7 +1026,6 @@ struct MediaserverdRuntime::Impl {
 
     static std::uint32_t firstPhotoSubDiagnosticReasonCode(
         CameraFailOpenReason reason) noexcept {
-        using FirstPhotoSubDiagnosticReason;
         switch (reason) {
             case CameraFailOpenReason::Disabled:
                 return static_cast<std::uint32_t>(
@@ -1061,7 +1060,6 @@ struct MediaserverdRuntime::Impl {
     static FirstPhotoSubDiagnosticPlaybackState
     firstPhotoSubDiagnosticPlaybackState(
         frame_engine::PlaybackState state) noexcept {
-        using FirstPhotoSubDiagnosticPlaybackState;
         switch (state) {
             case frame_engine::PlaybackState::Empty:
                 return FirstPhotoSubDiagnosticPlaybackState::Empty;
@@ -1083,7 +1081,6 @@ struct MediaserverdRuntime::Impl {
     static FirstPhotoSubDiagnosticMediaKind
     firstPhotoSubDiagnosticSelectedMediaKind(
         media_engine::SelectedMediaKind kind) noexcept {
-        using FirstPhotoSubDiagnosticMediaKind;
         switch (kind) {
             case media_engine::SelectedMediaKind::Photo:
                 return FirstPhotoSubDiagnosticMediaKind::Photo;
@@ -1420,7 +1417,6 @@ struct MediaserverdRuntime::Impl {
         const proof::
             FirstLocalPhotoSubstitutionDiagnosticSnapshot&
                 snapshot) const noexcept {
-        using FirstPhotoSubDiagnosticClassification;
 
         if (snapshot.decisionVirtualCount > 0 ||
             snapshot.virtualDecisionCountDelta > 0) {
