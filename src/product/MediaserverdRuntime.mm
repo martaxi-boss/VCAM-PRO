@@ -1061,6 +1061,95 @@ struct MediaserverdRuntime::Impl {
             producerHealthy);
     }
 
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+    static constexpr std::uint32_t
+        kActivationControlEnabled =
+            UINT32_C(0x01);
+    static constexpr std::uint32_t
+        kActivationControlPhoto =
+            UINT32_C(0x02);
+    static constexpr std::uint32_t
+        kActivationControlHasMedia =
+            UINT32_C(0x04);
+
+    void updateIOS15ActivationParityControlSnapshot(
+        const ProductControlSnapshot& snapshot) noexcept {
+        ios15ActivationControlSequence_.fetch_add(
+            1,
+            std::memory_order_acq_rel);
+
+        ios15ActivationSelectionGeneration_.store(
+            snapshot.selectionGeneration,
+            std::memory_order_relaxed);
+
+        std::uint32_t flags = 0;
+        if (snapshot.enabled) {
+            flags |=
+                kActivationControlEnabled;
+        }
+        if (snapshot.mediaKind ==
+            ProductMediaKind::Photo) {
+            flags |=
+                kActivationControlPhoto;
+        }
+        if (snapshot.hasMedia()) {
+            flags |=
+                kActivationControlHasMedia;
+        }
+
+        ios15ActivationControlFlags_.store(
+            flags,
+            std::memory_order_relaxed);
+
+        ios15ActivationControlSequence_.fetch_add(
+            1,
+            std::memory_order_release);
+    }
+
+    bool loadIOS15ActivationParityControlSnapshot(
+        std::uint64_t* selectionGeneration,
+        std::uint32_t* flags) const noexcept {
+        if (selectionGeneration == nullptr ||
+            flags == nullptr) {
+            return false;
+        }
+
+        for (int attempt = 0;
+             attempt < 2;
+             ++attempt) {
+            const std::uint64_t before =
+                ios15ActivationControlSequence_.load(
+                    std::memory_order_acquire);
+
+            if ((before & UINT64_C(1)) != 0) {
+                continue;
+            }
+
+            const std::uint64_t generation =
+                ios15ActivationSelectionGeneration_.load(
+                    std::memory_order_relaxed);
+            const std::uint32_t loadedFlags =
+                ios15ActivationControlFlags_.load(
+                    std::memory_order_relaxed);
+
+            const std::uint64_t after =
+                ios15ActivationControlSequence_.load(
+                    std::memory_order_acquire);
+
+            if (before == after &&
+                (after & UINT64_C(1)) == 0) {
+                *selectionGeneration =
+                    generation;
+                *flags =
+                    loadedFlags;
+                return true;
+            }
+        }
+
+        return false;
+    }
+#endif
+
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
     static constexpr std::uint32_t
         kFirstPhotoSubDiagControlEnabled =
@@ -2625,6 +2714,15 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
     std::atomic<std::uint32_t>
         proofControlState_{0};
+#endif
+
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+    std::atomic<std::uint64_t>
+        ios15ActivationControlSequence_{0};
+    std::atomic<std::uint64_t>
+        ios15ActivationSelectionGeneration_{0};
+    std::atomic<std::uint32_t>
+        ios15ActivationControlFlags_{0};
 #endif
 
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
