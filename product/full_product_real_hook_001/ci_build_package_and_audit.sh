@@ -213,6 +213,8 @@ PY
 
 sh "$SCOPE/build_full_product_real_hook_input.sh"
 
+mkdir -p "$EVIDENCE"
+
 test -f "$INPUT"
 test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
 test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide8~fullrealhook1"
