@@ -1,0 +1,48 @@
+name: VCAM PRO Legacy Hook Structural Parity Audit 001
+
+on:
+  push:
+    branches:
+      - builder/legacy-hook-structural-parity-audit-001
+    paths:
+      - "product/legacy_hook_parity_audit/**"
+      - ".github/workflows/legacy-hook-structural-parity-audit-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-legacy-hook-structural-parity-audit-001
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Static legacy hook structural parity audit
+    runs-on: macos-26
+    timeout-minutes: 60
+
+    steps:
+      - name: Checkout audit branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate frozen legacy reference and compile unchanged hook
+        shell: bash
+        run: sh product/legacy_hook_parity_audit/ci_validate.sh
+
+      - name: Upload static audit evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-legacy-hook-structural-parity-audit-001
+          path: |
+            build/legacy-hook-parity-audit-001/evidence.txt
+            build/legacy-hook-parity-audit-001/parity-matrix.tsv
+            build/legacy-hook-parity-audit-001/compile-arch.txt
+            build/legacy-hook-parity-audit-001/compile-load-commands.txt
+            build/legacy-hook-parity-audit-001/compile-undefined.txt
+            build/legacy-hook-parity-audit-001/ReferenceCameraHook.compile-only.o
+            product/legacy_hook_parity_audit/LEGACY_HOOK_STRUCTURAL_PARITY_AUDIT_001.md
+          if-no-files-found: error
+          retention-days: 14
