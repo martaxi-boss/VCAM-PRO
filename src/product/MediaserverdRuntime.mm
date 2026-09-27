@@ -303,6 +303,7 @@ struct MediaserverdRuntime::Impl {
         dispatch_async(
             controlQueue_,
             ^{
+                this->prepareBlackFallbackForObservedGeometry();
                 this->applyCachedState(
                     true);
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
