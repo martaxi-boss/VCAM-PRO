@@ -57,9 +57,9 @@ witness = (scope / "RealCameraCallbackPassThroughWitness.mm").read_text()
 build = (scope / "build_callback_pass_through_input.sh").read_text()
 
 hook_patterns = (
-    (r"gOriginalCMSampleBufferGetImageBuffer\\s*\\(\\s*sampleBuffer\\s*\\)", "original provider call"),
-    (r"runtime\\.observeRealCameraBuffer\\s*\\(\\s*original\\s*\\)", "real-buffer observation"),
-    (r"runtime\\.decideCameraBuffer\\s*\\(\\s*original\\s*\\)", "production decision call"),
+    (r"gOriginalCMSampleBufferGetImageBuffer\s*\(\s*sampleBuffer\s*\)", "original provider call"),
+    (r"runtime\.observeRealCameraBuffer\s*\(\s*original\s*\)", "real-buffer observation"),
+    (r"runtime\.decideCameraBuffer\s*\(\s*original\s*\)", "production decision call"),
 )
 for pattern, label in hook_patterns:
     matches = re.findall(pattern, hook)
