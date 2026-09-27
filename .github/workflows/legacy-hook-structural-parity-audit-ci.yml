@@ -43,7 +43,6 @@ jobs:
             build/legacy-hook-parity-audit-001/compile-arch.txt
             build/legacy-hook-parity-audit-001/compile-load-commands.txt
             build/legacy-hook-parity-audit-001/compile-undefined.txt
-            build/legacy-hook-parity-audit-001/ReferenceCameraHook.compile-only.o
             product/legacy_hook_parity_audit/LEGACY_HOOK_STRUCTURAL_PARITY_AUDIT_001.md
           if-no-files-found: error
           retention-days: 14
