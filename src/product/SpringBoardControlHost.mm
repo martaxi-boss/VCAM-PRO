@@ -50,7 +50,6 @@ static constexpr CGFloat
         _floatingButtonCenterXConstraint;
     NSLayoutConstraint*
         _floatingButtonCenterYConstraint;
-    CGPoint _floatingButtonDragStartCenter;
     BOOL _floatingButtonPositionInitialized;
     BOOL _ownerInitializationStarted;
     BOOL _ownerReady;
@@ -108,19 +107,6 @@ static constexpr CGFloat
     [_floatingButton
         addGestureRecognizer:pan];
 
-    [self.view
-        addSubview:_floatingButton];
-
-    _floatingButtonCenterXConstraint =
-        [[_floatingButton centerXAnchor]
-            constraintEqualToAnchor:
-                self.view.leadingAnchor];
-
-    _floatingButtonCenterYConstraint =
-        [[_floatingButton centerYAnchor]
-            constraintEqualToAnchor:
-                self.view.topAnchor];
-
     [NSLayoutConstraint
         activateConstraints:@[
             [[_floatingButton
@@ -130,27 +116,69 @@ static constexpr CGFloat
             [[_floatingButton
                 heightAnchor]
                 constraintEqualToConstant:
-                    kFloatingButtonSize],
-            _floatingButtonCenterXConstraint,
-            _floatingButtonCenterYConstraint
+                    kFloatingButtonSize]
         ]];
 }
 
-- (void)viewDidLayoutSubviews {
-    [super viewDidLayoutSubviews];
+- (UIView*)floatingButtonHostView {
+    UIView* host =
+        _floatingButton.superview;
 
-    CGPoint desired;
+    return host != nil
+        ? host
+        : self.view;
+}
+
+- (void)attachFloatingButtonToOverlayWindow:
+    (UIWindow*)window {
+    if (window == nil ||
+        _floatingButton == nil) {
+        return;
+    }
+
+    if (_floatingButton.superview != window) {
+        if (_floatingButtonCenterXConstraint != nil ||
+            _floatingButtonCenterYConstraint != nil) {
+            [NSLayoutConstraint
+                deactivateConstraints:@[
+                    _floatingButtonCenterXConstraint,
+                    _floatingButtonCenterYConstraint
+                ]];
+        }
+
+        [_floatingButton
+            removeFromSuperview];
+
+        [window
+            addSubview:_floatingButton];
+
+        _floatingButtonCenterXConstraint =
+            [[_floatingButton centerXAnchor]
+                constraintEqualToAnchor:
+                    window.leadingAnchor];
+
+        _floatingButtonCenterYConstraint =
+            [[_floatingButton centerYAnchor]
+                constraintEqualToAnchor:
+                    window.topAnchor];
+
+        [NSLayoutConstraint
+            activateConstraints:@[
+                _floatingButtonCenterXConstraint,
+                _floatingButtonCenterYConstraint
+            ]];
+    }
 
     if (!_floatingButtonPositionInitialized) {
         const UIEdgeInsets safeInsets =
-            self.view.safeAreaInsets;
+            window.safeAreaInsets;
 
         const auto region =
             vcam::product::ui::
                 MakeFloatingButtonSafeRegion(
                     {
-                        self.view.bounds.size.width,
-                        self.view.bounds.size.height,
+                        window.bounds.size.width,
+                        window.bounds.size.height,
                     },
                     {
                         safeInsets.top,
@@ -164,35 +192,80 @@ static constexpr CGFloat
                     },
                     kFloatingButtonEdgeMargin);
 
-        desired = CGPointMake(
-            region.maxX,
-            (region.minY + region.maxY) * 0.5);
+        _floatingButtonCenterXConstraint
+            .constant = region.maxX;
+        _floatingButtonCenterYConstraint
+            .constant =
+                (region.minY + region.maxY) *
+                0.5;
 
         _floatingButtonPositionInitialized =
             YES;
-    } else {
-        desired = CGPointMake(
+    }
+
+    [window
+        bringSubviewToFront:_floatingButton];
+    [window
+        layoutIfNeeded];
+}
+
+- (void)raiseFloatingButtonAboveOverlayContent {
+    UIWindow* window =
+        [self floatingButtonHostView].window;
+
+    if (window == nil &&
+        [_floatingButton.superview
+            isKindOfClass:[UIWindow class]]) {
+        window =
+            (UIWindow*)_floatingButton
+                .superview;
+    }
+
+    if (window != nil) {
+        [window
+            bringSubviewToFront:
+                _floatingButton];
+    }
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+
+    if (_floatingButtonCenterXConstraint ==
+            nil ||
+        _floatingButtonCenterYConstraint ==
+            nil) {
+        return;
+    }
+
+    const CGPoint current =
+        CGPointMake(
             _floatingButtonCenterXConstraint
                 .constant,
             _floatingButtonCenterYConstraint
                 .constant);
-    }
 
     const CGPoint bounded =
         [self
             clampedFloatingButtonCenter:
-                desired];
+                current];
 
     _floatingButtonCenterXConstraint
         .constant = bounded.x;
     _floatingButtonCenterYConstraint
         .constant = bounded.y;
+
+    [self
+        raiseFloatingButtonAboveOverlayContent];
 }
 
 - (CGPoint)clampedFloatingButtonCenter:
     (CGPoint)point {
+    UIView* host =
+        [self floatingButtonHostView];
+
     const UIEdgeInsets safeInsets =
-        self.view.safeAreaInsets;
+        host.safeAreaInsets;
 
     const auto bounded =
         vcam::product::ui::
@@ -202,8 +275,8 @@ static constexpr CGFloat
                     point.y,
                 },
                 {
-                    self.view.bounds.size.width,
-                    self.view.bounds.size.height,
+                    host.bounds.size.width,
+                    host.bounds.size.height,
                 },
                 {
                     safeInsets.top,
@@ -222,21 +295,30 @@ static constexpr CGFloat
         bounded.y);
 }
 
-- (CGPoint)snappedFloatingButtonCenter:
-    (CGPoint)point {
-    const UIEdgeInsets safeInsets =
-        self.view.safeAreaInsets;
+- (CGPoint)movedFloatingButtonCenterByTranslation:
+    (CGPoint)translation {
+    UIView* host =
+        [self floatingButtonHostView];
 
-    const auto snapped =
+    const UIEdgeInsets safeInsets =
+        host.safeAreaInsets;
+
+    const auto moved =
         vcam::product::ui::
-            SnapFloatingButtonCenterToNearestEdge(
+            MoveFloatingButtonByTranslation(
                 {
-                    point.x,
-                    point.y,
+                    _floatingButtonCenterXConstraint
+                        .constant,
+                    _floatingButtonCenterYConstraint
+                        .constant,
                 },
                 {
-                    self.view.bounds.size.width,
-                    self.view.bounds.size.height,
+                    translation.x,
+                    translation.y,
+                },
+                {
+                    host.bounds.size.width,
+                    host.bounds.size.height,
                 },
                 {
                     safeInsets.top,
@@ -251,37 +333,19 @@ static constexpr CGFloat
                 kFloatingButtonEdgeMargin);
 
     return CGPointMake(
-        snapped.x,
-        snapped.y);
+        moved.x,
+        moved.y);
 }
 
 - (void)setFloatingButtonCenter:
-    (CGPoint)center
-                     animated:
-    (BOOL)animated {
-    if (!animated) {
-        _floatingButtonCenterXConstraint
-            .constant = center.x;
-        _floatingButtonCenterYConstraint
-            .constant = center.y;
-        [self.view layoutIfNeeded];
-        return;
-    }
+    (CGPoint)center {
+    _floatingButtonCenterXConstraint
+        .constant = center.x;
+    _floatingButtonCenterYConstraint
+        .constant = center.y;
 
-    [self.view layoutIfNeeded];
-
-    [UIView
-        animateWithDuration:0.2
-                 animations:^{
-                     self
-                         ->_floatingButtonCenterXConstraint
-                         .constant = center.x;
-                     self
-                         ->_floatingButtonCenterYConstraint
-                         .constant = center.y;
-                     [self.view
-                         layoutIfNeeded];
-                 }];
+    [[self floatingButtonHostView]
+        layoutIfNeeded];
 }
 
 - (void)handleFloatingButtonPan:
@@ -290,67 +354,52 @@ static constexpr CGFloat
         [NSThread isMainThread],
         @"VCAM floating control drag must remain on the main thread.");
 
+    UIView* host =
+        [self floatingButtonHostView];
+
+    if (_floatingButtonCenterXConstraint ==
+            nil ||
+        _floatingButtonCenterYConstraint ==
+            nil) {
+        return;
+    }
+
     switch (gesture.state) {
         case UIGestureRecognizerStateBegan: {
-            [self.view layoutIfNeeded];
-
-            _floatingButtonDragStartCenter =
+            const CGPoint current =
                 CGPointMake(
                     _floatingButtonCenterXConstraint
                         .constant,
                     _floatingButtonCenterYConstraint
                         .constant);
 
-            [gesture
-                setTranslation:CGPointZero
-                       inView:self.view];
-            break;
-        }
-
-        case UIGestureRecognizerStateChanged: {
-            const CGPoint translation =
-                [gesture
-                    translationInView:
-                        self.view];
-
-            const CGPoint desired =
-                CGPointMake(
-                    _floatingButtonDragStartCenter.x +
-                        translation.x,
-                    _floatingButtonDragStartCenter.y +
-                        translation.y);
-
             [self
                 setFloatingButtonCenter:
                     [self
                         clampedFloatingButtonCenter:
-                            desired]
-                                 animated:NO];
+                            current]];
+
+            [gesture
+                setTranslation:CGPointZero
+                       inView:host];
             break;
         }
 
+        case UIGestureRecognizerStateChanged:
         case UIGestureRecognizerStateEnded: {
             const CGPoint translation =
                 [gesture
-                    translationInView:
-                        self.view];
-
-            const CGPoint desired =
-                CGPointMake(
-                    _floatingButtonDragStartCenter.x +
-                        translation.x,
-                    _floatingButtonDragStartCenter.y +
-                        translation.y);
-
-            const CGPoint snapped =
-                [self
-                    snappedFloatingButtonCenter:
-                        desired];
+                    translationInView:host];
 
             [self
                 setFloatingButtonCenter:
-                    snapped
-                                 animated:YES];
+                    [self
+                        movedFloatingButtonCenterByTranslation:
+                            translation]];
+
+            [gesture
+                setTranslation:CGPointZero
+                       inView:host];
             break;
         }
 
@@ -367,14 +416,20 @@ static constexpr CGFloat
                 setFloatingButtonCenter:
                     [self
                         clampedFloatingButtonCenter:
-                            current]
-                                 animated:NO];
+                            current]];
+
+            [gesture
+                setTranslation:CGPointZero
+                       inView:host];
             break;
         }
 
         default:
             break;
     }
+
+    [self
+        raiseFloatingButtonAboveOverlayContent];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -458,7 +513,10 @@ static constexpr CGFloat
     [self
         presentViewController:navigation
                      animated:YES
-                   completion:nil];
+                   completion:^{
+                       [self
+                           raiseFloatingButtonAboveOverlayContent];
+                   }];
 }
 
 @end
@@ -512,7 +570,13 @@ void StartSpringBoardControlHost() {
                 UIWindowLevelAlert + 5.0;
             window.backgroundColor =
                 [UIColor clearColor];
+            [root loadViewIfNeeded];
+
             window.hidden = NO;
+
+            [root
+                attachFloatingButtonToOverlayWindow:
+                    window];
 
             gOverlayWindow = window;
         });
