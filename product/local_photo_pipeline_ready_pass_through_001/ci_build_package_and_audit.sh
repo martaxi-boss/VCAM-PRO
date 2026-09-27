@@ -14,9 +14,9 @@ ADAPTER_H_BLOB=3577bd2935c72a69529c855c8730d6c75054ab34
 ROOT="$PWD/build/local-photo-pipeline-ready-pass-through-001"
 SCOPE=product/local_photo_pipeline_ready_pass_through_001
 FULL_SCOPE=product/full_product_real_hook_001
-INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide10~photoready1_iphoneos-arm64.deb"
+INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide10~photoready2_iphoneos-arm64.deb"
 FINAL_DIR="$ROOT/final"
-FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Local-Photo-Pipeline-Ready-Pass-Through-001.deb"
+FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Local-Photo-Pipeline-Ready-Diagnostic-Remediation-A.deb"
 EXTRACT="$ROOT/extracted-final"
 EVIDENCE="$ROOT/evidence"
 
@@ -34,7 +34,7 @@ sh "$SCOPE/ci_static_validate.sh" | tee "$EVIDENCE/static-validation.txt"
 
 test -f "$INPUT"
 test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide10~photoready1"
+test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide10~photoready2"
 test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
 
 dpkg-deb -c "$INPUT" | tee "$EVIDENCE/input-inventory.txt"
@@ -57,7 +57,7 @@ dpkg-deb -f "$FINAL" | tee "$EVIDENCE/final-control.txt"
 dpkg-deb -c "$FINAL" | tee "$EVIDENCE/final-inventory.txt"
 
 test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide10~photoready1"
+test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide10~photoready2"
 test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
 test ! -e "$EXTRACT/var/jb"
 
@@ -268,7 +268,7 @@ grep -Fq 'HookedCMSampleBufferGetImageBuffer' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'gOriginalCMSampleBufferGetImageBuffer' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'vcam::product::proof::BeginLocalPhotoPipelineSelection' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'vcam::product::proof::ObserveLocalPhotoCallbackPhase' "$EVIDENCE/product-symbols.txt"
-grep -Fq 'vcam::product::proof::ObserveLocalPhotoReadyPhase' "$EVIDENCE/product-symbols.txt"
+grep -Fq 'vcam::product::proof::PublishLocalPhotoPipelineSnapshot' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'vcam::product::proof::ResetLocalPhotoPipelineReadyProofState' "$EVIDENCE/product-symbols.txt"
 grep -Fq '_OBJC_CLASS_$_VCAMInternalGalleryViewController' "$EVIDENCE/product-symbols.txt"
 grep -Fxq '_MSHookFunction' "$EVIDENCE/product-undefined.txt"
@@ -299,18 +299,26 @@ xcrun otool -L "$PHOTO_WITNESS" > "$EVIDENCE/photo-witness-linked-libraries.txt"
 strings "$PHOTO_WITNESS" > "$EVIDENCE/photo-witness-strings.txt"
 for token in \
     'VCAM LOCAL PHOTO PIPELINE READY PASS' \
-    'vcam-enabled=NO' \
-    'media-kind=PHOTO' \
-    'media-staged=YES' \
-    'control-state-observed=YES' \
-    'camera-geometry-observed=YES' \
-    'producer-ready=YES' \
-    'ready-frame-count=>0' \
-    'camera-callback=EXERCISED' \
-    'decision=ORIGINAL' \
-    'original-buffer-returned=YES' \
-    'frame-substitution=INACTIVE' \
-    'virtual-decision-count=0'; do
+    'VCAM LOCAL PHOTO PIPELINE DIAGNOSTIC' \
+    'vcam-enabled=%@' \
+    'media-kind=%@' \
+    'selection-generation=%llu' \
+    'media-staged=%@' \
+    'control-state-observed=%@' \
+    'camera-geometry-observed=%@' \
+    'session-exists=%@' \
+    'selected-media-valid=%@' \
+    'selected-media-kind=%@' \
+    'selected-media-path-match=%@' \
+    'playback-intent=%@' \
+    'playback-state=%@' \
+    'producer-ready=%@' \
+    'ready-frame-count=%u' \
+    'camera-callback-exercised=%@' \
+    'decision-original=%@' \
+    'original-buffer-returned=%@' \
+    'virtual-decision-count=%u' \
+    'pipeline-stage=%@'; do
     grep -Fq "$token" "$EVIDENCE/photo-witness-strings.txt"
 done
 test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/photo-witness-linked-libraries.txt" || true)"
@@ -333,13 +341,31 @@ test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/hea
 test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "$IOS16"
 
 {
-    echo "TASK_ID=VCAM-PRO-LOCAL-PHOTO-PIPELINE-READY-PASS-THROUGH-001"
+    echo "TASK_ID=VCAM-PRO-LOCAL-PHOTO-PIPELINE-READY-DIAGNOSTIC-REMEDIATION-A"
     echo "STARTING_HEAD=$START"
     echo "REFERENCE_CAMERA_HOOK_SOURCE_BLOB=$HOOK_BLOB"
     echo "CAMERA_CONSUMER_ADAPTER_CPP_BLOB=$ADAPTER_CPP_BLOB"
     echo "CAMERA_CONSUMER_ADAPTER_H_BLOB=$ADAPTER_H_BLOB"
     echo "ROOT_HIDE_PATCHER_SHA=$PATCHER_SHA"
     echo "FULL_PRODUCT_COMPONENTS_PRESENT=PASS"
+    echo "DIAGNOSTIC_WITNESS_PRESENT=PASS"
+    echo "PASS_WITNESS_PRESENT=PASS"
+    echo "SILENT_TIMEOUT_REMOVED=PASS"
+    echo "DIAGNOSTIC_WINDOW_AT_LEAST_30_SECONDS=PASS"
+    echo "EVENT_DRIVEN_RECHECK_PRESENT=PASS"
+    echo "BOUNDED_FALLBACK_RECHECK_PRESENT=PASS"
+    echo "BUSY_WAIT_ABSENT=PASS"
+    echo "CAMERA_CALLBACK_BLOCKING_WAIT_ABSENT=PASS"
+    echo "CAMERA_CALLBACK_FILE_IO_ABSENT=PASS"
+    echo "NON_CONSUMING_READY_INSPECTION=PASS"
+    echo "PHOTO_SELECT_FAILURE_OBSERVABLE=PASS"
+    echo "PRODUCER_START_FAILURE_OBSERVABLE=PASS"
+    echo "WAITING_GEOMETRY_OBSERVABLE=PASS"
+    echo "SESSION_ABSENT_OBSERVABLE=PASS"
+    echo "READY_FRAME_ZERO_OBSERVABLE=PASS"
+    echo "RAW_CALLBACK_STATE_OBSERVABLE=PASS"
+    echo "FRESH_DIAGNOSTIC_STATE_REQUIRED=PASS"
+    echo "STALE_PHOTOREADY1_REJECTED=PASS"
     echo "REFERENCE_CAMERA_HOOK_SOURCE_UNCHANGED=PASS"
     echo "CAMERA_CONSUMER_ADAPTER_SOURCE_UNCHANGED=PASS"
     echo "READY_FRAME_QUEUE_SOURCE_UNCHANGED=PASS"
