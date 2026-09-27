@@ -115,38 +115,23 @@ ClampFloatingButtonCenter(
 }
 
 inline FloatingButtonPoint
-SnapFloatingButtonCenterToNearestEdge(
-    FloatingButtonPoint point,
+MoveFloatingButtonByTranslation(
+    FloatingButtonPoint current,
+    FloatingButtonPoint translation,
     FloatingButtonBounds bounds,
     FloatingButtonInsets insets,
     FloatingButtonSize button,
     double margin) noexcept {
-    FloatingButtonPoint clamped =
+    return
         ClampFloatingButtonCenter(
-            point,
+            {
+                current.x + translation.x,
+                current.y + translation.y,
+            },
             bounds,
             insets,
             button,
             margin);
-
-    const auto region =
-        MakeFloatingButtonSafeRegion(
-            bounds,
-            insets,
-            button,
-            margin);
-
-    const double distanceToLeft =
-        clamped.x - region.minX;
-    const double distanceToRight =
-        region.maxX - clamped.x;
-
-    clamped.x =
-        distanceToLeft <= distanceToRight
-            ? region.minX
-            : region.maxX;
-
-    return clamped;
 }
 
 }  // namespace vcam::product::ui
