@@ -708,6 +708,136 @@ bool TestInvalidReplacementPreservesSelection(
     return true;
 }
 
+bool TestActivationParityBlackPhotoBlackOriginal() {
+    const std::string root =
+        TempRoot();
+    CHECK(CreateDirectory(root));
+
+    const std::string temporaryPhoto =
+        TempFile(
+            root,
+            @"png");
+    CHECK(CreatePhoto(
+        temporaryPhoto));
+
+    const std::string notification =
+        "com.vcampro.test.activation." +
+        std::to_string(getpid()) +
+        "." +
+        std::to_string(
+            static_cast<unsigned long long>(
+                arc4random()));
+
+    ProductControlOwner owner(
+        root + "/control.plist",
+        notification,
+        root + "/media");
+
+    CHECK(owner.setEnabled(true));
+
+    ProductControlSnapshot snapshot =
+        owner.snapshot();
+
+    CHECK(snapshot.enabled);
+    CHECK(!snapshot.hasMedia());
+
+    VirtualBlackFrame blackFrame;
+    CVPixelBufferRef black =
+        blackFrame.prepare(
+            64,
+            48,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    CHECK(black != nullptr);
+
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+    CHECK(adapter.bindBlackFallback(
+        black));
+
+    CVPixelBufferRef original =
+        MakeCameraBuffer();
+    CHECK(original != nullptr);
+
+    const auto noMedia =
+        adapter.decide(original);
+    CHECK(noMedia.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(noMedia.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(noMedia.pixelBuffer !=
+          original);
+
+    std::string error;
+    CHECK(owner.selectFromTemporaryPath(
+        temporaryPhoto,
+        ProductMediaKind::Photo,
+        &error));
+
+    snapshot = owner.snapshot();
+    CHECK(snapshot.enabled);
+    CHECK(snapshot.mediaKind ==
+          ProductMediaKind::Photo);
+    CHECK(snapshot.hasMedia());
+
+    InternalGalleryMediaSession session(
+        SessionConfig());
+
+    CHECK(session.selectPhoto(
+        snapshot.mediaPath));
+    CHECK(session.start());
+    CHECK(WaitForQueue(
+        session.readyQueue()));
+    CHECK(session.playbackState() ==
+          PlaybackState::Playing);
+
+    adapter.bindQueue(
+        &session.readyQueue(),
+        session.state()
+            .mediaGeneration(),
+        session.state()
+            .timelineEpoch(),
+        true);
+
+    const auto photoReady =
+        adapter.decide(original);
+
+    CHECK(photoReady.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(photoReady.source ==
+          CameraDecisionSource::PreparedMedia);
+    CHECK(photoReady.pixelBuffer !=
+          original);
+
+    CHECK(owner.clearMedia());
+    session.clearMedia();
+    adapter.unbindQueue();
+
+    const auto afterClear =
+        adapter.decide(original);
+
+    CHECK(afterClear.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(afterClear.source ==
+          CameraDecisionSource::BlackFallback);
+
+    CHECK(owner.setEnabled(false));
+    adapter.setEnabled(false);
+
+    const auto disabled =
+        adapter.decide(original);
+
+    CHECK(disabled.kind ==
+          CameraDecisionKind::Original);
+    CHECK(disabled.source ==
+          CameraDecisionSource::Original);
+    CHECK(disabled.pixelBuffer ==
+          original);
+
+    CVPixelBufferRelease(original);
+    RemoveTree(root);
+    return true;
+}
+
 void Run(
     const char* name,
     const std::function<bool()>& fn) {
