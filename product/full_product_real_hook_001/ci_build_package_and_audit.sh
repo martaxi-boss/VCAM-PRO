@@ -227,7 +227,7 @@ sudo env "PATH=$PATH" bash "$ROOT/RootHidePatcher/patch.sh" "$INPUT" "$FINAL"
 
 test -f "$FINAL"
 shasum -a 256 "$FINAL" | tee "$FINAL.sha256"
-stat -f '%z' "$FINAL" | tee "$EVIDENCE/deb-size.txt"
+wc -c < "$FINAL" | tr -d ' ' | tee "$EVIDENCE/deb-size.txt"
 
 rm -rf "$EXTRACT"
 mkdir -p "$EXTRACT"
