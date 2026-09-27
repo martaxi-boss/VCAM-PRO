@@ -46,8 +46,8 @@ bool WindowIsUsable(
         !window.hidden &&
         window.alpha > 0.01 &&
         window.rootViewController != nil &&
-        CGRectGetWidth(window.bounds) > 1.0 &&
-        CGRectGetHeight(window.bounds) > 1.0;
+        window.bounds.size.width > 1.0 &&
+        window.bounds.size.height > 1.0;
 }
 
 UIWindow* FindExistingSpringBoardWindow() {
@@ -196,7 +196,7 @@ void AttachVisibleWitness(
     const CGFloat width =
         MAX(
             1.0,
-            CGRectGetWidth(bounds) -
+            bounds.size.width -
                 (horizontalInset * 2.0));
     const CGFloat top =
         MAX(
@@ -224,13 +224,23 @@ void AttachVisibleWitness(
         UIViewAutoresizingFlexibleWidth |
         UIViewAutoresizingFlexibleBottomMargin;
 
+    const CGRect labelFrame =
+        CGRectMake(
+            8.0,
+            8.0,
+            MAX(
+                1.0,
+                banner.bounds.size.width -
+                    16.0),
+            MAX(
+                1.0,
+                banner.bounds.size.height -
+                    16.0));
+
     UILabel* label =
         [[UILabel alloc]
             initWithFrame:
-                CGRectInset(
-                    banner.bounds,
-                    8.0,
-                    8.0)];
+                labelFrame];
 
     label.autoresizingMask =
         UIViewAutoresizingFlexibleWidth |
