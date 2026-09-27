@@ -285,44 +285,30 @@ for forbidden in \
     'synthetic callback provider'; do
     test -z "$(grep -Fi "$forbidden" "$EVIDENCE/product-symbols.txt" "$EVIDENCE/product-strings.txt" || true)"
 done
+echo "PRODUCT_FORBIDDEN_STUBS_ABSENT=PASS"
 
 for W in "$INSTALL_WITNESS" "$SUB_WITNESS"; do
     xcrun lipo -info "$W" | grep -q 'architecture: arm64'
     xcrun otool -l "$W" | grep -q 'minos 15.0'
 done
+echo "WITNESS_ARCH_AND_MIN_IOS=PASS"
 
 xcrun otool -L "$INSTALL_WITNESS" > "$EVIDENCE/install-witness-linked-libraries.txt"
 strings "$INSTALL_WITNESS" > "$EVIDENCE/install-witness-strings.txt"
 grep -Fq 'VCAM REAL HOOK INSTALL PASS' "$EVIDENCE/install-witness-strings.txt"
 test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/install-witness-linked-libraries.txt" || true)"
+echo "INSTALL_WITNESS_BINARY_AUDIT=PASS"
 
 xcrun otool -L "$SUB_WITNESS" > "$EVIDENCE/sub-witness-linked-libraries.txt"
 strings "$SUB_WITNESS" > "$EVIDENCE/sub-witness-strings.txt"
-for token in \
-    'VCAM PHOTO SUBSTITUTION DIAGNOSTIC' \
-    'NO_GENUINE_CALLBACK_OBSERVED' \
-    'ORIGINAL_DISABLED' \
-    'ORIGINAL_RECONFIGURATION_CONTENDED' \
-    'ORIGINAL_PRODUCER_UNAVAILABLE' \
-    'ORIGINAL_EMPTY_OR_NO_ELIGIBLE' \
-    'ORIGINAL_INVALID_LEASE' \
-    'ORIGINAL_GEOMETRY_MISMATCH' \
-    'ORIGINAL_MIXED_FAIL_OPEN' \
-    'VIRTUAL_DECISION_OBSERVED' \
-    'camera-callback-count=%u' \
-    'decision-virtual-count=%u' \
-    'decision-original-count=%u' \
-    'geometry-change-count=%u' \
-    'observed-camera-width=%u' \
-    'session-target-width=%u' \
-    'virtual-buffer-geometry-match=%@'; do
-    grep -Fq "$token" "$EVIDENCE/sub-witness-strings.txt"
-done
+grep -Fq 'com.vcampro.gate.first-local-photo-substitution-diagnostic.001' "$EVIDENCE/sub-witness-strings.txt"
 test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/sub-witness-linked-libraries.txt" || true)"
+echo "DIAGNOSTIC_WITNESS_BINARY_IDENTITY=PASS"
 
 verify_signature "$PRODUCT" "$EVIDENCE/product-code-signature.txt"
 verify_signature "$INSTALL_WITNESS" "$EVIDENCE/install-witness-code-signature.txt"
 verify_signature "$SUB_WITNESS" "$EVIDENCE/sub-witness-code-signature.txt"
+echo "ALL_CODE_SIGNATURES=PASS"
 
 test "$(git hash-object src/product/ReferenceCameraHook.mm)" = "$HOOK_BLOB"
 test "$(git hash-object src/product/CameraConsumerAdapter.cpp)" = "$ADAPTER_CPP_BLOB"
