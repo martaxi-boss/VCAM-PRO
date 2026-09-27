@@ -40,6 +40,7 @@ test "$src_changed" = "src/product/MediaserverdRuntime.mm"
 python3 - <<'PY'
 from pathlib import Path
 import plistlib
+import re
 
 scope = Path("product/real_camera_callback_pass_through_001")
 runtime = Path("src/product/MediaserverdRuntime.mm").read_text()
@@ -55,13 +56,17 @@ proof_state = (scope / "RealCameraCallbackPassThroughProofState.h").read_text()
 witness = (scope / "RealCameraCallbackPassThroughWitness.mm").read_text()
 build = (scope / "build_callback_pass_through_input.sh").read_text()
 
-if hook.count("runtime.decideCameraBuffer(original)") != 1:
-    raise SystemExit("Frozen hook no longer has exactly one production decideCameraBuffer(original) call")
+hook_patterns = (
+    (r"gOriginalCMSampleBufferGetImageBuffer\\s*\\(\\s*sampleBuffer\\s*\\)", "original provider call"),
+    (r"runtime\\.observeRealCameraBuffer\\s*\\(\\s*original\\s*\\)", "real-buffer observation"),
+    (r"runtime\\.decideCameraBuffer\\s*\\(\\s*original\\s*\\)", "production decision call"),
+)
+for pattern, label in hook_patterns:
+    matches = re.findall(pattern, hook)
+    if len(matches) != 1:
+        raise SystemExit(f"Frozen hook {label} count changed: {len(matches)}")
 
 for token in (
-    "gOriginalCMSampleBufferGetImageBuffer(sampleBuffer)",
-    "runtime.observeRealCameraBuffer(original)",
-    "runtime.decideCameraBuffer(original)",
     "return decision.pixelBuffer != nullptr",
     "HookedCMSampleBufferGetImageBuffer",
     "MSHookFunction",
