@@ -4,6 +4,7 @@
 #include "ProductControlOwner.h"
 #include "SelectionCompletionGate.h"
 #include "SharedControlStore.h"
+#include "VirtualBlackFrame.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
