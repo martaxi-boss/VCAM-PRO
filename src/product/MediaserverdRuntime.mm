@@ -634,11 +634,6 @@ struct MediaserverdRuntime::Impl {
                 ? snapshot.selectionGeneration
                 : 0);
 
-        if (!activePhoto) {
-            proofReadyActive_ = false;
-            proofReadyGeneration_ = 0;
-            proofReadyPath_.clear();
-        }
     }
 
     bool loadLocalPhotoProofControlSnapshot(
