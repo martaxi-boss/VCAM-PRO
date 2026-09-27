@@ -9,6 +9,8 @@
 
 #define VCAM_PRO_LOAD_PROBE_MARKER "VCAM_PRO_LOAD_PROBE_001"
 
+static int g_load_probe_state_token = -1;
+
 __attribute__((constructor))
 static void
 vcam_pro_load_probe_init(void)
@@ -56,24 +58,23 @@ vcam_pro_load_probe_init(void)
             token,
             state);
 
-    uint32_t post_status =
-        NOTIFY_STATUS_FAILED;
-
-    if (set_status ==
-        NOTIFY_STATUS_OK) {
-        post_status =
-            notify_post(
-                VCAM_PRO_LOAD_PROBE_NOTIFICATION);
-    }
-
-    (void)notify_cancel(token);
-
     if (set_status !=
-            NOTIFY_STATUS_OK ||
-        post_status !=
-            NOTIFY_STATUS_OK) {
+        NOTIFY_STATUS_OK) {
+        (void)notify_cancel(token);
         return;
     }
+
+    const uint32_t post_status =
+        notify_post(
+            VCAM_PRO_LOAD_PROBE_NOTIFICATION);
+
+    if (post_status !=
+        NOTIFY_STATUS_OK) {
+        (void)notify_cancel(token);
+        return;
+    }
+
+    g_load_probe_state_token = token;
 
     os_log_with_type(
         OS_LOG_DEFAULT,
