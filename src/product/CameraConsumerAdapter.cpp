@@ -4,6 +4,27 @@
 
 namespace vcam::product {
 
+CameraConsumerAdapter::~CameraConsumerAdapter() {
+    blackFallback_.store(
+        nullptr,
+        std::memory_order_release);
+
+    std::lock_guard<std::mutex> lock(
+        blackMutex_);
+
+    for (std::size_t index = 0;
+         index < blackFallbackHistoryCount_;
+         ++index) {
+        if (blackFallbackHistory_[index] !=
+            nullptr) {
+            CVPixelBufferRelease(
+                blackFallbackHistory_[index]);
+            blackFallbackHistory_[index] =
+                nullptr;
+        }
+    }
+}
+
 void CameraConsumerAdapter::setEnabled(
     bool enabled) noexcept {
     enabled_.store(
@@ -48,6 +69,62 @@ void CameraConsumerAdapter::unbindQueue() {
     context_ = {};
 }
 
+bool CameraConsumerAdapter::bindBlackFallback(
+    CVPixelBufferRef pixelBuffer) {
+    if (pixelBuffer == nullptr) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(
+        blackMutex_);
+
+    for (std::size_t index = 0;
+         index < blackFallbackHistoryCount_;
+         ++index) {
+        CVPixelBufferRef cached =
+            blackFallbackHistory_[index];
+
+        if (cached == pixelBuffer ||
+            (cached != nullptr &&
+             CVPixelBufferGetWidth(cached) ==
+                 CVPixelBufferGetWidth(pixelBuffer) &&
+             CVPixelBufferGetHeight(cached) ==
+                 CVPixelBufferGetHeight(pixelBuffer) &&
+             CVPixelBufferGetPixelFormatType(cached) ==
+                 CVPixelBufferGetPixelFormatType(
+                     pixelBuffer))) {
+            blackFallback_.store(
+                cached,
+                std::memory_order_release);
+            return true;
+        }
+    }
+
+    if (blackFallbackHistoryCount_ >=
+        kBlackFallbackCapacity) {
+        return false;
+    }
+
+    CVPixelBufferRetain(pixelBuffer);
+
+    blackFallbackHistory_[
+        blackFallbackHistoryCount_++] =
+            pixelBuffer;
+
+    blackFallback_.store(
+        pixelBuffer,
+        std::memory_order_release);
+
+    return true;
+}
+
+void CameraConsumerAdapter::
+clearBlackFallback() noexcept {
+    blackFallback_.store(
+        nullptr,
+        std::memory_order_release);
+}
+
 CameraDecision CameraConsumerAdapter::decide(
     CVPixelBufferRef original) noexcept {
     decisionCount_.fetch_add(
@@ -55,6 +132,8 @@ CameraDecision CameraConsumerAdapter::decide(
         std::memory_order_relaxed);
 
     CameraDecision decision;
+    decision.source =
+        CameraDecisionSource::Original;
     decision.pixelBuffer = original;
 
     if (!enabled_.load(
@@ -64,68 +143,141 @@ CameraDecision CameraConsumerAdapter::decide(
         return decision;
     }
 
+    CameraFailOpenReason mediaFailure =
+        CameraFailOpenReason::None;
+
     std::unique_lock<std::mutex> lock(
         mutex_,
         std::try_to_lock);
+
     if (!lock.owns_lock()) {
-        decision.reason =
+        mediaFailure =
             CameraFailOpenReason::
                 ReconfigurationContended;
-        return decision;
-    }
-
-    if (queue_ == nullptr ||
-        !producerHealthy_) {
-        decision.reason =
+    } else if (queue_ == nullptr ||
+               !producerHealthy_) {
+        mediaFailure =
             CameraFailOpenReason::
                 ProducerUnavailable;
-        return decision;
+    } else {
+        auto acquired =
+            queue_->tryAcquire(context_);
+
+        if (acquired.kind !=
+                frame_engine::
+                    AcquireResultKind::Acquired ||
+            !acquired.lease.has_value()) {
+            mediaFailure =
+                CameraFailOpenReason::
+                    EmptyOrNoEligibleFrame;
+        } else {
+            const frame_engine::FrameLease*
+                lease =
+                    acquired.lease->
+                        frameLease();
+
+            if (!acquired.lease->valid() ||
+                lease == nullptr ||
+                lease->pixelBuffer() ==
+                    nullptr) {
+                mediaFailure =
+                    CameraFailOpenReason::
+                        InvalidLease;
+            } else if (!matchesOriginalGeometry(
+                           original,
+                           *lease)) {
+                mediaFailure =
+                    CameraFailOpenReason::
+                        GeometryMismatch;
+            } else {
+                CVPixelBufferRef selected =
+                    lease->pixelBuffer();
+
+                pin(
+                    std::move(
+                        *acquired.lease));
+
+                virtualDecisionCount_.
+                    fetch_add(
+                        1,
+                        std::memory_order_relaxed);
+                mediaVirtualDecisionCount_.
+                    fetch_add(
+                        1,
+                        std::memory_order_relaxed);
+
+                decision.kind =
+                    CameraDecisionKind::Virtual;
+                decision.source =
+                    CameraDecisionSource::
+                        PreparedMedia;
+                decision.reason =
+                    CameraFailOpenReason::None;
+                decision.pixelBuffer =
+                    selected;
+                return decision;
+            }
+        }
     }
 
-    auto acquired =
-        queue_->tryAcquire(context_);
-    if (acquired.kind !=
-            frame_engine::AcquireResultKind::Acquired ||
-        !acquired.lease.has_value()) {
-        decision.reason =
-            CameraFailOpenReason::
-                EmptyOrNoEligibleFrame;
-        return decision;
+    if (lock.owns_lock()) {
+        lock.unlock();
     }
 
-    const frame_engine::FrameLease* lease =
-        acquired.lease->frameLease();
-    if (!acquired.lease->valid() ||
-        lease == nullptr ||
-        lease->pixelBuffer() == nullptr) {
-        decision.reason =
-            CameraFailOpenReason::InvalidLease;
-        return decision;
-    }
+    return blackOrEmergencyOriginal(
+        original,
+        mediaFailure);
+}
 
-    if (!matchesOriginalGeometry(
+CameraDecision
+CameraConsumerAdapter::
+blackOrEmergencyOriginal(
+    CVPixelBufferRef original,
+    CameraFailOpenReason
+        mediaFailureReason) noexcept {
+    CameraDecision decision;
+    decision.source =
+        CameraDecisionSource::Original;
+    decision.pixelBuffer = original;
+    decision.mediaFailureReason =
+        mediaFailureReason;
+
+    CVPixelBufferRef black =
+        blackFallback_.load(
+            std::memory_order_acquire);
+
+    if (matchesOriginalGeometry(
             original,
-            *lease)) {
+            black)) {
+        virtualDecisionCount_.fetch_add(
+            1,
+            std::memory_order_relaxed);
+        blackVirtualDecisionCount_.
+            fetch_add(
+                1,
+                std::memory_order_relaxed);
+
+        decision.kind =
+            CameraDecisionKind::Virtual;
+        decision.source =
+            CameraDecisionSource::
+                BlackFallback;
         decision.reason =
-            CameraFailOpenReason::
-                GeometryMismatch;
+            CameraFailOpenReason::None;
+        decision.pixelBuffer =
+            black;
         return decision;
     }
 
-    CVPixelBufferRef selected =
-        lease->pixelBuffer();
+    emergencyOriginalDecisionCount_.
+        fetch_add(
+            1,
+            std::memory_order_relaxed);
 
-    pin(std::move(*acquired.lease));
-
-    virtualDecisionCount_.fetch_add(
-        1,
-        std::memory_order_relaxed);
-
-    decision.kind =
-        CameraDecisionKind::Virtual;
     decision.reason =
-        CameraFailOpenReason::None;
-    decision.pixelBuffer = selected;
+        CameraFailOpenReason::
+            BlackFallbackUnavailable;
+
     return decision;
 }
 
@@ -142,6 +294,14 @@ CameraConsumerAdapter::pinnedLeaseCount() const {
     return count;
 }
 
+std::size_t
+CameraConsumerAdapter::
+blackFallbackCacheCount() const {
+    std::lock_guard<std::mutex> lock(
+        blackMutex_);
+    return blackFallbackHistoryCount_;
+}
+
 std::uint64_t
 CameraConsumerAdapter::decisionCount() const noexcept {
     return decisionCount_.load(
@@ -152,6 +312,28 @@ std::uint64_t
 CameraConsumerAdapter::virtualDecisionCount() const noexcept {
     return virtualDecisionCount_.load(
         std::memory_order_relaxed);
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+mediaVirtualDecisionCount() const noexcept {
+    return mediaVirtualDecisionCount_.load(
+        std::memory_order_relaxed);
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+blackVirtualDecisionCount() const noexcept {
+    return blackVirtualDecisionCount_.load(
+        std::memory_order_relaxed);
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+emergencyOriginalDecisionCount() const noexcept {
+    return emergencyOriginalDecisionCount_.
+        load(
+            std::memory_order_relaxed);
 }
 
 bool CameraConsumerAdapter::
@@ -171,6 +353,29 @@ matchesOriginalGeometry(
         CVPixelBufferGetPixelFormatType(
             original) ==
             lease.pixelFormat();
+}
+
+bool CameraConsumerAdapter::
+matchesOriginalGeometry(
+    CVPixelBufferRef original,
+    CVPixelBufferRef candidate)
+    const noexcept {
+    if (original == nullptr ||
+        candidate == nullptr) {
+        return false;
+    }
+
+    return
+        CVPixelBufferGetWidth(original) ==
+            CVPixelBufferGetWidth(
+                candidate) &&
+        CVPixelBufferGetHeight(original) ==
+            CVPixelBufferGetHeight(
+                candidate) &&
+        CVPixelBufferGetPixelFormatType(
+            original) ==
+            CVPixelBufferGetPixelFormatType(
+                candidate);
 }
 
 void CameraConsumerAdapter::pin(
