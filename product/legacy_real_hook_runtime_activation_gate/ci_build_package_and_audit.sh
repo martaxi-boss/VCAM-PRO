@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eu
+set -eux
 
 BASE=2895d40391a344dd5325affa05bda2cb0b1612bf
 PR19=2475bd51953b536c32d12e37475fd32eaf7c4a67
