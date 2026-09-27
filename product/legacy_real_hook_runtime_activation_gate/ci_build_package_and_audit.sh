@@ -113,8 +113,9 @@ test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/
 test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "$MOTION"
 test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "$IOS16"
 
-if grep -REn 'hookselftest|self[-_ ]?test|dummy[[:space:]_-]*hook|ReferenceCameraHook.*Stub|MSHookFunctionStub' "$GATE"; then
-    echo "Synthetic hook architecture found in gate scope"
+if grep -REn --exclude='ci_build_package_and_audit.sh' \
+    'hookselftest|self[-_ ]?test|dummy[[:space:]_-]*hook|ReferenceCameraHook.*Stub|MSHookFunctionStub' "$GATE"; then
+    echo "Synthetic hook architecture found in gate implementation/package scope"
     exit 1
 fi
 
