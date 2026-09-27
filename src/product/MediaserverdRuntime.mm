@@ -13,6 +13,10 @@
 #include "SharedMediaStager.h"
 #endif
 
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+#include "FirstLocalPhotoVirtualSubstitutionProof.h"
+#endif
+
 #import <Foundation/Foundation.h>
 
 #include <CoreVideo/CoreVideo.h>
@@ -123,6 +127,9 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
         proof::ResetLocalPhotoPipelineReadyProofState();
 #endif
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+        proof::ResetFirstLocalPhotoVirtualSubstitutionProofState();
+#endif
 
         controlQueue_ =
             dispatch_queue_create(
@@ -150,6 +157,10 @@ struct MediaserverdRuntime::Impl {
             initial,
             true);
 #endif
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+        updateFirstPhotoSubstitutionControlSnapshot(
+            initial);
+#endif
         adapter_.setEnabled(
             initial.enabled);
 
@@ -169,6 +180,10 @@ struct MediaserverdRuntime::Impl {
                         snapshot,
                         true);
 #endif
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+                    updateFirstPhotoSubstitutionControlSnapshot(
+                        snapshot);
+#endif
                     adapter_.setEnabled(
                         snapshot.enabled);
 
@@ -185,6 +200,9 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
                                 this->evaluateLocalPhotoDiagnostic(
                                     false);
+#endif
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+                                this->beginFirstPhotoSubstitutionReadyCheck();
 #endif
                             });
                     }
@@ -203,6 +221,9 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
                 this->evaluateLocalPhotoDiagnostic(
                     false);
+#endif
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+                this->beginFirstPhotoSubstitutionReadyCheck();
 #endif
             });
 
@@ -259,12 +280,126 @@ struct MediaserverdRuntime::Impl {
                 this->evaluateLocalPhotoDiagnostic(
                     false);
 #endif
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+                this->beginFirstPhotoSubstitutionReadyCheck();
+#endif
             });
     }
 
     CameraDecision decide(
         CVPixelBufferRef original) noexcept {
-#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+        std::uint64_t selectionGenerationBefore = 0;
+        std::uint32_t controlFlagsBefore = 0;
+        const bool controlBeforeConsistent =
+            loadFirstPhotoSubstitutionControlSnapshot(
+                &selectionGenerationBefore,
+                &controlFlagsBefore);
+        const std::uint64_t readyGenerationBefore =
+            firstPhotoSubstitutionReadyGeneration_.load(
+                std::memory_order_acquire);
+
+        const std::uint64_t decisionCountBefore =
+            adapter_.decisionCount();
+        const std::uint64_t virtualDecisionCountBefore =
+            adapter_.virtualDecisionCount();
+
+        CameraDecision decision =
+            adapter_.decide(
+                original);
+
+        const std::uint64_t decisionCountAfter =
+            adapter_.decisionCount();
+        const std::uint64_t virtualDecisionCountAfter =
+            adapter_.virtualDecisionCount();
+
+        std::uint64_t selectionGenerationAfter = 0;
+        std::uint32_t controlFlagsAfter = 0;
+        const bool controlAfterConsistent =
+            loadFirstPhotoSubstitutionControlSnapshot(
+                &selectionGenerationAfter,
+                &controlFlagsAfter);
+        const std::uint64_t readyGenerationAfter =
+            firstPhotoSubstitutionReadyGeneration_.load(
+                std::memory_order_acquire);
+
+        bool geometryMatch = false;
+        if (original != nullptr &&
+            decision.pixelBuffer != nullptr) {
+            geometryMatch =
+                CVPixelBufferGetWidth(original) ==
+                    CVPixelBufferGetWidth(
+                        decision.pixelBuffer) &&
+                CVPixelBufferGetHeight(original) ==
+                    CVPixelBufferGetHeight(
+                        decision.pixelBuffer) &&
+                CVPixelBufferGetPixelFormatType(original) ==
+                    CVPixelBufferGetPixelFormatType(
+                        decision.pixelBuffer);
+        }
+
+        const bool stableSelection =
+            controlBeforeConsistent &&
+            controlAfterConsistent &&
+            selectionGenerationBefore != 0 &&
+            selectionGenerationBefore ==
+                selectionGenerationAfter &&
+            controlFlagsBefore ==
+                controlFlagsAfter;
+
+        if (stableSelection) {
+            proof::FirstLocalPhotoVirtualSubstitutionFacts facts;
+            facts.selectionGeneration =
+                selectionGenerationAfter;
+            facts.originalNonNull =
+                original != nullptr;
+            facts.vcamEnabled =
+                (controlFlagsAfter &
+                 kFirstPhotoSubControlEnabled) != 0;
+            facts.photoSelected =
+                (controlFlagsAfter &
+                 kFirstPhotoSubControlPhoto) != 0 &&
+                (controlFlagsAfter &
+                 kFirstPhotoSubControlHasMedia) != 0;
+            facts.mediaReady =
+                readyGenerationBefore ==
+                    selectionGenerationAfter &&
+                readyGenerationAfter ==
+                    selectionGenerationAfter;
+            facts.cameraGeometryObserved =
+                observedGeometry_.load(
+                    std::memory_order_acquire) != 0;
+            facts.callbackExercised = true;
+            facts.decisionVirtual =
+                decision.kind ==
+                CameraDecisionKind::Virtual;
+            facts.decisionReasonNone =
+                decision.reason ==
+                CameraFailOpenReason::None;
+            facts.virtualBufferNonNull =
+                decision.pixelBuffer != nullptr;
+            facts.virtualBufferDifferentFromOriginal =
+                decision.pixelBuffer != nullptr &&
+                decision.pixelBuffer != original;
+            facts.geometryMatch =
+                geometryMatch;
+            facts.decisionCountIncremented =
+                decisionCountBefore != UINT64_MAX &&
+                decisionCountAfter ==
+                    decisionCountBefore + 1U;
+            facts.virtualDecisionCountIncremented =
+                virtualDecisionCountBefore != UINT64_MAX &&
+                virtualDecisionCountAfter ==
+                    virtualDecisionCountBefore + 1U;
+            facts.virtualDecisionCountAfter =
+                virtualDecisionCountAfter;
+
+            proof::ObserveFirstLocalPhotoVirtualSubstitution(
+                facts);
+        }
+
+        return decision;
+#elif defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
         std::uint64_t selectionGeneration = 0;
         std::uint32_t controlFlags = 0;
         const bool controlFactsConsistent =
@@ -587,6 +722,14 @@ struct MediaserverdRuntime::Impl {
 
     void bindCurrentSession(
         bool producerHealthy) {
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+        const ProductControlSnapshot substitutionSnapshot =
+            cache_.snapshot();
+        firstPhotoSubstitutionProducerGeneration_ =
+            substitutionSnapshot.selectionGeneration;
+        firstPhotoSubstitutionProducerHealthy_ =
+            producerHealthy;
+#endif
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
         const ProductControlSnapshot proofSnapshot =
             cache_.snapshot();
@@ -608,6 +751,224 @@ struct MediaserverdRuntime::Impl {
                 .timelineEpoch(),
             producerHealthy);
     }
+
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+    static constexpr std::uint32_t
+        kFirstPhotoSubControlEnabled =
+            UINT32_C(0x01);
+    static constexpr std::uint32_t
+        kFirstPhotoSubControlPhoto =
+            UINT32_C(0x02);
+    static constexpr std::uint32_t
+        kFirstPhotoSubControlHasMedia =
+            UINT32_C(0x04);
+
+    static constexpr std::uint32_t
+        kFirstPhotoSubReadyMaxChecks =
+            120;
+    static constexpr std::int64_t
+        kFirstPhotoSubReadyRetryNanoseconds =
+            INT64_C(250000000);
+
+    void updateFirstPhotoSubstitutionControlSnapshot(
+        const ProductControlSnapshot& snapshot) noexcept {
+        firstPhotoSubstitutionControlSequence_.fetch_add(
+            1,
+            std::memory_order_acq_rel);
+
+        firstPhotoSubstitutionSelectionGeneration_.store(
+            snapshot.selectionGeneration,
+            std::memory_order_relaxed);
+
+        std::uint32_t flags = 0;
+        if (snapshot.enabled) {
+            flags |= kFirstPhotoSubControlEnabled;
+        }
+        if (snapshot.mediaKind ==
+            ProductMediaKind::Photo) {
+            flags |= kFirstPhotoSubControlPhoto;
+        }
+        if (snapshot.hasMedia()) {
+            flags |= kFirstPhotoSubControlHasMedia;
+        }
+
+        firstPhotoSubstitutionControlFlags_.store(
+            flags,
+            std::memory_order_relaxed);
+
+        firstPhotoSubstitutionControlSequence_.fetch_add(
+            1,
+            std::memory_order_release);
+
+        firstPhotoSubstitutionReadyGeneration_.store(
+            0,
+            std::memory_order_release);
+
+        const bool activePhoto =
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.hasMedia() &&
+            snapshot.selectionGeneration != 0;
+
+        proof::BeginFirstLocalPhotoVirtualSubstitutionSelection(
+            activePhoto
+                ? snapshot.selectionGeneration
+                : 0);
+    }
+
+    bool loadFirstPhotoSubstitutionControlSnapshot(
+        std::uint64_t* selectionGeneration,
+        std::uint32_t* flags) const noexcept {
+        if (selectionGeneration == nullptr ||
+            flags == nullptr) {
+            return false;
+        }
+
+        for (int attempt = 0;
+             attempt < 2;
+             ++attempt) {
+            const std::uint64_t before =
+                firstPhotoSubstitutionControlSequence_.load(
+                    std::memory_order_acquire);
+            if ((before & UINT64_C(1)) != 0) {
+                continue;
+            }
+
+            const std::uint64_t generation =
+                firstPhotoSubstitutionSelectionGeneration_.load(
+                    std::memory_order_relaxed);
+            const std::uint32_t loadedFlags =
+                firstPhotoSubstitutionControlFlags_.load(
+                    std::memory_order_relaxed);
+
+            const std::uint64_t after =
+                firstPhotoSubstitutionControlSequence_.load(
+                    std::memory_order_acquire);
+
+            if (before == after &&
+                (after & UINT64_C(1)) == 0) {
+                *selectionGeneration =
+                    generation;
+                *flags =
+                    loadedFlags;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    void beginFirstPhotoSubstitutionReadyCheck() {
+        if (controlQueue_ == nullptr) {
+            return;
+        }
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+
+        if (!snapshot.enabled ||
+            snapshot.mediaKind !=
+                ProductMediaKind::Photo ||
+            !snapshot.hasMedia() ||
+            snapshot.selectionGeneration == 0) {
+            firstPhotoSubstitutionReadyGeneration_.store(
+                0,
+                std::memory_order_release);
+            return;
+        }
+
+        ++firstPhotoSubstitutionReadySerial_;
+        const std::uint64_t serial =
+            firstPhotoSubstitutionReadySerial_;
+        const std::uint64_t generation =
+            snapshot.selectionGeneration;
+
+        checkFirstPhotoSubstitutionReady(
+            generation,
+            serial,
+            0);
+    }
+
+    void checkFirstPhotoSubstitutionReady(
+        std::uint64_t selectionGeneration,
+        std::uint64_t serial,
+        std::uint32_t attempt) {
+        if (serial !=
+            firstPhotoSubstitutionReadySerial_) {
+            return;
+        }
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+
+        if (!snapshot.enabled ||
+            snapshot.mediaKind !=
+                ProductMediaKind::Photo ||
+            !snapshot.hasMedia() ||
+            snapshot.selectionGeneration !=
+                selectionGeneration) {
+            firstPhotoSubstitutionReadyGeneration_.store(
+                0,
+                std::memory_order_release);
+            return;
+        }
+
+        bool ready = false;
+
+        const bool geometryObserved =
+            observedGeometry_.load(
+                std::memory_order_acquire) != 0;
+
+        if (geometryObserved &&
+            session_ != nullptr &&
+            firstPhotoSubstitutionProducerGeneration_ ==
+                selectionGeneration &&
+            firstPhotoSubstitutionProducerHealthy_) {
+            const auto& selected =
+                session_->selectedMedia();
+
+            ready =
+                selected.valid &&
+                selected.kind ==
+                    media_engine::
+                        SelectedMediaKind::Photo &&
+                selected.localPath ==
+                    snapshot.mediaPath &&
+                session_->playbackState() ==
+                    frame_engine::
+                        PlaybackState::Playing &&
+                session_->readyQueue().size() > 0;
+        }
+
+        if (ready) {
+            firstPhotoSubstitutionReadyGeneration_.store(
+                selectionGeneration,
+                std::memory_order_release);
+            return;
+        }
+
+        firstPhotoSubstitutionReadyGeneration_.store(
+            0,
+            std::memory_order_release);
+
+        if (attempt + 1 >=
+            kFirstPhotoSubReadyMaxChecks) {
+            return;
+        }
+
+        dispatch_after(
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                kFirstPhotoSubReadyRetryNanoseconds),
+            controlQueue_,
+            ^{
+                this->checkFirstPhotoSubstitutionReady(
+                    selectionGeneration,
+                    serial,
+                    attempt + 1);
+            });
+    }
+#endif
 
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
     static constexpr std::uint32_t
@@ -1190,6 +1551,24 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
     std::atomic<std::uint32_t>
         proofControlState_{0};
+#endif
+
+#if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
+    std::atomic<std::uint64_t>
+        firstPhotoSubstitutionControlSequence_{0};
+    std::atomic<std::uint64_t>
+        firstPhotoSubstitutionSelectionGeneration_{0};
+    std::atomic<std::uint32_t>
+        firstPhotoSubstitutionControlFlags_{0};
+    std::atomic<std::uint64_t>
+        firstPhotoSubstitutionReadyGeneration_{0};
+
+    std::uint64_t
+        firstPhotoSubstitutionReadySerial_ = 0;
+    std::uint64_t
+        firstPhotoSubstitutionProducerGeneration_ = 0;
+    bool
+        firstPhotoSubstitutionProducerHealthy_ = false;
 #endif
 
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
