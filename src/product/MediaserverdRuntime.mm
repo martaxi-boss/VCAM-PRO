@@ -3,6 +3,7 @@
 #include "ControlStateCache.h"
 #include "InternalGalleryMediaSession.h"
 #include "SharedControlStore.h"
+#include "VirtualBlackFrame.h"
 
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
 #include "RealCameraCallbackPassThroughProof.h"
