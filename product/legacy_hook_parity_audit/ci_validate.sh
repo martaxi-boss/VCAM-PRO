@@ -66,8 +66,7 @@ if len(provider_calls) < 1:
 
 qualified = []
 for i in provider_calls:
-    window = "
-".join(lines[max(0, i - 12): i + 2])
+    window = "\n".join(lines[max(0, i - 12): i + 2])
     if "literal pool symbol address: _CMSampleBufferGetImageBuffer" in window:
         qualified.append(i)
 
@@ -84,8 +83,7 @@ if not marker_sites:
 # Both recovered call sites observed in the frozen binary use the same x1 code
 # address and x2 writable-data address immediately before MSHookFunction.
 # This supports structural inference only; stripped local semantic names remain unknown.
-contexts = ["
-".join(lines[max(0, i - 8): i + 1]) for i in provider_calls]
+contexts = ["\n".join(lines[max(0, i - 8): i + 1]) for i in provider_calls]
 for ctx in contexts:
     if "add	x1, x1, #0x5d4" not in ctx:
         raise SystemExit("Legacy replacement-address pattern changed")
