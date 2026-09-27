@@ -100,6 +100,7 @@ for token in (
     if token not in adapter:
         raise SystemExit(f"Adapter contract missing: {token}")
 
+compact_adapter = "".join(adapter.split())
 for reason in (
     "CameraFailOpenReason::Disabled",
     "CameraFailOpenReason::ReconfigurationContended",
@@ -108,7 +109,7 @@ for reason in (
     "CameraFailOpenReason::InvalidLease",
     "CameraFailOpenReason::GeometryMismatch",
 ):
-    if reason not in adapter:
+    if "".join(reason.split()) not in compact_adapter:
         raise SystemExit(f"Adapter fail-open reason missing: {reason}")
 if adapter.count("virtualDecisionCount_.fetch_add") != 1:
     raise SystemExit("Virtual decision counter semantics changed")
