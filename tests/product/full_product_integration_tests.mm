@@ -358,6 +358,27 @@ SessionConfig() {
     return config;
 }
 
+CVPixelBufferRef MakeCameraBuffer(
+    std::size_t width = 64,
+    std::size_t height = 48,
+    OSType format =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+    CVPixelBufferRef buffer = nullptr;
+
+    if (CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            format,
+            nullptr,
+            &buffer) !=
+        kCVReturnSuccess) {
+        return nullptr;
+    }
+
+    return buffer;
+}
+
 bool WaitForQueue(
     ReadyFrameQueue& queue,
     int attempts = 1000) {
