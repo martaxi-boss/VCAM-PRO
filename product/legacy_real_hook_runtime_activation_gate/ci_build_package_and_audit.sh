@@ -204,7 +204,10 @@ xcrun otool -L "$DYLIB" > "$EVIDENCE/dylib-linked-libraries.txt"
 xcrun nm -a "$DYLIB" | c++filt > "$EVIDENCE/dylib-symbols.txt" || true
 xcrun nm -u "$DYLIB" > "$EVIDENCE/dylib-undefined.txt" || true
 strings "$DYLIB" > "$EVIDENCE/dylib-strings.txt"
-codesign --verify --verbose=2 "$DYLIB" 2> "$EVIDENCE/codesign-verify.txt"
+if ! codesign --verify --verbose=4 "$DYLIB" 2> "$EVIDENCE/codesign-verify.txt"; then
+    cat "$EVIDENCE/codesign-verify.txt"
+    exit 1
+fi
 ldid -e "$DYLIB" > "$EVIDENCE/dylib-entitlements.txt"
 
 grep -q 'architecture: arm64' "$EVIDENCE/dylib-arch.txt"
