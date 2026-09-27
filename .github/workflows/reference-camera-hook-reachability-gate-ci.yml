@@ -220,6 +220,13 @@ jobs:
           )"
           test -z "$external_calls"
 
+          local_media_target_calls="$(
+            grep -RIl 'CMSampleBufferGetImageBuffer(' src \
+              --exclude=ReferenceCameraHook.mm || true
+          )"
+          test "$local_media_target_calls" = "src/media_engine/LocalVideoReader.mm"
+          grep -Fq 'CMSampleBufferGetImageBuffer(sample)' src/media_engine/LocalVideoReader.mm
+
           if grep -RInE 'MSHookFunction|HookedCMSampleBufferGetImageBuffer|CMSampleBufferRef|CVPixelBufferRef|observeRealCameraBuffer|decideCameraBuffer'               "$GATE"; then
             echo "Active hook/camera/frame path leaked into gate-only files."
             exit 1
@@ -457,10 +464,13 @@ jobs:
           grep -Fq 'frame-access=INACTIVE' "$EVIDENCE/product-strings.txt"
           grep -Fq 'frame-substitution=INACTIVE' "$EVIDENCE/product-strings.txt"
 
-          if grep -Eq '_MSHookFunction|_CMSampleBufferGetImageBuffer' "$EVIDENCE/product-undefined.txt"; then
-            echo "Real hook import found in final device dylib."
+          if grep -Eq '_MSHookFunction' "$EVIDENCE/product-undefined.txt"; then
+            echo "Hooking function import found in final device dylib."
             exit 1
           fi
+
+          grep -q '_CMSampleBufferGetImageBuffer' "$EVIDENCE/product-undefined.txt"
+          echo "CMSAMPLEBUFFER_TARGET_IMPORT_SOURCE=FROZEN_LOCAL_VIDEO_READER"
 
           if grep -Eq 'HookedCMSampleBufferGetImageBuffer|Hooking CMSampleBufferGetImageBuffer'               "$EVIDENCE/product-symbols.txt" "$EVIDENCE/product-strings.txt"; then
             echo "Real hook implementation found in final device dylib."
