@@ -1,9 +1,9 @@
 Package: com.vcampro.camera
-Name: VCAM PRO Local Photo Pipeline Ready
-Version: 0.1.0+roothide10~photoready1
+Name: VCAM PRO Local Photo Pipeline Ready Diagnostic Remediation A
+Version: 0.1.0+roothide10~photoready2
 Architecture: iphoneos-arm64
 Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Complete VCAM PRO local-gallery product with local photo pipeline READY pass-through proof.
+Description: Complete VCAM PRO local-gallery product with deterministic local-photo READY or diagnostic proof.
 Maintainer: VCAM PRO
 Author: VCAM PRO
 Section: Tweaks
