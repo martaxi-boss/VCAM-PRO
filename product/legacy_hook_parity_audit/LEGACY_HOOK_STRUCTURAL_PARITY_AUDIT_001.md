@@ -20,8 +20,8 @@ Static comparison only. No hook is installed or executed. No camera consumer is 
 | mediaserverd injection filter | PROVEN | `recovered/VCamRecovered.plist` names executable `mediaserverd` and bundle `com.apple.mediaserverd`. |
 | Provider call uses CMSampleBuffer target | PROVEN | ARM64 disassembly has direct `bl` to the `_MSHookFunction` stub with x0 loaded from literal `_CMSampleBufferGetImageBuffer`; observed at two call sites around 0x5c8c4 and 0x5e0d0. |
 | Direct provider import rather than runtime `dlsym` | PROVEN | Undefined import plus direct symbol-stub calls to `_MSHookFunction`; no claim is made that the binary contains no unrelated dynamic lookup mechanism. |
-| Replacement-function concept | INFERRED | At both MSHookFunction call sites x1 is loaded from the same code address (0x175d4); local symbols are stripped, so its semantic name is not recoverable. |
-| Original/trampoline storage concept | INFERRED | At both call sites x2 is loaded from the same writable-data address (0xa9500), consistent with the third MSHookFunction original-storage argument; the local variable name is not recoverable. |
+| Replacement-function concept | PROVEN | At both MSHookFunction call sites x1 is loaded from the same code address (0x175d4), and the disassembly contains a function entry at 0x175d4. The local semantic name is stripped, but the provider-argument role is statically established. |
+| Original/trampoline storage concept | PROVEN | At both call sites x2 addresses the same writable storage at 0xa9000+0x500. The function at 0x175d4 later loads that storage and calls it via `blr x8` (including around 0x18940/0x18948 and 0x1a51c/0x1a524). The local variable name is stripped, but the original-trampoline storage-and-call pattern is statically established. |
 | Exact legacy constructor/startup call context | NOT_DETERMINABLE | The dylib is stripped/obfuscated and the available static evidence does not identify a source-level constructor enclosing the hook call with sufficient certainty. |
 | arm64 | PROVEN | Historical audit identifies a thin Mach-O 64-bit arm64 dylib. |
 | minimum iOS | PROVEN | Historical LC_BUILD_VERSION records minimum iOS 14.0, therefore the binary's deployment target is compatible with iOS 15 at the Mach-O minimum-version level; this is not iOS 15.8.8 runtime proof. |
@@ -48,8 +48,8 @@ VCAM-PRO uses the local-gallery media engine behind the existing runtime/camera-
 | mediaserverd targeting | PROVEN plist filter | PROVEN constructor process guard | MATCH |
 | MSHookFunction usage | PROVEN direct import + direct symbol-stub calls | PROVEN direct declaration/call | MATCH |
 | CMSampleBufferGetImageBuffer target | PROVEN at provider call sites | PROVEN source target argument | MATCH |
-| replacement-function concept | INFERRED same x1 code address | PROVEN `HookedCMSampleBufferGetImageBuffer` | STRUCTURAL MATCH |
-| original trampoline concept | INFERRED same x2 writable storage | PROVEN `gOriginalCMSampleBufferGetImageBuffer` | STRUCTURAL MATCH |
+| replacement-function concept | PROVEN provider x1 → 0x175d4 function entry | PROVEN `HookedCMSampleBufferGetImageBuffer` | MATCH |
+| original trampoline concept | PROVEN provider x2 storage later loaded/called | PROVEN `gOriginalCMSampleBufferGetImageBuffer` | MATCH |
 | startup/load topology | PROVEN mediaserverd injection; exact constructor context NOT_DETERMINABLE | PROVEN constructor → runtime.start → install | COMPATIBLE; exact legacy timing unknown |
 | arm64 compatibility | PROVEN arm64 | compile-only CI requires arm64 | MATCH |
 | rootless layout | `/var/jb/Library/MobileSubstrate/DynamicLibraries` | Dopamine/RootHide TweakInject packaging in certified product path | ADAPTATION, not hook divergence |
