@@ -199,7 +199,7 @@ if "ProducerStartFailed" not in producer_window or "evaluateLocalPhotoDiagnostic
 
 # producerHealthy must be retained from actual binding result.
 bind_start = runtime.index("    void bindCurrentSession(")
-bind_end = runtime.index("#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)", bind_start)
+bind_end = runtime.index("    static constexpr std::uint32_t", bind_start)
 bind = runtime[bind_start:bind_end]
 if "recordLocalPhotoProducerState" not in bind or "producerHealthy" not in bind:
     raise SystemExit("Actual producerHealthy binding result not retained")
