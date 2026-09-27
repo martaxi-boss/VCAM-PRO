@@ -131,6 +131,20 @@ jobs:
           )"
           test -z "$external_calls"
 
+          samplebuffer_calls="$(
+            grep -RIn 'CMSampleBufferGetImageBuffer' src \
+              --include='*.mm' --include='*.cpp' --include='*.h' || true
+          )"
+          test -n "$samplebuffer_calls"
+          echo "$samplebuffer_calls" | grep -Fq 'src/media_engine/LocalVideoReader.mm:'
+          echo "$samplebuffer_calls" | grep -Fq 'src/product/ReferenceCameraHook.mm:'
+          unexpected_samplebuffer_calls="$(
+            echo "$samplebuffer_calls" |
+              grep -Ev '^(src/media_engine/LocalVideoReader\.mm|src/product/ReferenceCameraHook\.mm):' || true
+          )"
+          test -z "$unexpected_samplebuffer_calls"
+          echo "LOCAL_VIDEO_READER_SAMPLEBUFFER_API_PRESERVED=PASS"
+
           grep -Fq 'getprogname()' "$STUB"
           grep -Fq '"mediaserverd"' "$STUB"
           grep -Fq 'notify_register_check' "$STUB"
@@ -507,7 +521,7 @@ jobs:
           grep -Fq 'reference-hook=DISABLED' "$EVIDENCE/product-strings.txt"
           grep -Fq 'frame-substitution=INACTIVE' "$EVIDENCE/product-strings.txt"
 
-          if grep -E 'MSHookFunction|HookedCMSampleBufferGetImageBuffer|Hooking CMSampleBufferGetImageBuffer|CMSampleBufferGetImageBuffer'               "$EVIDENCE/product-symbols.txt"               "$EVIDENCE/product-undefined.txt"               "$EVIDENCE/product-strings.txt"; then
+          if grep -E 'MSHookFunction|HookedCMSampleBufferGetImageBuffer|Hooking CMSampleBufferGetImageBuffer'               "$EVIDENCE/product-symbols.txt"               "$EVIDENCE/product-undefined.txt"               "$EVIDENCE/product-strings.txt"; then
             echo "Real reference camera hook leaked into product runtime gate."
             exit 1
           fi
