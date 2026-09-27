@@ -369,7 +369,11 @@ void ValidateTokenState(
         return;
     }
 
-    AcceptFreshState(state);
+    dispatch_async(
+        dispatch_get_main_queue(),
+        ^{
+            AcceptFreshState(state);
+        });
 }
 
 void RegisterWitness() {
