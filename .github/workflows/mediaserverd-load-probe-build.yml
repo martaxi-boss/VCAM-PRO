@@ -441,8 +441,8 @@ jobs:
           grep -q 'notify_register_dispatch' "$EVIDENCE/witness-undefined.txt"
           grep -q 'notify_get_state' "$EVIDENCE/witness-undefined.txt"
 
-          if grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos' "$EVIDENCE/witness-linked-libraries.txt"; then
-            echo "Witness linked a forbidden camera/media framework."
+          if grep -Ei 'CoreGraphics|AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos' "$EVIDENCE/witness-linked-libraries.txt"; then
+            echo "Witness linked a framework outside the UIKit/Foundation proof boundary."
             exit 1
           fi
 
