@@ -1,4 +1,4 @@
-name: VCAM PRO Local Photo Pipeline Ready Pass-Through 001
+name: VCAM PRO Local Photo Pipeline Ready Diagnostic Remediation A
 
 on:
   push:
@@ -19,7 +19,7 @@ concurrency:
 
 jobs:
   certify:
-    name: Certify local photo pipeline ready pass-through product
+    name: Certify deterministic local photo pipeline diagnostic product
     runs-on: macos-26
     timeout-minutes: 120
 
@@ -94,10 +94,10 @@ jobs:
       - name: Upload certified package and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-local-photo-pipeline-ready-pass-through-001
+          name: vcampro-local-photo-pipeline-ready-diagnostic-remediation-a
           path: |
-            build/local-photo-pipeline-ready-pass-through-001/final/VCAM-PRO-RootHide-Local-Photo-Pipeline-Ready-Pass-Through-001.deb
-            build/local-photo-pipeline-ready-pass-through-001/final/VCAM-PRO-RootHide-Local-Photo-Pipeline-Ready-Pass-Through-001.deb.sha256
+            build/local-photo-pipeline-ready-pass-through-001/final/VCAM-PRO-RootHide-Local-Photo-Pipeline-Ready-Diagnostic-Remediation-A.deb
+            build/local-photo-pipeline-ready-pass-through-001/final/VCAM-PRO-RootHide-Local-Photo-Pipeline-Ready-Diagnostic-Remediation-A.deb.sha256
             build/local-photo-pipeline-ready-pass-through-001/evidence/**
             build/local-photo-proof-state/results.txt
             build/photo-ready-tests/*.txt
