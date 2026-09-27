@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-START=7ffcca077d7d38afcd25278b740d040f52ff0842
+START=5c5080ec8b88814d638c865b749204fac8569dd2
 MAIN=d476caacc4f557843f9551533c2fcbe7c5d40baa
 IOS15=a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
 MOTION=5ede3a1973a01cb13fe7f3ab562b47513feec1b1
@@ -14,9 +14,9 @@ ADAPTER_H_BLOB=3577bd2935c72a69529c855c8730d6c75054ab34
 ROOT="$PWD/build/first-local-photo-virtual-substitution-001"
 SCOPE=product/first_local_photo_virtual_substitution_001
 FULL_SCOPE=product/full_product_real_hook_001
-INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide11~photosub1_iphoneos-arm64.deb"
+INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide12~photosubdiag1_iphoneos-arm64.deb"
 FINAL_DIR="$ROOT/final"
-FINAL="$FINAL_DIR/VCAM-PRO-RootHide-First-Local-Photo-Virtual-Substitution-001.deb"
+FINAL="$FINAL_DIR/VCAM-PRO-RootHide-First-Local-Photo-Substitution-Diagnostic-Remediation-A.deb"
 EXTRACT="$ROOT/extracted-final"
 EVIDENCE="$ROOT/evidence"
 
@@ -24,8 +24,8 @@ PRODUCT_REL="usr/lib/TweakInject/VCAMPro.dylib"
 PRODUCT_PLIST_REL="usr/lib/TweakInject/VCAMPro.plist"
 INSTALL_WITNESS_REL="usr/lib/TweakInject/VCAMProFullProductRealHookWitness.dylib"
 INSTALL_WITNESS_PLIST_REL="usr/lib/TweakInject/VCAMProFullProductRealHookWitness.plist"
-SUB_WITNESS_REL="usr/lib/TweakInject/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.dylib"
-SUB_WITNESS_PLIST_REL="usr/lib/TweakInject/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.plist"
+SUB_WITNESS_REL="usr/lib/TweakInject/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.dylib"
+SUB_WITNESS_PLIST_REL="usr/lib/TweakInject/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.plist"
 
 sh "$SCOPE/build_first_local_photo_virtual_substitution_input.sh"
 
@@ -34,7 +34,7 @@ sh "$SCOPE/ci_static_validate.sh" | tee "$EVIDENCE/static-validation.txt"
 
 test -f "$INPUT"
 test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide11~photosub1"
+test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide12~photosubdiag1"
 test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
 
 dpkg-deb -c "$INPUT" | tee "$EVIDENCE/input-inventory.txt"
@@ -57,7 +57,7 @@ dpkg-deb -f "$FINAL" | tee "$EVIDENCE/final-control.txt"
 dpkg-deb -c "$FINAL" | tee "$EVIDENCE/final-inventory.txt"
 
 test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide11~photosub1"
+test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide12~photosubdiag1"
 test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
 test ! -e "$EXTRACT/var/jb"
 
@@ -92,7 +92,7 @@ with (tweak / "VCAMPro.plist").open("rb") as f:
     product = plistlib.load(f)
 with (tweak / "VCAMProFullProductRealHookWitness.plist").open("rb") as f:
     install_witness = plistlib.load(f)
-with (tweak / "VCAMProFirstLocalPhotoVirtualSubstitutionWitness.plist").open("rb") as f:
+with (tweak / "VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.plist").open("rb") as f:
     sub_witness = plistlib.load(f)
 
 if product != {"Filter": {"Executables": ["SpringBoard", "mediaserverd"]}}:
@@ -266,9 +266,9 @@ grep -Fq 'vcam::product::MediaserverdRuntime' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'vcam::product::InstallReferenceCameraHook()' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'HookedCMSampleBufferGetImageBuffer' "$EVIDENCE/product-symbols.txt"
 grep -Fq 'gOriginalCMSampleBufferGetImageBuffer' "$EVIDENCE/product-symbols.txt"
-grep -Fq 'vcam::product::proof::BeginFirstLocalPhotoVirtualSubstitutionSelection' "$EVIDENCE/product-symbols.txt"
-grep -Fq 'vcam::product::proof::ObserveFirstLocalPhotoVirtualSubstitution' "$EVIDENCE/product-symbols.txt"
-grep -Fq 'vcam::product::proof::ResetFirstLocalPhotoVirtualSubstitutionProofState' "$EVIDENCE/product-symbols.txt"
+grep -Fq 'publishFirstPhotoSubstitutionDiagnosticIfActive' "$EVIDENCE/product-symbols.txt"
+grep -Fq 'currentFirstPhotoSubstitutionDiagnosticSnapshot' "$EVIDENCE/product-symbols.txt"
+grep -Fq 'firstPhotoSubDiagnosticGeometryChangeCount_' "$EVIDENCE/product-symbols.txt"
 grep -Fq '_OBJC_CLASS_$_VCAMInternalGalleryViewController' "$EVIDENCE/product-symbols.txt"
 grep -Fxq '_MSHookFunction' "$EVIDENCE/product-undefined.txt"
 grep -Fxq '_CMSampleBufferGetImageBuffer' "$EVIDENCE/product-undefined.txt"
@@ -297,18 +297,23 @@ test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|Photos
 xcrun otool -L "$SUB_WITNESS" > "$EVIDENCE/sub-witness-linked-libraries.txt"
 strings "$SUB_WITNESS" > "$EVIDENCE/sub-witness-strings.txt"
 for token in \
-    'VCAM LOCAL PHOTO VIRTUAL SUBSTITUTION PASS' \
-    'vcam-enabled=YES' \
-    'media-kind=PHOTO' \
-    'media-ready=YES' \
-    'camera-geometry-observed=YES' \
-    'camera-callback=EXERCISED' \
-    'decision=VIRTUAL' \
-    'virtual-buffer-non-null=YES' \
-    'virtual-buffer-different-from-original=YES' \
-    'geometry-match=YES' \
-    'virtual-decision-count=>0' \
-    'frame-substitution=ACTIVE'; do
+    'VCAM PHOTO SUBSTITUTION DIAGNOSTIC' \
+    'NO_GENUINE_CALLBACK_OBSERVED' \
+    'ORIGINAL_DISABLED' \
+    'ORIGINAL_RECONFIGURATION_CONTENDED' \
+    'ORIGINAL_PRODUCER_UNAVAILABLE' \
+    'ORIGINAL_EMPTY_OR_NO_ELIGIBLE' \
+    'ORIGINAL_INVALID_LEASE' \
+    'ORIGINAL_GEOMETRY_MISMATCH' \
+    'ORIGINAL_MIXED_FAIL_OPEN' \
+    'VIRTUAL_DECISION_OBSERVED' \
+    'camera-callback-count=%u' \
+    'decision-virtual-count=%u' \
+    'decision-original-count=%u' \
+    'geometry-change-count=%u' \
+    'observed-camera-width=%u' \
+    'session-target-width=%u' \
+    'virtual-buffer-geometry-match=%@'; do
     grep -Fq "$token" "$EVIDENCE/sub-witness-strings.txt"
 done
 test -z "$(grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos|PhotosUI' "$EVIDENCE/sub-witness-linked-libraries.txt" || true)"
@@ -331,52 +336,57 @@ test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/hea
 test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "$IOS16"
 
 {
-    echo "TASK_ID=VCAM-PRO-FIRST-LOCAL-PHOTO-VIRTUAL-SUBSTITUTION-001"
+    echo "TASK_ID=VCAM-PRO-FIRST-LOCAL-PHOTO-SUBSTITUTION-DIAGNOSTIC-REMEDIATION-A"
     echo "STARTING_HEAD=$START"
     echo "REFERENCE_CAMERA_HOOK_SOURCE_BLOB=$HOOK_BLOB"
     echo "CAMERA_CONSUMER_ADAPTER_CPP_BLOB=$ADAPTER_CPP_BLOB"
     echo "CAMERA_CONSUMER_ADAPTER_H_BLOB=$ADAPTER_H_BLOB"
     echo "ROOT_HIDE_PATCHER_SHA=$PATCHER_SHA"
-    echo "ARM64=PASS"
-    echo "MINIMUM_IOS_15=PASS"
-    echo "ROOTHIDE_PACKAGE=PASS"
-    echo "ROOT_HIDE_PATCHER_PINNED=PASS"
-    echo "VALID_CODE_SIGNATURE=PASS"
-    echo "PACKAGE_ID_CORRECT=PASS"
-    echo "PACKAGE_VERSION_CORRECT=PASS"
-    echo "FULL_PRODUCT_COMPONENTS_PRESENT=PASS"
-    echo "LOCAL_PHOTO_PATH_PRESENT=PASS"
-    echo "REAL_REFERENCE_HOOK_PRESENT=PASS"
-    echo "READY_QUEUE_CONSUMER_PATH_PRESENT=PASS"
-    echo "CAMERA_CONSUMER_ADAPTER_VIRTUAL_PATH_PRESENT=PASS"
-    echo "VIRTUAL_DECISION_COUNTER_PATH_PRESENT=PASS"
-    echo "PINNED_LEASE_PATH_PRESENT=PASS"
-    echo "GEOMETRY_MATCH_GUARD_PRESENT=PASS"
-    echo "FIRST_PHOTO_SUBSTITUTION_PROOF_COMPILE_TIME_SCOPED=PASS"
-    echo "GENUINE_CALLBACK_REQUIRED=PASS"
-    echo "MEDIA_READY_REQUIRED=PASS"
-    echo "VCAM_ENABLED_REQUIRED=PASS"
-    echo "PHOTO_MEDIA_KIND_REQUIRED=PASS"
-    echo "DECISION_VIRTUAL_REQUIRED=PASS"
-    echo "VIRTUAL_BUFFER_NON_NULL_REQUIRED=PASS"
-    echo "VIRTUAL_BUFFER_DIFFERENT_FROM_ORIGINAL_REQUIRED=PASS"
-    echo "GEOMETRY_MATCH_REQUIRED=PASS"
-    echo "VIRTUAL_DECISION_INCREMENT_REQUIRED=PASS"
+    echo "REAL_GENUINE_CALLBACK_DIAGNOSTIC=PASS"
     echo "NO_SYNTHETIC_CALLBACK=PASS"
     echo "NO_DIRECT_HOOK_INVOCATION_FROM_PROOF=PASS"
     echo "NO_DIRECT_ADAPTER_DECIDE_FROM_PROOF=PASS"
-    echo "NO_HEAVY_CAMERA_CALLBACK_WORK=PASS"
-    echo "NO_CAMERA_CALLBACK_FILE_IO=PASS"
-    echo "NO_CAMERA_CALLBACK_DECODE=PASS"
-    echo "NO_CAMERA_CALLBACK_BLOCKING_WAIT=PASS"
+    echo "BOUNDED_DIAGNOSTIC=PASS"
+    echo "DIAGNOSTIC_INTERVAL_SECONDS=10"
+    echo "DIAGNOSTIC_CALLBACK_BUDGET=240"
+    echo "NO_HEAVY_CAMERA_CRITICAL_WORK=PASS"
+    echo "CAMERA_CALLBACK_FILE_IO_ABSENT=PASS"
+    echo "CAMERA_CALLBACK_DECODE_ABSENT=PASS"
+    echo "CAMERA_CALLBACK_BLOCKING_WAIT_ABSENT=PASS"
+    echo "CALLBACK_LOGGING_STORM_ABSENT=PASS"
+    echo "FAIL_OPEN_REASON_COUNTERS_PRESENT=PASS"
+    echo "DISABLED_COUNTER_PRESENT=PASS"
+    echo "RECONFIGURATION_CONTENDED_COUNTER_PRESENT=PASS"
+    echo "PRODUCER_UNAVAILABLE_COUNTER_PRESENT=PASS"
+    echo "EMPTY_OR_NO_ELIGIBLE_COUNTER_PRESENT=PASS"
+    echo "INVALID_LEASE_COUNTER_PRESENT=PASS"
+    echo "GEOMETRY_MISMATCH_COUNTER_PRESENT=PASS"
+    echo "VIRTUAL_VS_ORIGINAL_DECISION_DIAGNOSTIC_PRESENT=PASS"
+    echo "GEOMETRY_DIAGNOSTIC_PRESENT=PASS"
+    echo "GEOMETRY_CHANGE_COUNTER_PRESENT=PASS"
+    echo "SESSION_TARGET_GEOMETRY_PRESENT=PASS"
+    echo "PRODUCER_HEALTH_DIAGNOSTIC_PRESENT=PASS"
+    echo "SESSION_STATE_DIAGNOSTIC_PRESENT=PASS"
+    echo "READY_FRAME_COUNT_DIAGNOSTIC_PRESENT=PASS"
+    echo "NON_CONSUMING_READY_INSPECTION=PASS"
+    echo "DIAGNOSTIC_WITNESS_PRESENT=PASS"
+    echo "DIAGNOSTIC_WITNESS_SPRINGBOARD_ONLY=PASS"
+    echo "FRESH_DIAGNOSTIC_REQUIRED=PASS"
+    echo "STALE_PHOTOSUB1_STATE_REJECTED=PASS"
+    echo "REFERENCE_CAMERA_HOOK_SOURCE_CHANGED=NO"
+    echo "CAMERA_CONSUMER_ADAPTER_SOURCE_CHANGED=NO"
     echo "FAIL_OPEN_PRESERVED=PASS"
-    echo "VCAM_OFF_ORIGINAL_PATH_REGRESSION=PASS"
-    echo "VCAM_ON_VIRTUAL_DECISION_PATH=PASS"
-    echo "VCAM_DISABLE_AFTER_VIRTUAL_RETURNS_ORIGINAL=PASS"
-    echo "VISIBLE_SUBSTITUTION_WITNESS_PRESENT=PASS"
-    echo "VISIBLE_SUBSTITUTION_WITNESS_SPRINGBOARD_ONLY=PASS"
-    echo "REFERENCE_CAMERA_HOOK_SOURCE_UNCHANGED=PASS"
-    echo "CAMERA_CONSUMER_ADAPTER_SOURCE_UNCHANGED=PASS"
+    echo "FRAME_ENGINE_REGRESSION=PASS"
+    echo "LOCAL_PHOTO_REGRESSION=PASS"
+    echo "CAMERA_CONSUMER_ADAPTER_REGRESSION=PASS"
+    echo "FULL_PRODUCT_REGRESSION=PASS"
+    echo "ROOTLESS_PACKAGE=PASS"
+    echo "ROOT_HIDE_PATCHER_PINNED=PASS"
+    echo "ARM64=PASS"
+    echo "MINIMUM_IOS_15=PASS"
+    echo "VALID_CODE_SIGNATURE=PASS"
+    echo "PACKAGE_ID_CORRECT=PASS"
+    echo "PACKAGE_VERSION_CORRECT=PASS"
     echo "MAIN_UNCHANGED=PASS"
     echo "READ_ONLY_REPOS_UNCHANGED=PASS"
     echo "DEVICE_ACTION=NO"
