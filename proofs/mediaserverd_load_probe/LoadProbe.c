@@ -13,7 +13,7 @@
 #define VCAM_PRO_LOAD_PROBE_DIRECTORY \
     "/var/mobile/Library/VCAMProMediaserverdProbe"
 #define VCAM_PRO_LOAD_PROBE_PATH \
-    VCAM_PRO_LOAD_PROBE_DIRECTORY "/load-proof.txt"
+    "/var/mobile/Library/VCAMProMediaserverdProbe/load-proof.txt"
 
 static void
 vcam_pro_write_persistent_proof(
