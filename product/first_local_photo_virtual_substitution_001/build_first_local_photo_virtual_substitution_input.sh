@@ -18,7 +18,7 @@ COMMON="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -W
 
 "$CXX" $COMMON -fobjc-arc -fblocks -dynamiclib \
   -DVCAM_FULL_PRODUCT_REAL_HOOK_PROOF=1 \
-  -DVCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF=1 \
+  -DVCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF=1 \
   -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
   -I"$FULL_SCOPE_DIR" -I"$SCOPE_DIR" \
   src/frame_engine/PreparedFrame.cpp \
@@ -46,7 +46,6 @@ COMMON="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -W
   src/product/ReferenceCameraHook.mm \
   src/product/VCAMProEntry.mm \
   "$FULL_SCOPE_DIR/FullProductRealHookProof.mm" \
-  "$SCOPE_DIR/FirstLocalPhotoVirtualSubstitutionProof.mm" \
   -Fproduct/stubs \
   -framework CydiaSubstrate \
   -framework Accelerate \
@@ -79,14 +78,14 @@ COMMON="-std=c++17 -arch arm64 -isysroot $SDKROOT -miphoneos-version-min=15.0 -W
 
 "$CXX" $COMMON -fobjc-arc -fblocks -dynamiclib \
   -I"$SCOPE_DIR" \
-  "$SCOPE_DIR/FirstLocalPhotoVirtualSubstitutionWitness.mm" \
+  "$SCOPE_DIR/FirstLocalPhotoSubstitutionDiagnosticWitness.mm" \
   -framework Foundation \
   -framework UIKit \
   -framework CoreGraphics \
   -Wl,-rpath,@loader_path/.jbroot/Library/Frameworks \
   -Wl,-rpath,@loader_path/.jbroot/usr/lib \
-  -Wl,-install_name,@loader_path/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.dylib \
-  -o "$IOS_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.dylib"
+  -Wl,-install_name,@loader_path/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.dylib \
+  -o "$IOS_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.dylib"
 
 TWEAK_DIR="$PKG_ROOT/var/jb/usr/lib/TweakInject"
 mkdir -p "$TWEAK_DIR"
@@ -99,10 +98,10 @@ cp "$IOS_DIR/VCAMProFullProductRealHookWitness.dylib" \
 cp "$FULL_SCOPE_DIR/VCAMProFullProductRealHookWitness.plist" \
   "$TWEAK_DIR/VCAMProFullProductRealHookWitness.plist"
 
-cp "$IOS_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.dylib" \
-  "$TWEAK_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.dylib"
-cp "$SCOPE_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.plist" \
-  "$TWEAK_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.plist"
+cp "$IOS_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.dylib" \
+  "$TWEAK_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.dylib"
+cp "$SCOPE_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.plist" \
+  "$TWEAK_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.plist"
 
 cp "$SCOPE_DIR/control" "$PKG_ROOT/DEBIAN/control"
 cp "$SCOPE_DIR/postinst" "$PKG_ROOT/DEBIAN/postinst"
@@ -110,13 +109,13 @@ cp "$SCOPE_DIR/postinst" "$PKG_ROOT/DEBIAN/postinst"
 chmod 0755 "$PKG_ROOT/DEBIAN/postinst"
 chmod 0755 "$TWEAK_DIR/VCAMPro.dylib"
 chmod 0755 "$TWEAK_DIR/VCAMProFullProductRealHookWitness.dylib"
-chmod 0755 "$TWEAK_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.dylib"
+chmod 0755 "$TWEAK_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.dylib"
 chmod 0644 "$TWEAK_DIR/VCAMPro.plist"
 chmod 0644 "$TWEAK_DIR/VCAMProFullProductRealHookWitness.plist"
-chmod 0644 "$TWEAK_DIR/VCAMProFirstLocalPhotoVirtualSubstitutionWitness.plist"
+chmod 0644 "$TWEAK_DIR/VCAMProFirstLocalPhotoSubstitutionDiagnosticWitness.plist"
 chmod 0644 "$PKG_ROOT/DEBIAN/control"
 
-INPUT_DEB="$INPUT_DIR/com.vcampro.camera_0.1.0+roothide11~photosub1_iphoneos-arm64.deb"
+INPUT_DEB="$INPUT_DIR/com.vcampro.camera_0.1.0+roothide12~photosubdiag1_iphoneos-arm64.deb"
 dpkg-deb -Zzstd --build --root-owner-group "$PKG_ROOT" "$INPUT_DEB"
 
 printf '%s\n' "$INPUT_DEB"
