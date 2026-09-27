@@ -131,8 +131,9 @@ struct MediaserverdRuntime::Impl {
 
         cache_.replace(initial);
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
-        proofHasMedia_.store(
-            initial.hasMedia(),
+        proofControlState_.store(
+            (initial.enabled ? UINT32_C(0x01) : UINT32_C(0)) |
+            (initial.hasMedia() ? UINT32_C(0x02) : UINT32_C(0)),
             std::memory_order_release);
 #endif
         adapter_.setEnabled(
@@ -144,8 +145,9 @@ struct MediaserverdRuntime::Impl {
                         snapshot) {
                     cache_.replace(snapshot);
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
-                    proofHasMedia_.store(
-                        snapshot.hasMedia(),
+                    proofControlState_.store(
+                        (snapshot.enabled ? UINT32_C(0x01) : UINT32_C(0)) |
+                        (snapshot.hasMedia() ? UINT32_C(0x02) : UINT32_C(0)),
                         std::memory_order_release);
 #endif
                     adapter_.setEnabled(
@@ -226,11 +228,13 @@ struct MediaserverdRuntime::Impl {
     CameraDecision decide(
         CVPixelBufferRef original) noexcept {
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
-        const bool controlEnabled =
-            cache_.enabledFast();
-        const bool controlHasMedia =
-            proofHasMedia_.load(
+        const std::uint32_t proofControlState =
+            proofControlState_.load(
                 std::memory_order_acquire);
+        const bool controlEnabled =
+            (proofControlState & UINT32_C(0x01)) != 0;
+        const bool controlHasMedia =
+            (proofControlState & UINT32_C(0x02)) != 0;
         const std::uint64_t decisionCountBefore =
             adapter_.decisionCount();
         const std::uint64_t virtualDecisionCountBefore =
@@ -495,8 +499,8 @@ struct MediaserverdRuntime::Impl {
         observedGeometry_{0};
 
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
-    std::atomic<bool>
-        proofHasMedia_{false};
+    std::atomic<std::uint32_t>
+        proofControlState_{0};
 #endif
 
     bool started_ = false;
