@@ -1,22 +1,12 @@
 # VCAM PRO Canonical Project State
 
+REPOSITORY_HYGIENE=COMPLETE
 SAFE_DEVICE_BASELINE=ade6887fa6214ac1cd26b56f13e0d4f64e07e1d4
-SAFE_DEVICE_PACKAGE=0.1.0+roothide6~hookready1
-CANONICAL_FORWARD_BASE=dd06f7176d2937c2a4c37a349620a1fb5f78f4fe
 CANONICAL_FORWARD_BRANCH=builder/canonical-hook-continuation-001
 MAIN_FROZEN_FOR_NOW=d476caacc4f557843f9551533c2fcbe7c5d40baa
-PRESERVED_HOOK_EVIDENCE=ff2df5125e2e6f131b3b79ccb311a41105f950df 2895d40391a344dd5325affa05bda2cb0b1612bf 5295f9a3f7bf279ef5dd34f72c0bbc11a2b1ead5 dd06f7176d2937c2a4c37a349620a1fb5f78f4fe
-ABANDONED_DUMMY_PATHS=3674949a81639bdf804462ba956ddb836543d37f 4c8f192c9573e99d38540519c1c685df0384db0f
+PRESERVED_CHECKPOINT_TAGS=checkpoint/hookready1-device-safe evidence/legacy-hook-parity-001 evidence/real-hook-linkage-001 evidence/real-hook-activation-001 evidence/real-hook-visible-witness-001 archive/controlled-device-candidate-001 archive/gate1-automated-device-proof-runner-001 archive/reference-baseline-device-policy-005 archive/roothide-installation-probe-001 archive/roothide-mediaserverd-load-proof-002 archive/full-camera-build-remediation-a-001
+ABANDONED_DUMMY_BRANCHES=REMOVED
 PROOF_METHOD=DEB_SILEO_VISIBLE_BANNER
-NEXT_PHASE=REAL_HOOK_DEVICE_PROOF
 REAL_HOOK_STATUS=SOURCE_AND_STATIC_LINKAGE_PROVEN; REAL_INSTALLATION_NOT_YET_DEVICE_PROVEN
-SOURCE_FREEZE=NO_SRC_MUTATION_AFTER_ADE6887_THROUGH_DD06
-MUTABLE_FORWARD_WORKSTREAM=builder/canonical-hook-continuation-001_ONLY
-ALL_OTHER_EXISTING_BRANCHES=HISTORICAL_OR_CHECKPOINT_FROZEN_UNLESS_SEPARATELY_REAUTHORIZED
-READ_ONLY_REFERENCES=IOS-15-USB@a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d MotionCam-iOS@5ede3a1973a01cb13fe7f3ab562b47513feec1b1 IOS-16-USB-4k@cc20d787070c67565173d4a46c218e2549cecc93
-
-- hookready1 is the safe device baseline, not real-hook proof.
-- dd06 is forward repository evidence, not device runtime proof.
-- Dummy self-test development is abandoned.
-- Remote-terminal-dependent proof is superseded.
-- Main promotion is deferred until after the next real-hook device checkpoint.
+NEXT_PHASE=REAL_HOOK_DEVICE_PROOF
+REMOTE_DESKTOP_COMMANDER=NOT_USED_NOT_REQUIRED
