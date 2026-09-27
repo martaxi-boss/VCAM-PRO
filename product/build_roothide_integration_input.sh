@@ -73,7 +73,7 @@ chmod 0755 "$TWEAK_DIR/VCAMPro.dylib"
 chmod 0644 "$TWEAK_DIR/VCAMPro.plist"
 chmod 0644 "$PKG_ROOT/DEBIAN/control"
 
-INPUT_DEB="$FINAL_DIR/com.vcampro.camera_0.1.0+roothide2_iphoneos-arm64.deb"
+INPUT_DEB="$FINAL_DIR/com.vcampro.camera_0.1.0+roothide3_iphoneos-arm64.deb"
 dpkg-deb -Zzstd --build --root-owner-group "$PKG_ROOT" "$INPUT_DEB"
 
 printf '%s\n' "$INPUT_DEB"
