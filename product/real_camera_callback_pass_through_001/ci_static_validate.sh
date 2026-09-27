@@ -56,7 +56,7 @@ proof_state = (scope / "RealCameraCallbackPassThroughProofState.h").read_text()
 witness = (scope / "RealCameraCallbackPassThroughWitness.mm").read_text()
 build = (scope / "build_callback_pass_through_input.sh").read_text()
 
-hook_compact = re.sub(r"\\s+", "", hook)
+hook_compact = re.sub(r"\s+", "", hook)
 hook_calls = (
     ("gOriginalCMSampleBufferGetImageBuffer(sampleBuffer)", "original provider call"),
     ("runtime.observeRealCameraBuffer(original)", "real-buffer observation"),
