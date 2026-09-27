@@ -274,9 +274,6 @@ struct MediaserverdRuntime::Impl {
 
         const std::uint64_t decisionCountBefore =
             adapter_.decisionCount();
-        const std::uint64_t virtualDecisionCountBefore =
-            adapter_.virtualDecisionCount();
-
         CameraDecision decision =
             adapter_.decide(
                 original);
