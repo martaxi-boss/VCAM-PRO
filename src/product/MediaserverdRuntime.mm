@@ -148,7 +148,7 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
         updateLocalPhotoProofControlSnapshot(
             initial,
-            false);
+            true);
 #endif
         adapter_.setEnabled(
             initial.enabled);
@@ -177,8 +177,15 @@ struct MediaserverdRuntime::Impl {
                         dispatch_async(
                             controlQueue_,
                             ^{
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+                                this->beginOrRefreshLocalPhotoDiagnostic();
+#endif
                                 this->applyCachedState(
                                     false);
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+                                this->evaluateLocalPhotoDiagnostic(
+                                    false);
+#endif
                             });
                     }
                 })) {
@@ -188,8 +195,15 @@ struct MediaserverdRuntime::Impl {
         dispatch_sync(
             controlQueue_,
             ^{
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+                this->beginOrRefreshLocalPhotoDiagnostic();
+#endif
                 this->applyCachedState(
                     true);
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+                this->evaluateLocalPhotoDiagnostic(
+                    false);
+#endif
             });
 
         started_ = true;
@@ -241,6 +255,10 @@ struct MediaserverdRuntime::Impl {
             ^{
                 this->applyCachedState(
                     true);
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+                this->evaluateLocalPhotoDiagnostic(
+                    false);
+#endif
             });
     }
 
@@ -272,6 +290,7 @@ struct MediaserverdRuntime::Impl {
             proof::LocalPhotoCallbackFacts facts;
             facts.selectionGeneration =
                 selectionGeneration;
+            facts.callbackExercised = true;
             facts.originalNonNull =
                 original != nullptr;
             facts.vcamDisabled =
@@ -295,13 +314,20 @@ struct MediaserverdRuntime::Impl {
                 decisionCountBefore;
             facts.decisionCountAfter =
                 decisionCountAfter;
-            facts.virtualDecisionCountBefore =
-                virtualDecisionCountBefore;
-            facts.virtualDecisionCountAfter =
+            facts.virtualDecisionCount =
                 virtualDecisionCountAfter;
 
             proof::ObserveLocalPhotoCallbackPhase(
                 facts);
+
+            if (controlQueue_ != nullptr) {
+                dispatch_async(
+                    controlQueue_,
+                    ^{
+                        this->evaluateLocalPhotoDiagnostic(
+                            false);
+                    });
+            }
         }
 
         return decision;
@@ -393,10 +419,6 @@ struct MediaserverdRuntime::Impl {
             applyMutableControls(
                 snapshot);
             applied_ = snapshot;
-#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
-            beginLocalPhotoReadyCheck(
-                snapshot);
-#endif
             return;
         }
 
@@ -467,6 +489,14 @@ struct MediaserverdRuntime::Impl {
 
         if (!selected) {
             adapter_.unbindQueue();
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+            recordLocalPhotoFailureStage(
+                snapshot.selectionGeneration,
+                proof::LocalPhotoProofPipelineStage::
+                    PhotoSelectFailed);
+            evaluateLocalPhotoDiagnostic(
+                false);
+#endif
             return;
         }
 
@@ -478,6 +508,17 @@ struct MediaserverdRuntime::Impl {
                 candidate->start();
             if (!producerHealthy) {
                 adapter_.unbindQueue();
+#if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
+                recordLocalPhotoFailureStage(
+                    snapshot.selectionGeneration,
+                    proof::LocalPhotoProofPipelineStage::
+                        ProducerStartFailed);
+                recordLocalPhotoProducerState(
+                    snapshot.selectionGeneration,
+                    false);
+                evaluateLocalPhotoDiagnostic(
+                    false);
+#endif
                 return;
             }
         }
@@ -553,20 +594,6 @@ struct MediaserverdRuntime::Impl {
 
     void bindCurrentSession(
         bool producerHealthy) {
-        if (session_ == nullptr) {
-            adapter_.unbindQueue();
-            return;
-        }
-
-        adapter_.bindQueue(
-            &session_->readyQueue(),
-            session_->state()
-                .mediaGeneration(),
-            session_->state()
-                .timelineEpoch(),
-            producerHealthy);
-    }
-
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
     static constexpr std::uint32_t
         kPhotoProofControlEnabled =
@@ -579,10 +606,93 @@ struct MediaserverdRuntime::Impl {
             UINT32_C(0x04);
 
     static constexpr std::uint32_t
-        kPhotoReadyMaxAttempts = 40;
+        kPhotoDiagnosticMaxPeriodicChecks =
+            120;
     static constexpr std::int64_t
-        kPhotoReadyRetryNanoseconds =
-            INT64_C(100000000);
+        kPhotoDiagnosticRetryNanoseconds =
+            INT64_C(250000000);
+    static constexpr std::uint32_t
+        kPhotoDiagnosticWindowSeconds =
+            30;
+
+    static proof::LocalPhotoProofMediaKind
+    proofMediaKind(
+        ProductMediaKind value) noexcept {
+        switch (value) {
+            case ProductMediaKind::Photo:
+                return proof::
+                    LocalPhotoProofMediaKind::Photo;
+            case ProductMediaKind::Video:
+                return proof::
+                    LocalPhotoProofMediaKind::Video;
+            case ProductMediaKind::None:
+            default:
+                return proof::
+                    LocalPhotoProofMediaKind::None;
+        }
+    }
+
+    static proof::LocalPhotoProofMediaKind
+    proofSelectedMediaKind(
+        media_engine::SelectedMediaKind value) noexcept {
+        switch (value) {
+            case media_engine::SelectedMediaKind::Photo:
+                return proof::
+                    LocalPhotoProofMediaKind::Photo;
+            case media_engine::SelectedMediaKind::Video:
+                return proof::
+                    LocalPhotoProofMediaKind::Video;
+            case media_engine::SelectedMediaKind::None:
+            default:
+                return proof::
+                    LocalPhotoProofMediaKind::None;
+        }
+    }
+
+    static proof::LocalPhotoProofPlaybackIntent
+    proofPlaybackIntent(
+        ProductPlaybackIntent value) noexcept {
+        switch (value) {
+            case ProductPlaybackIntent::Playing:
+                return proof::
+                    LocalPhotoProofPlaybackIntent::Playing;
+            case ProductPlaybackIntent::Paused:
+                return proof::
+                    LocalPhotoProofPlaybackIntent::Paused;
+            case ProductPlaybackIntent::Stopped:
+            default:
+                return proof::
+                    LocalPhotoProofPlaybackIntent::Stopped;
+        }
+    }
+
+    static proof::LocalPhotoProofPlaybackState
+    proofPlaybackState(
+        frame_engine::PlaybackState value) noexcept {
+        switch (value) {
+            case frame_engine::PlaybackState::Empty:
+                return proof::
+                    LocalPhotoProofPlaybackState::Empty;
+            case frame_engine::PlaybackState::Ready:
+                return proof::
+                    LocalPhotoProofPlaybackState::Ready;
+            case frame_engine::PlaybackState::Playing:
+                return proof::
+                    LocalPhotoProofPlaybackState::Playing;
+            case frame_engine::PlaybackState::Paused:
+                return proof::
+                    LocalPhotoProofPlaybackState::Paused;
+            case frame_engine::PlaybackState::Ended:
+                return proof::
+                    LocalPhotoProofPlaybackState::Ended;
+            case frame_engine::PlaybackState::Failed:
+                return proof::
+                    LocalPhotoProofPlaybackState::Failed;
+            default:
+                return proof::
+                    LocalPhotoProofPlaybackState::Unknown;
+        }
+    }
 
     void updateLocalPhotoProofControlSnapshot(
         const ProductControlSnapshot& snapshot,
@@ -633,7 +743,6 @@ struct MediaserverdRuntime::Impl {
             activePhoto
                 ? snapshot.selectionGeneration
                 : 0);
-
     }
 
     bool loadLocalPhotoProofControlSnapshot(
@@ -677,96 +786,166 @@ struct MediaserverdRuntime::Impl {
         return false;
     }
 
-    void beginLocalPhotoReadyCheck(
-        const ProductControlSnapshot& snapshot) {
-        if (controlQueue_ == nullptr ||
-            snapshot.enabled ||
-            snapshot.mediaKind !=
-                ProductMediaKind::Photo ||
-            !snapshot.hasMedia() ||
-            snapshot.selectionGeneration == 0 ||
-            snapshot.playbackIntent !=
-                ProductPlaybackIntent::Playing ||
-            session_ == nullptr) {
-            return;
-        }
-
-        if (proofReadyActive_ &&
-            proofReadyGeneration_ ==
-                snapshot.selectionGeneration &&
-            proofReadyPath_ ==
-                snapshot.mediaPath) {
-            return;
-        }
-
-        const bool mediaStaged =
-            proofStager_.
-                isExistingOwnedMediaPath(
-                    snapshot.mediaPath);
-        if (!mediaStaged) {
-            return;
-        }
-
-        proofReadyActive_ = true;
-        proofReadyGeneration_ =
-            snapshot.selectionGeneration;
-        proofReadyPath_ =
-            snapshot.mediaPath;
-
-        checkLocalPhotoReady(
-            snapshot.selectionGeneration,
-            0);
-    }
-
-    void checkLocalPhotoReady(
-        std::uint64_t selectionGeneration,
-        std::uint32_t attempt) {
-        if (!proofReadyActive_ ||
-            proofReadyGeneration_ !=
-                selectionGeneration) {
+    void beginOrRefreshLocalPhotoDiagnostic() {
+        if (controlQueue_ == nullptr) {
             return;
         }
 
         const ProductControlSnapshot snapshot =
             cache_.snapshot();
+        const bool activePhoto =
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.hasMedia() &&
+            snapshot.selectionGeneration != 0;
 
-        if (snapshot.selectionGeneration !=
-                selectionGeneration ||
-            snapshot.mediaKind !=
-                ProductMediaKind::Photo ||
-            !snapshot.hasMedia() ||
-            snapshot.mediaPath !=
-                proofReadyPath_ ||
-            snapshot.enabled ||
-            snapshot.playbackIntent !=
-                ProductPlaybackIntent::Playing) {
-            proofReadyActive_ = false;
+        if (!activePhoto) {
+            if (proofDiagnosticActive_) {
+                proofDiagnosticActive_ = false;
+                ++proofDiagnosticSerial_;
+                proofPipelineStage_ =
+                    proof::
+                        LocalPhotoProofPipelineStage::
+                            ControlSuperseded;
+            }
             return;
         }
 
-        proof::LocalPhotoReadyFacts facts;
-        facts.selectionGeneration =
+        if (proofDiagnosticActive_ &&
+            proofDiagnosticGeneration_ ==
+                snapshot.selectionGeneration &&
+            proofDiagnosticPath_ ==
+                snapshot.mediaPath) {
+            return;
+        }
+
+        ++proofDiagnosticSerial_;
+        proofDiagnosticActive_ = true;
+        proofDiagnosticGeneration_ =
+            snapshot.selectionGeneration;
+        proofDiagnosticPath_ =
+            snapshot.mediaPath;
+        proofDiagnosticPeriodicChecks_ = 0;
+        proofMediaStaged_ =
+            proofStager_.
+                isExistingOwnedMediaPath(
+                    snapshot.mediaPath);
+        proofProducerGeneration_ = 0;
+        proofProducerHealthy_ = false;
+        proofPipelineStage_ =
+            proof::
+                LocalPhotoProofPipelineStage::
+                    WaitingControl;
+
+        const std::uint64_t serial =
+            proofDiagnosticSerial_;
+        const std::uint64_t generation =
+            proofDiagnosticGeneration_;
+
+        evaluateLocalPhotoDiagnostic(
+            false);
+        scheduleLocalPhotoDiagnosticFallback(
+            generation,
+            serial);
+    }
+
+    void scheduleLocalPhotoDiagnosticFallback(
+        std::uint64_t selectionGeneration,
+        std::uint64_t serial) {
+        if (!proofDiagnosticActive_ ||
+            proofDiagnosticGeneration_ !=
+                selectionGeneration ||
+            proofDiagnosticSerial_ != serial) {
+            return;
+        }
+
+        dispatch_after(
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                kPhotoDiagnosticRetryNanoseconds),
+            controlQueue_,
+            ^{
+                if (!this->proofDiagnosticActive_ ||
+                    this->proofDiagnosticGeneration_ !=
+                        selectionGeneration ||
+                    this->proofDiagnosticSerial_ !=
+                        serial) {
+                    return;
+                }
+
+                ++this->proofDiagnosticPeriodicChecks_;
+
+                const bool timeout =
+                    this->proofDiagnosticPeriodicChecks_ >=
+                    kPhotoDiagnosticMaxPeriodicChecks;
+
+                this->evaluateLocalPhotoDiagnostic(
+                    timeout);
+
+                if (this->proofDiagnosticActive_ &&
+                    !timeout) {
+                    this->
+                        scheduleLocalPhotoDiagnosticFallback(
+                            selectionGeneration,
+                            serial);
+                }
+            });
+    }
+
+    void recordLocalPhotoFailureStage(
+        std::uint64_t selectionGeneration,
+        proof::LocalPhotoProofPipelineStage
+            stage) noexcept {
+        if (proofDiagnosticActive_ &&
+            proofDiagnosticGeneration_ ==
+                selectionGeneration) {
+            proofPipelineStage_ = stage;
+        }
+    }
+
+    void recordLocalPhotoProducerState(
+        std::uint64_t selectionGeneration,
+        bool producerHealthy) noexcept {
+        proofProducerGeneration_ =
             selectionGeneration;
-        facts.vcamDisabled =
-            !snapshot.enabled;
-        facts.photoSelected =
-            snapshot.mediaKind ==
-            ProductMediaKind::Photo;
-        facts.mediaPathNonEmpty =
-            !snapshot.mediaPath.empty();
-        facts.playbackIntentPlaying =
-            snapshot.playbackIntent ==
-            ProductPlaybackIntent::Playing;
+        proofProducerHealthy_ =
+            producerHealthy;
+    }
+
+    proof::LocalPhotoDiagnosticSnapshot
+    currentLocalPhotoDiagnosticSnapshot() {
+        proof::LocalPhotoDiagnosticSnapshot facts;
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+
+        facts.selectionGeneration =
+            proofDiagnosticGeneration_;
+        facts.vcamEnabled =
+            snapshot.enabled;
+        facts.mediaKind =
+            proofMediaKind(
+                snapshot.mediaKind);
+        facts.hasMedia =
+            snapshot.hasMedia();
+        facts.mediaStaged =
+            proofMediaStaged_;
         facts.controlObserved =
             proofObservedControlGeneration_.load(
                 std::memory_order_acquire) ==
-            selectionGeneration;
+            proofDiagnosticGeneration_;
         facts.cameraGeometryObserved =
             observedGeometry_.load(
                 std::memory_order_acquire) != 0;
-        facts.mediaStaged = true;
         facts.sessionExists =
             session_ != nullptr;
+        facts.playbackIntent =
+            proofPlaybackIntent(
+                snapshot.playbackIntent);
+        facts.producerReady =
+            proofProducerGeneration_ ==
+                proofDiagnosticGeneration_ &&
+            proofProducerHealthy_;
 
         if (session_ != nullptr) {
             const auto& selected =
@@ -774,64 +953,205 @@ struct MediaserverdRuntime::Impl {
 
             facts.selectedMediaValid =
                 selected.valid;
-            facts.selectedMediaPhoto =
-                selected.kind ==
-                media_engine::
-                    SelectedMediaKind::Photo;
+            facts.selectedMediaKind =
+                proofSelectedMediaKind(
+                    selected.kind);
             facts.selectedMediaPathMatches =
                 selected.localPath ==
-                snapshot.mediaPath;
-            facts.producerPlaying =
-                session_->playbackState() ==
-                frame_engine::
-                    PlaybackState::Playing;
+                proofDiagnosticPath_;
+            facts.playbackState =
+                proofPlaybackState(
+                    session_->playbackState());
             facts.readyFrameCount =
                 session_->readyQueue().size();
+        }
+
+        proof::LocalPhotoCallbackSnapshot callback;
+        if (proof::ReadLocalPhotoCallbackSnapshot(
+                proofDiagnosticGeneration_,
+                &callback)) {
+            facts.callbackExercised =
+                callback.callbackExercised;
+            facts.originalNonNull =
+                callback.originalNonNull;
+            facts.decisionOriginal =
+                callback.decisionOriginal;
+            facts.disabledReason =
+                callback.disabledReason;
+            facts.originalBufferReturned =
+                callback.originalBufferReturned;
         }
 
         facts.virtualDecisionCount =
             adapter_.virtualDecisionCount();
 
-        const bool complete =
-            facts.vcamDisabled &&
-            facts.photoSelected &&
-            facts.mediaPathNonEmpty &&
-            facts.playbackIntentPlaying &&
+        if (snapshot.selectionGeneration !=
+                proofDiagnosticGeneration_ ||
+            snapshot.mediaKind !=
+                ProductMediaKind::Photo ||
+            !snapshot.hasMedia() ||
+            snapshot.mediaPath !=
+                proofDiagnosticPath_) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        ControlSuperseded;
+        } else if (snapshot.enabled) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        VcamUnexpectedlyEnabled;
+        } else if (!facts.controlObserved) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        WaitingControl;
+        } else if (!facts.mediaStaged) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        MediaStagingMismatch;
+        } else if (!facts.cameraGeometryObserved) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        WaitingGeometry;
+        } else if (
+            proofPipelineStage_ ==
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        PhotoSelectFailed ||
+            proofPipelineStage_ ==
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        ProducerStartFailed) {
+            facts.pipelineStage =
+                proofPipelineStage_;
+        } else if (!facts.sessionExists) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        SessionAbsent;
+        } else if (
+            !facts.selectedMediaValid ||
+            facts.selectedMediaKind !=
+                proof::
+                    LocalPhotoProofMediaKind::Photo ||
+            !facts.selectedMediaPathMatches) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        SelectedMediaMismatch;
+        } else if (
+            facts.playbackIntent !=
+                proof::
+                    LocalPhotoProofPlaybackIntent::
+                        Playing ||
+            facts.playbackState !=
+                proof::
+                    LocalPhotoProofPlaybackState::
+                        Playing ||
+            !facts.producerReady) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        WaitingProducer;
+        } else if (
+            facts.readyFrameCount == 0) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        WaitingReadyFrame;
+        } else if (
+            !facts.callbackExercised ||
+            !facts.originalNonNull ||
+            !facts.decisionOriginal ||
+            !facts.disabledReason ||
+            !facts.originalBufferReturned) {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        WaitingCallback;
+        } else {
+            facts.pipelineStage =
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        Ready;
+        }
+
+        return facts;
+    }
+
+    void evaluateLocalPhotoDiagnostic(
+        bool timeout) {
+        if (!proofDiagnosticActive_) {
+            return;
+        }
+
+        proof::LocalPhotoDiagnosticSnapshot facts =
+            currentLocalPhotoDiagnosticSnapshot();
+
+        if (facts.pipelineStage ==
+            proof::
+                LocalPhotoProofPipelineStage::
+                    ControlSuperseded) {
+            proofDiagnosticActive_ = false;
+            ++proofDiagnosticSerial_;
+            return;
+        }
+
+        const bool pass =
+            facts.pipelineStage ==
+                proof::
+                    LocalPhotoProofPipelineStage::
+                        Ready &&
+            !facts.vcamEnabled &&
+            facts.mediaKind ==
+                proof::
+                    LocalPhotoProofMediaKind::Photo &&
+            facts.mediaStaged &&
             facts.controlObserved &&
             facts.cameraGeometryObserved &&
-            facts.mediaStaged &&
             facts.sessionExists &&
             facts.selectedMediaValid &&
-            facts.selectedMediaPhoto &&
+            facts.selectedMediaKind ==
+                proof::
+                    LocalPhotoProofMediaKind::Photo &&
             facts.selectedMediaPathMatches &&
-            facts.producerPlaying &&
+            facts.playbackIntent ==
+                proof::
+                    LocalPhotoProofPlaybackIntent::
+                        Playing &&
+            facts.playbackState ==
+                proof::
+                    LocalPhotoProofPlaybackState::
+                        Playing &&
+            facts.producerReady &&
             facts.readyFrameCount > 0 &&
+            facts.callbackExercised &&
+            facts.originalNonNull &&
+            facts.decisionOriginal &&
+            facts.disabledReason &&
+            facts.originalBufferReturned &&
             facts.virtualDecisionCount == 0;
 
-        if (complete) {
-            proof::ObserveLocalPhotoReadyPhase(
-                facts);
-            proofReadyActive_ = false;
+        if (pass) {
+            if (proof::PublishLocalPhotoPipelineSnapshot(
+                    facts,
+                    proof::LocalPhotoProofResult::Pass)) {
+                proofDiagnosticActive_ = false;
+            }
             return;
         }
 
-        if (facts.virtualDecisionCount != 0 ||
-            attempt + 1 >=
-                kPhotoReadyMaxAttempts) {
-            proofReadyActive_ = false;
-            return;
+        if (timeout) {
+            if (proof::PublishLocalPhotoPipelineSnapshot(
+                    facts,
+                    proof::LocalPhotoProofResult::
+                        Diagnostic)) {
+                proofDiagnosticActive_ = false;
+            }
         }
-
-        dispatch_after(
-            dispatch_time(
-                DISPATCH_TIME_NOW,
-                kPhotoReadyRetryNanoseconds),
-            controlQueue_,
-            ^{
-                this->checkLocalPhotoReady(
-                    selectionGeneration,
-                    attempt + 1);
-            });
     }
 #endif
 
@@ -869,10 +1189,23 @@ struct MediaserverdRuntime::Impl {
     std::atomic<std::uint64_t>
         proofObservedControlGeneration_{0};
 
-    bool proofReadyActive_ = false;
+    bool proofDiagnosticActive_ = false;
     std::uint64_t
-        proofReadyGeneration_ = 0;
-    std::string proofReadyPath_;
+        proofDiagnosticSerial_ = 0;
+    std::uint64_t
+        proofDiagnosticGeneration_ = 0;
+    std::string proofDiagnosticPath_;
+    std::uint32_t
+        proofDiagnosticPeriodicChecks_ = 0;
+    bool proofMediaStaged_ = false;
+    std::uint64_t
+        proofProducerGeneration_ = 0;
+    bool proofProducerHealthy_ = false;
+    proof::LocalPhotoProofPipelineStage
+        proofPipelineStage_ =
+            proof::
+                LocalPhotoProofPipelineStage::
+                    WaitingControl;
 #endif
 
     bool started_ = false;
