@@ -1,9 +1,9 @@
 Package: com.vcampro.camera
-Name: VCAM PRO Real Hook Runtime Activation Gate
+Name: VCAM PRO Legacy Real Hook Runtime Activation Gate
 Version: 0.1.0+roothide7~realhookruntime1
 Architecture: iphoneos-arm64
 Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Temporary mediaserverd-only certification gate for the frozen production ReferenceCameraHook. No camera callback exercise or frame substitution is performed by package scripts.
+Description: Temporary mediaserverd-only certification package for the unchanged VCAM PRO production ReferenceCameraHook. No UI, media selection, callback exercise, release, or production deployment.
 Maintainer: VCAM PRO
 Author: VCAM PRO
 Section: Tweaks
