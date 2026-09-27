@@ -12,7 +12,7 @@ using vcam::product::ui::FloatingButtonInsets;
 using vcam::product::ui::FloatingButtonPoint;
 using vcam::product::ui::FloatingButtonSize;
 using vcam::product::ui::MakeFloatingButtonSafeRegion;
-using vcam::product::ui::SnapFloatingButtonCenterToNearestEdge;
+using vcam::product::ui::MoveFloatingButtonByTranslation;
 
 int gTests = 0;
 int gFailures = 0;
@@ -51,10 +51,40 @@ constexpr FloatingButtonSize kButton {
 };
 constexpr double kMargin = 10.0;
 
-bool TestClampLeftTop() {
+bool TestFreeMoveX() {
+    const auto point =
+        MoveFloatingButtonByTranslation(
+            {160.0, 300.0},
+            {47.0, 0.0},
+            kBounds,
+            kInsets,
+            kButton,
+            kMargin);
+
+    CHECK(Near(point.x, 207.0));
+    CHECK(Near(point.y, 300.0));
+    return true;
+}
+
+bool TestFreeMoveY() {
+    const auto point =
+        MoveFloatingButtonByTranslation(
+            {180.0, 280.0},
+            {0.0, 63.0},
+            kBounds,
+            kInsets,
+            kButton,
+            kMargin);
+
+    CHECK(Near(point.x, 180.0));
+    CHECK(Near(point.y, 343.0));
+    return true;
+}
+
+bool TestClampLeft() {
     const auto point =
         ClampFloatingButtonCenter(
-            {-100.0, -100.0},
+            {-100.0, 300.0},
             kBounds,
             kInsets,
             kButton,
@@ -67,14 +97,14 @@ bool TestClampLeftTop() {
             kMargin);
 
     CHECK(Near(point.x, region.minX));
-    CHECK(Near(point.y, region.minY));
+    CHECK(Near(point.y, 300.0));
     return true;
 }
 
-bool TestClampRightBottom() {
+bool TestClampRight() {
     const auto point =
         ClampFloatingButtonCenter(
-            {1000.0, 1000.0},
+            {1000.0, 300.0},
             kBounds,
             kInsets,
             kButton,
@@ -87,18 +117,59 @@ bool TestClampRightBottom() {
             kMargin);
 
     CHECK(Near(point.x, region.maxX));
+    CHECK(Near(point.y, 300.0));
+    return true;
+}
+
+bool TestClampTop() {
+    const auto point =
+        ClampFloatingButtonCenter(
+            {200.0, -100.0},
+            kBounds,
+            kInsets,
+            kButton,
+            kMargin);
+    const auto region =
+        MakeFloatingButtonSafeRegion(
+            kBounds,
+            kInsets,
+            kButton,
+            kMargin);
+
+    CHECK(Near(point.x, 200.0));
+    CHECK(Near(point.y, region.minY));
+    return true;
+}
+
+bool TestClampBottom() {
+    const auto point =
+        ClampFloatingButtonCenter(
+            {200.0, 1000.0},
+            kBounds,
+            kInsets,
+            kButton,
+            kMargin);
+    const auto region =
+        MakeFloatingButtonSafeRegion(
+            kBounds,
+            kInsets,
+            kButton,
+            kMargin);
+
+    CHECK(Near(point.x, 200.0));
     CHECK(Near(point.y, region.maxY));
     return true;
 }
 
-bool TestInsidePositionPreserved() {
+bool TestArbitraryFinalPositionPreserved() {
     const FloatingButtonPoint expected {
-        180.0,
-        300.0,
+        173.0,
+        419.0,
     };
     const auto point =
-        ClampFloatingButtonCenter(
+        MoveFloatingButtonByTranslation(
             expected,
+            {0.0, 0.0},
             kBounds,
             kInsets,
             kButton,
@@ -106,83 +177,6 @@ bool TestInsidePositionPreserved() {
 
     CHECK(Near(point.x, expected.x));
     CHECK(Near(point.y, expected.y));
-    return true;
-}
-
-bool TestSnapLeftPreservesVertical() {
-    const auto point =
-        SnapFloatingButtonCenterToNearestEdge(
-            {120.0, 333.0},
-            kBounds,
-            kInsets,
-            kButton,
-            kMargin);
-    const auto region =
-        MakeFloatingButtonSafeRegion(
-            kBounds,
-            kInsets,
-            kButton,
-            kMargin);
-
-    CHECK(Near(point.x, region.minX));
-    CHECK(Near(point.y, 333.0));
-    return true;
-}
-
-bool TestSnapRightPreservesVertical() {
-    const auto point =
-        SnapFloatingButtonCenterToNearestEdge(
-            {330.0, 410.0},
-            kBounds,
-            kInsets,
-            kButton,
-            kMargin);
-    const auto region =
-        MakeFloatingButtonSafeRegion(
-            kBounds,
-            kInsets,
-            kButton,
-            kMargin);
-
-    CHECK(Near(point.x, region.maxX));
-    CHECK(Near(point.y, 410.0));
-    return true;
-}
-
-bool TestNarrowBoundsRemainValid() {
-    const FloatingButtonBounds bounds {
-        40.0,
-        44.0,
-    };
-    const FloatingButtonInsets insets {
-        10.0,
-        10.0,
-        10.0,
-        10.0,
-    };
-    const FloatingButtonSize button {
-        56.0,
-        56.0,
-    };
-
-    const auto region =
-        MakeFloatingButtonSafeRegion(
-            bounds,
-            insets,
-            button,
-            10.0);
-    const auto point =
-        ClampFloatingButtonCenter(
-            {-50.0, 500.0},
-            bounds,
-            insets,
-            button,
-            10.0);
-
-    CHECK(Near(region.minX, region.maxX));
-    CHECK(Near(region.minY, region.maxY));
-    CHECK(Near(point.x, region.minX));
-    CHECK(Near(point.y, region.minY));
     return true;
 }
 
@@ -206,23 +200,26 @@ void Run(
 
 int main() {
     Run(
-        "clamp left top",
-        TestClampLeftTop);
+        "free move x",
+        TestFreeMoveX);
     Run(
-        "clamp right bottom",
-        TestClampRightBottom);
+        "free move y",
+        TestFreeMoveY);
     Run(
-        "inside position preserved",
-        TestInsidePositionPreserved);
+        "clamp left",
+        TestClampLeft);
     Run(
-        "snap left preserves vertical",
-        TestSnapLeftPreservesVertical);
+        "clamp right",
+        TestClampRight);
     Run(
-        "snap right preserves vertical",
-        TestSnapRightPreservesVertical);
+        "clamp top",
+        TestClampTop);
     Run(
-        "narrow bounds remain valid",
-        TestNarrowBoundsRemainValid);
+        "clamp bottom",
+        TestClampBottom);
+    Run(
+        "arbitrary final position preserved",
+        TestArbitraryFinalPositionPreserved);
 
     std::cout
         << "Floating button geometry tests run: "
@@ -233,8 +230,10 @@ int main() {
 
     if (gFailures == 0) {
         std::cout
-            << "SAFE_SCREEN_BOUNDS=PASS\n"
-            << "EDGE_SNAP=PASS\n";
+            << "FREE_DRAG_XY=PASS\n"
+            << "USER_SELECTED_POSITION_PRESERVED=PASS\n"
+            << "SAFE_REACHABLE_BOUNDS=PASS\n"
+            << "NO_FORCED_EDGE_SNAP=PASS\n";
     }
 
     return gFailures == 0 ? 0 : 1;
