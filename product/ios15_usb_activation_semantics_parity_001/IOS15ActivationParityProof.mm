@@ -108,6 +108,14 @@ bool FactsValid(
         return false;
     }
 
+    if ((facts.output ==
+             IOS15ActivationOutput::BlackVirtual ||
+         facts.output ==
+             IOS15ActivationOutput::PhotoVirtual) &&
+        !facts.decisionReasonNone) {
+        return false;
+    }
+
     const uint32_t flags =
         EncodeFlags(facts);
 
