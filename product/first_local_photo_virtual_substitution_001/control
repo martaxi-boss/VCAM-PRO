@@ -1,0 +1,9 @@
+Package: com.vcampro.camera
+Name: VCAM PRO First Local Photo Virtual Substitution
+Version: 0.1.0+roothide11~photosub1
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: Complete VCAM PRO local-gallery product with first genuine local-photo virtual substitution proof.
+Maintainer: VCAM PRO
+Author: VCAM PRO
+Section: Tweaks
