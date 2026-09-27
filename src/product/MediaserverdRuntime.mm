@@ -333,7 +333,132 @@ struct MediaserverdRuntime::Impl {
 
     CameraDecision decide(
         CVPixelBufferRef original) noexcept {
-#if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+        std::uint64_t generationBefore = 0;
+        std::uint32_t flagsBefore = 0;
+        const bool beforeValid =
+            loadIOS15ActivationParityControlSnapshot(
+                &generationBefore,
+                &flagsBefore);
+
+        CameraDecision decision =
+            adapter_.decide(
+                original);
+
+        std::uint64_t generationAfter = 0;
+        std::uint32_t flagsAfter = 0;
+        const bool afterValid =
+            loadIOS15ActivationParityControlSnapshot(
+                &generationAfter,
+                &flagsAfter);
+
+        const bool stableControl =
+            beforeValid &&
+            afterValid &&
+            generationBefore ==
+                generationAfter &&
+            flagsBefore ==
+                flagsAfter;
+
+        if (stableControl) {
+            bool geometryMatch = false;
+
+            if (original != nullptr &&
+                decision.pixelBuffer !=
+                    nullptr) {
+                geometryMatch =
+                    CVPixelBufferGetWidth(
+                        original) ==
+                        CVPixelBufferGetWidth(
+                            decision.pixelBuffer) &&
+                    CVPixelBufferGetHeight(
+                        original) ==
+                        CVPixelBufferGetHeight(
+                            decision.pixelBuffer) &&
+                    CVPixelBufferGetPixelFormatType(
+                        original) ==
+                        CVPixelBufferGetPixelFormatType(
+                            decision.pixelBuffer);
+            }
+
+            const bool enabled =
+                (flagsAfter &
+                 kActivationControlEnabled) != 0;
+            const bool photo =
+                (flagsAfter &
+                 kActivationControlPhoto) != 0;
+            const bool hasMedia =
+                (flagsAfter &
+                 kActivationControlHasMedia) != 0;
+
+            proof::IOS15ActivationParityFacts facts;
+            facts.selectionGeneration =
+                generationAfter;
+            facts.callbackExercised = true;
+            facts.vcamEnabled =
+                enabled;
+            facts.mediaPhoto =
+                photo &&
+                hasMedia;
+            facts.decisionVirtual =
+                decision.kind ==
+                CameraDecisionKind::Virtual;
+            facts.decisionOriginal =
+                decision.kind ==
+                CameraDecisionKind::Original;
+            facts.decisionReasonNone =
+                decision.reason ==
+                CameraFailOpenReason::None;
+            facts.virtualBufferNonNull =
+                decision.pixelBuffer !=
+                nullptr;
+            facts.virtualBufferDifferentFromOriginal =
+                decision.pixelBuffer !=
+                    nullptr &&
+                decision.pixelBuffer !=
+                    original;
+            facts.geometryMatch =
+                geometryMatch;
+            facts.sourceBlack =
+                decision.source ==
+                CameraDecisionSource::
+                    BlackFallback;
+            facts.sourcePreparedMedia =
+                decision.source ==
+                CameraDecisionSource::
+                    PreparedMedia;
+
+            if (!enabled &&
+                facts.decisionOriginal &&
+                decision.source ==
+                    CameraDecisionSource::
+                        Original) {
+                facts.output =
+                    IOS15ActivationOutput::
+                        Original;
+            } else if (
+                enabled &&
+                facts.decisionVirtual &&
+                facts.sourceBlack) {
+                facts.output =
+                    IOS15ActivationOutput::
+                        BlackVirtual;
+            } else if (
+                enabled &&
+                facts.mediaPhoto &&
+                facts.decisionVirtual &&
+                facts.sourcePreparedMedia) {
+                facts.output =
+                    IOS15ActivationOutput::
+                        PhotoVirtual;
+            }
+
+            proof::ObserveIOS15ActivationParity(
+                facts);
+        }
+
+        return decision;
+#elif defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
         std::uint64_t generationBefore = 0;
         std::uint32_t flagsBefore = 0;
         const bool beforeConsistent =
