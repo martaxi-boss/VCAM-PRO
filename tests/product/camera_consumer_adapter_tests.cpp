@@ -39,6 +39,28 @@ CVPixelBufferRef MakeBuffer(
     return buffer;
 }
 
+bool BindBlack(
+    CameraConsumerAdapter& adapter,
+    std::size_t width = 64,
+    std::size_t height = 48,
+    OSType format =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+    CVPixelBufferRef black =
+        MakeBuffer(
+            width,
+            height,
+            format);
+    if (black == nullptr) {
+        return false;
+    }
+
+    const bool result =
+        adapter.bindBlackFallback(
+            black);
+    CVPixelBufferRelease(black);
+    return result;
+}
+
 PreparedFrame MakeFrame(
     std::uint64_t sequence,
     std::uint64_t generation,
@@ -81,9 +103,13 @@ bool Publish(
     ReadyFrameQueue& queue,
     std::uint64_t sequence,
     std::uint64_t generation,
-    std::uint64_t epoch) {
+    std::uint64_t epoch,
+    std::size_t width = 64,
+    std::size_t height = 48) {
     CVPixelBufferRef buffer =
-        MakeBuffer();
+        MakeBuffer(
+            width,
+            height);
     if (buffer == nullptr) {
         return false;
     }
@@ -102,11 +128,35 @@ bool Publish(
            PublishResult::Published;
 }
 
-bool TestDefaultOffReturnsOriginal() {
+bool TestOffWithoutMediaReturnsOriginal() {
+    CameraConsumerAdapter adapter;
+    CHECK(BindBlack(adapter));
+
+    CVPixelBufferRef original =
+        MakeBuffer();
+    CHECK(original != nullptr);
+
+    const auto result =
+        adapter.decide(original);
+
+    CHECK(result.kind ==
+          CameraDecisionKind::Original);
+    CHECK(result.source ==
+          CameraDecisionSource::Original);
+    CHECK(result.pixelBuffer == original);
+    CHECK(result.reason ==
+          CameraFailOpenReason::Disabled);
+
+    CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestOffWithMediaReadyReturnsOriginal() {
     ReadyFrameQueue queue(4);
     CHECK(Publish(queue, 0, 1, 1));
 
     CameraConsumerAdapter adapter;
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         1,
@@ -122,17 +172,20 @@ bool TestDefaultOffReturnsOriginal() {
 
     CHECK(result.kind ==
           CameraDecisionKind::Original);
-    CHECK(result.pixelBuffer == original);
+    CHECK(result.source ==
+          CameraDecisionSource::Original);
     CHECK(result.reason ==
           CameraFailOpenReason::Disabled);
+    CHECK(queue.size() == 1);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestEnabledWithoutQueueReturnsOriginal() {
+bool TestOnWithoutMediaUsesBlack() {
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
 
     CVPixelBufferRef original =
         MakeBuffer();
@@ -142,21 +195,29 @@ bool TestEnabledWithoutQueueReturnsOriginal() {
         adapter.decide(original);
 
     CHECK(result.kind ==
-          CameraDecisionKind::Original);
+          CameraDecisionKind::Virtual);
+    CHECK(result.source ==
+          CameraDecisionSource::BlackFallback);
     CHECK(result.reason ==
-          CameraFailOpenReason::
-              ProducerUnavailable);
+          CameraFailOpenReason::None);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::ProducerUnavailable);
+    CHECK(result.pixelBuffer != nullptr);
+    CHECK(result.pixelBuffer != original);
+    CHECK(adapter.blackVirtualDecisionCount() == 1);
+    CHECK(adapter.virtualDecisionCount() == 1);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestEligibleFrameSelectsVirtual() {
+bool TestEligibleFramePrefersPreparedMedia() {
     ReadyFrameQueue queue(4);
     CHECK(Publish(queue, 0, 2, 3));
 
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         2,
@@ -172,18 +233,26 @@ bool TestEligibleFrameSelectsVirtual() {
 
     CHECK(result.kind ==
           CameraDecisionKind::Virtual);
+    CHECK(result.source ==
+          CameraDecisionSource::PreparedMedia);
+    CHECK(result.reason ==
+          CameraFailOpenReason::None);
     CHECK(result.pixelBuffer != nullptr);
     CHECK(result.pixelBuffer != original);
+    CHECK(adapter.mediaVirtualDecisionCount() == 1);
+    CHECK(adapter.blackVirtualDecisionCount() == 0);
     CHECK(adapter.pinnedLeaseCount() == 1);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestEmptyQueueFailsOpen() {
+bool TestEmptyQueueUsesBlack() {
     ReadyFrameQueue queue(4);
+
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         1,
@@ -197,22 +266,22 @@ bool TestEmptyQueueFailsOpen() {
     const auto result =
         adapter.decide(original);
 
-    CHECK(result.kind ==
-          CameraDecisionKind::Original);
-    CHECK(result.reason ==
-          CameraFailOpenReason::
-              EmptyOrNoEligibleFrame);
+    CHECK(result.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::EmptyOrNoEligibleFrame);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestStaleGenerationFailsOpen() {
+bool TestStaleGenerationUsesBlack() {
     ReadyFrameQueue queue(4);
     CHECK(Publish(queue, 0, 4, 1));
 
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         5,
@@ -226,19 +295,22 @@ bool TestStaleGenerationFailsOpen() {
     const auto result =
         adapter.decide(original);
 
-    CHECK(result.kind ==
-          CameraDecisionKind::Original);
+    CHECK(result.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::EmptyOrNoEligibleFrame);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestStaleEpochFailsOpen() {
+bool TestStaleEpochUsesBlack() {
     ReadyFrameQueue queue(4);
     CHECK(Publish(queue, 0, 4, 2));
 
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         4,
@@ -249,19 +321,25 @@ bool TestStaleEpochFailsOpen() {
         MakeBuffer();
     CHECK(original != nullptr);
 
-    CHECK(adapter.decide(original).kind ==
-          CameraDecisionKind::Original);
+    const auto result =
+        adapter.decide(original);
+
+    CHECK(result.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::EmptyOrNoEligibleFrame);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestProducerFailureFailsOpen() {
+bool TestProducerFailureUsesBlack() {
     ReadyFrameQueue queue(4);
     CHECK(Publish(queue, 0, 1, 1));
 
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         1,
@@ -275,22 +353,58 @@ bool TestProducerFailureFailsOpen() {
     const auto result =
         adapter.decide(original);
 
-    CHECK(result.kind ==
-          CameraDecisionKind::Original);
-    CHECK(result.reason ==
-          CameraFailOpenReason::
-              ProducerUnavailable);
+    CHECK(result.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::ProducerUnavailable);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestDisableDuringActiveReturnsOriginal() {
+bool TestMediaGeometryMismatchUsesBlack() {
     ReadyFrameQueue queue(4);
     CHECK(Publish(queue, 0, 1, 1));
 
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(
+        adapter,
+        128,
+        72));
+    adapter.bindQueue(
+        &queue,
+        1,
+        1,
+        true);
+
+    CVPixelBufferRef original =
+        MakeBuffer(
+            128,
+            72);
+    CHECK(original != nullptr);
+
+    const auto result =
+        adapter.decide(original);
+
+    CHECK(result.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(result.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::GeometryMismatch);
+
+    CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestClearMediaReturnsBlack() {
+    ReadyFrameQueue queue(4);
+    CHECK(Publish(queue, 0, 1, 1));
+
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         1,
@@ -301,14 +415,67 @@ bool TestDisableDuringActiveReturnsOriginal() {
         MakeBuffer();
     CHECK(original != nullptr);
 
-    CHECK(adapter.decide(original).kind ==
-          CameraDecisionKind::Virtual);
+    CHECK(adapter.decide(original).source ==
+          CameraDecisionSource::PreparedMedia);
 
-    CHECK(Publish(queue, 1, 1, 1));
+    adapter.unbindQueue();
+
+    const auto afterClear =
+        adapter.decide(original);
+
+    CHECK(afterClear.source ==
+          CameraDecisionSource::BlackFallback);
+    CHECK(afterClear.mediaFailureReason ==
+          CameraFailOpenReason::ProducerUnavailable);
+
+    CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestDisableAfterVirtualReturnsOriginal() {
+    CameraConsumerAdapter adapter;
+    CHECK(BindBlack(adapter));
+    adapter.setEnabled(true);
+
+    CVPixelBufferRef original =
+        MakeBuffer();
+    CHECK(original != nullptr);
+
+    CHECK(adapter.decide(original).source ==
+          CameraDecisionSource::BlackFallback);
+
     adapter.setEnabled(false);
 
-    CHECK(adapter.decide(original).kind ==
+    const auto disabled =
+        adapter.decide(original);
+
+    CHECK(disabled.kind ==
           CameraDecisionKind::Original);
+    CHECK(disabled.source ==
+          CameraDecisionSource::Original);
+    CHECK(disabled.pixelBuffer == original);
+    CHECK(disabled.reason ==
+          CameraFailOpenReason::Disabled);
+
+    CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestOffThenOnRestoresVirtualOwnership() {
+    CameraConsumerAdapter adapter;
+    CHECK(BindBlack(adapter));
+
+    CVPixelBufferRef original =
+        MakeBuffer();
+    CHECK(original != nullptr);
+
+    CHECK(adapter.decide(original).source ==
+          CameraDecisionSource::Original);
+
+    adapter.setEnabled(true);
+
+    CHECK(adapter.decide(original).source ==
+          CameraDecisionSource::BlackFallback);
 
     CVPixelBufferRelease(original);
     return true;
@@ -317,6 +484,7 @@ bool TestDisableDuringActiveReturnsOriginal() {
 bool TestRepeatedToggleSafe() {
     ReadyFrameQueue queue(8);
     CameraConsumerAdapter adapter;
+    CHECK(BindBlack(adapter));
     adapter.bindQueue(
         &queue,
         7,
@@ -327,9 +495,16 @@ bool TestRepeatedToggleSafe() {
         MakeBuffer();
     CHECK(original != nullptr);
 
-    for (std::uint64_t i = 0; i < 20; ++i) {
-        adapter.setEnabled((i % 2) == 0);
-        CHECK(Publish(queue, i, 7, 9));
+    for (std::uint64_t i = 0;
+         i < 20;
+         ++i) {
+        adapter.setEnabled(
+            (i % 2) == 0);
+        CHECK(Publish(
+            queue,
+            i,
+            7,
+            9));
 
         const auto result =
             adapter.decide(original);
@@ -346,25 +521,20 @@ bool TestRepeatedToggleSafe() {
     CHECK(adapter.pinnedLeaseCount() <=
           CameraConsumerAdapter::
               kPinnedLeaseCapacity);
+    CHECK(adapter.blackFallbackCacheCount() <=
+          CameraConsumerAdapter::
+              kBlackFallbackCapacity);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestGeometryMismatchFailsOpen() {
-    ReadyFrameQueue queue(4);
-    CHECK(Publish(queue, 0, 1, 1));
-
+bool TestEmergencyOriginalWithoutBlack() {
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
-    adapter.bindQueue(
-        &queue,
-        1,
-        1,
-        true);
 
     CVPixelBufferRef original =
-        MakeBuffer(128, 72);
+        MakeBuffer();
     CHECK(original != nullptr);
 
     const auto result =
@@ -372,9 +542,14 @@ bool TestGeometryMismatchFailsOpen() {
 
     CHECK(result.kind ==
           CameraDecisionKind::Original);
+    CHECK(result.source ==
+          CameraDecisionSource::Original);
+    CHECK(result.pixelBuffer == original);
     CHECK(result.reason ==
-          CameraFailOpenReason::
-              GeometryMismatch);
+          CameraFailOpenReason::BlackFallbackUnavailable);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::ProducerUnavailable);
+    CHECK(adapter.emergencyOriginalDecisionCount() == 1);
 
     CVPixelBufferRelease(original);
     return true;
@@ -383,6 +558,7 @@ bool TestGeometryMismatchFailsOpen() {
 bool TestPinnedLeaseSurvivesQueueDestruction() {
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
 
     CVPixelBufferRef original =
         MakeBuffer();
@@ -400,8 +576,8 @@ bool TestPinnedLeaseSurvivesQueueDestruction() {
 
         const auto result =
             adapter.decide(original);
-        CHECK(result.kind ==
-              CameraDecisionKind::Virtual);
+        CHECK(result.source ==
+              CameraDecisionSource::PreparedMedia);
 
         selected = result.pixelBuffer;
         CHECK(selected != nullptr);
@@ -422,6 +598,7 @@ bool TestPinnedLeaseSurvivesQueueDestruction() {
 bool TestPinnedStorageBounded() {
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
+    CHECK(BindBlack(adapter));
 
     CVPixelBufferRef original =
         MakeBuffer();
@@ -443,8 +620,8 @@ bool TestPinnedStorageBounded() {
             1,
             true);
 
-        CHECK(adapter.decide(original).kind ==
-              CameraDecisionKind::Virtual);
+        CHECK(adapter.decide(original).source ==
+              CameraDecisionSource::PreparedMedia);
 
         adapter.unbindQueue();
         CHECK(adapter.pinnedLeaseCount() <=
@@ -457,6 +634,43 @@ bool TestPinnedStorageBounded() {
               kPinnedLeaseCapacity);
 
     CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestBlackFallbackCacheBounded() {
+    CameraConsumerAdapter adapter;
+
+    for (std::size_t index = 0;
+         index < CameraConsumerAdapter::
+                     kBlackFallbackCapacity;
+         ++index) {
+        CVPixelBufferRef buffer =
+            MakeBuffer(
+                64 + index * 2,
+                48 + index * 2);
+        CHECK(buffer != nullptr);
+        CHECK(adapter.bindBlackFallback(
+            buffer));
+        CVPixelBufferRelease(buffer);
+    }
+
+    CHECK(adapter.blackFallbackCacheCount() ==
+          CameraConsumerAdapter::
+              kBlackFallbackCapacity);
+
+    CVPixelBufferRef overflow =
+        MakeBuffer(
+            80,
+            64);
+    CHECK(overflow != nullptr);
+    CHECK(!adapter.bindBlackFallback(
+        overflow));
+    CVPixelBufferRelease(overflow);
+
+    CHECK(adapter.blackFallbackCacheCount() ==
+          CameraConsumerAdapter::
+              kBlackFallbackCapacity);
+
     return true;
 }
 
@@ -502,30 +716,40 @@ void Run(
 }  // namespace
 
 int main() {
-    Run("default OFF returns original",
-        TestDefaultOffReturnsOriginal);
-    Run("ON without queue returns original",
-        TestEnabledWithoutQueueReturnsOriginal);
-    Run("eligible frame selects virtual",
-        TestEligibleFrameSelectsVirtual);
-    Run("empty queue returns original",
-        TestEmptyQueueFailsOpen);
-    Run("stale generation returns original",
-        TestStaleGenerationFailsOpen);
-    Run("stale epoch returns original",
-        TestStaleEpochFailsOpen);
-    Run("producer failure returns original",
-        TestProducerFailureFailsOpen);
-    Run("disable during active production",
-        TestDisableDuringActiveReturnsOriginal);
-    Run("repeated toggles are safe",
+    Run("VCAM OFF no media returns original",
+        TestOffWithoutMediaReturnsOriginal);
+    Run("VCAM OFF media ready returns original",
+        TestOffWithMediaReadyReturnsOriginal);
+    Run("VCAM ON no media uses black",
+        TestOnWithoutMediaUsesBlack);
+    Run("eligible media replaces black",
+        TestEligibleFramePrefersPreparedMedia);
+    Run("empty queue uses black",
+        TestEmptyQueueUsesBlack);
+    Run("stale generation uses black",
+        TestStaleGenerationUsesBlack);
+    Run("stale epoch uses black",
+        TestStaleEpochUsesBlack);
+    Run("producer unavailable uses black",
+        TestProducerFailureUsesBlack);
+    Run("media geometry mismatch uses black",
+        TestMediaGeometryMismatchUsesBlack);
+    Run("clear media returns black",
+        TestClearMediaReturnsBlack);
+    Run("VCAM disable restores original",
+        TestDisableAfterVirtualReturnsOriginal);
+    Run("VCAM OFF to ON restores ownership",
+        TestOffThenOnRestoresVirtualOwnership);
+    Run("repeated toggles remain safe",
         TestRepeatedToggleSafe);
-    Run("geometry mismatch returns original",
-        TestGeometryMismatchFailsOpen);
+    Run("emergency no-black returns original",
+        TestEmergencyOriginalWithoutBlack);
     Run("pinned lease survives queue destruction",
         TestPinnedLeaseSurvivesQueueDestruction);
     Run("pinned storage remains bounded",
         TestPinnedStorageBounded);
+    Run("black fallback cache remains bounded",
+        TestBlackFallbackCacheBounded);
     Run("control cache refresh",
         TestControlCacheRefreshIsMemoryOnlyFastPath);
 
