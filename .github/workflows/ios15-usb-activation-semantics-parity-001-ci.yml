@@ -1,0 +1,153 @@
+name: VCAM PRO iOS15 USB Activation Semantics Parity 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "product/ios15_usb_activation_semantics_parity_001/**"
+      - "src/product/VirtualBlackFrame.h"
+      - "src/product/VirtualBlackFrame.mm"
+      - "src/product/CameraConsumerAdapter.h"
+      - "src/product/CameraConsumerAdapter.cpp"
+      - "src/product/MediaserverdRuntime.mm"
+      - "tests/product/virtual_black_frame_tests.mm"
+      - "tests/product/camera_consumer_adapter_tests.cpp"
+      - "tests/product/full_product_integration_tests.mm"
+      - "docs/research/IOS15_USB_ACTIVATION_SEMANTICS_PARITY_001.md"
+      - "docs/CANONICAL_PROJECT_STATE.md"
+      - ".github/workflows/ios15-usb-activation-semantics-parity-001-ci.yml"
+      - ".github/workflows/first-local-photo-virtual-substitution-001-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-ios15-usb-activation-parity-001
+  cancel-in-progress: true
+
+jobs:
+  certify:
+    name: Certify iOS15 activation semantics parity
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout exact canonical head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+      - name: Frame Engine A through F2 regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+          echo "FRAME_ENGINE_REGRESSION=PASS"
+          echo "LOCAL_PHOTO_REGRESSION=PASS"
+          echo "GALLERY_TRANSFORMER_PREREQUISITES=PASS"
+
+      - name: Verify BLACK NV12 content and cache
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/activation-parity-tests
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Isrc/product             src/product/VirtualBlackFrame.mm             tests/product/virtual_black_frame_tests.mm             -framework CoreFoundation             -framework CoreVideo             -o build/activation-parity-tests/virtual-black
+          build/activation-parity-tests/virtual-black | tee build/activation-parity-tests/virtual-black.txt
+          grep -q 'Virtual black frame tests run: 5, failures: 0' build/activation-parity-tests/virtual-black.txt
+          grep -q '\[PASS\] 420v black content' build/activation-parity-tests/virtual-black.txt
+          grep -q '\[PASS\] 420f black content' build/activation-parity-tests/virtual-black.txt
+          grep -q '\[PASS\] same geometry reuses fallback' build/activation-parity-tests/virtual-black.txt
+          grep -q '\[PASS\] geometry cache remains bounded' build/activation-parity-tests/virtual-black.txt
+          echo "BLACK_420V_CONTENT_CORRECT=PASS"
+          echo "BLACK_420F_CONTENT_CORRECT=PASS"
+          echo "BLACK_FALLBACK_REUSABLE=PASS"
+          echo "BLACK_FALLBACK_CACHE_BOUNDED=PASS"
+
+      - name: CameraConsumerAdapter activation semantics regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/product/ControlStateCache.cpp             src/product/CameraConsumerAdapter.cpp             tests/product/camera_consumer_adapter_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/activation-parity-tests/camera-consumer
+          build/activation-parity-tests/camera-consumer | tee build/activation-parity-tests/camera-consumer.txt
+          grep -q 'Camera consumer tests run: 18, failures: 0' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] VCAM OFF no media returns original' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] VCAM OFF media ready returns original' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] VCAM ON no media uses black' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] empty queue uses black' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] producer unavailable uses black' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] media geometry mismatch uses black' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] eligible media replaces black' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] clear media returns black' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] VCAM disable restores original' build/activation-parity-tests/camera-consumer.txt
+          grep -q '\[PASS\] emergency no-black returns original' build/activation-parity-tests/camera-consumer.txt
+          echo "CAMERA_CONSUMER_ADAPTER_REGRESSION=PASS"
+          echo "VCAM_OFF_RESTORES_ORIGINAL=PASS"
+          echo "NO_MEDIA_DOES_NOT_RETURN_ORIGINAL=PASS"
+          echo "PHOTO_REPLACES_BLACK=PASS"
+          echo "FAIL_SAFE_EMERGENCY_ORIGINAL_PATH_PRESENT=PASS"
+
+      - name: Internal Gallery and LocalPhotoReader integration regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/activation-parity-tests/internal-gallery
+          build/activation-parity-tests/internal-gallery | tee build/activation-parity-tests/internal-gallery.txt
+          grep -q 'Internal gallery tests run: 20, failures: 0' build/activation-parity-tests/internal-gallery.txt
+          echo "GALLERY_REGRESSION=PASS"
+          echo "LOCAL_PHOTO_REGRESSION=PASS"
+
+      - name: Full Product activation lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/activation-parity-tests/full-product
+          build/activation-parity-tests/full-product | tee build/activation-parity-tests/full-product.txt
+          grep -q 'Product integration tests run: 9, failures: 0' build/activation-parity-tests/full-product.txt
+          grep -q '\[PASS\] activation parity black photo black original' build/activation-parity-tests/full-product.txt
+          echo "FULL_PRODUCT_REGRESSION=PASS"
+          echo "PHOTO_REPLACES_BLACK=PASS"
+          echo "CLEAR_MEDIA_RETURNS_BLACK=PASS"
+
+      - name: SharedMediaStager ownership and recovery tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/local_media_storage_recovery_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/activation-parity-tests/storage-recovery
+          build/activation-parity-tests/storage-recovery | tee build/activation-parity-tests/storage-recovery.txt
+          grep -q 'Storage recovery tests run: 15, failures: 0' build/activation-parity-tests/storage-recovery.txt
+
+      - name: SharedControlStore propagation and fail-open tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Isrc/product             src/product/SharedControlStore.mm             tests/product/shared_control_store_fail_open_tests.mm             -framework Foundation             -o build/activation-parity-tests/shared-control-store
+          build/activation-parity-tests/shared-control-store | tee build/activation-parity-tests/shared-control-store.txt
+          grep -q 'Shared control store hardening tests run: 16, failures: 0' build/activation-parity-tests/shared-control-store.txt
+
+      - name: Build, RootHide patch, and audit activation parity package
+        shell: bash
+        run: sh product/ios15_usb_activation_semantics_parity_001/ci_build_package_and_audit.sh
+
+      - name: Upload certified package and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-ios15-usb-activation-semantics-parity-001
+          path: |
+            build/ios15-activation-semantics-parity-001/final/VCAM-PRO-RootHide-IOS15-USB-Activation-Semantics-Parity-001.deb
+            build/ios15-activation-semantics-parity-001/final/VCAM-PRO-RootHide-IOS15-USB-Activation-Semantics-Parity-001.deb.sha256
+            build/ios15-activation-semantics-parity-001/evidence/**
+            build/ios15-activation-proof-state/results.txt
+            build/activation-parity-tests/*.txt
+            build/regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14
