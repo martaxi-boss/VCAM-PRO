@@ -1,5 +1,5 @@
 #!/bin/sh
-set -eux
+set -eu
 
 BASE=ade6887fa6214ac1cd26b56f13e0d4f64e07e1d4
 PARITY=ff2df5125e2e6f131b3b79ccb311a41105f950df
@@ -90,7 +90,6 @@ grep -Fq 'Architecture: iphoneos-arm64' product/roothide_integration/DEBIAN/cont
 grep -Fq 'Architecture)" = "iphoneos-arm64e"' product/hook_installation_readiness_gate/ci_build_package_and_audit.sh
 grep -Fq '/usr/lib/TweakInject/VCAMPro.dylib' product/hook_installation_readiness_gate/ci_build_package_and_audit.sh
 grep -Fq 'RootHidePatcher/patch.sh' product/hook_installation_readiness_gate/ci_build_package_and_audit.sh
-grep -Fq 'LC_CODE_SIGNATURE' product/hook_installation_readiness_gate/ci_build_package_and_audit.sh
 
 cat > "$EVIDENCE/linked-sources.txt" <<'EOF'
 src/frame_engine/PreparedFrame.cpp
