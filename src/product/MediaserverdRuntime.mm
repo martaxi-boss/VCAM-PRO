@@ -143,6 +143,9 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_FIRST_LOCAL_PHOTO_VIRTUAL_SUBSTITUTION_PROOF)
         proof::ResetFirstLocalPhotoVirtualSubstitutionProofState();
 #endif
+#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+        proof::ResetIOS15ActivationParityProofState();
+#endif
 
         controlQueue_ =
             dispatch_queue_create(
