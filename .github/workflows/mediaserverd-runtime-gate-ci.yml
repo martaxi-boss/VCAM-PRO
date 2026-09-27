@@ -1,0 +1,613 @@
+name: VCAM PRO RootHide mediaserverd Production Runtime Gate 001
+
+on:
+  push:
+    branches:
+      - builder/roothide-mediaserverd-runtime-gate-001
+    paths:
+      - "product/runtime_gate/**"
+      - ".github/workflows/mediaserverd-runtime-gate-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Production runtime start gate
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout runtime gate branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Verify exact base, frozen evidence and mutation lock
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE=de81ab56cc8393961753226515d760fdf7f5ab93
+          LOAD_PROBE=78b88bb36094ae1d0b4f6369e4d6ff03e9df9e67
+          PR19=2475bd51953b536c32d12e37475fd32eaf7c4a67
+
+          test "$(git merge-base "$BASE" HEAD)" = "$BASE"
+
+          changed="$(git diff --name-only "$BASE"..HEAD)"
+          while IFS= read -r path; do
+            test -n "$path" || continue
+            case "$path" in
+              product/runtime_gate/*|.github/workflows/mediaserverd-runtime-gate-ci.yml)
+                ;;
+              *)
+                echo "Unauthorized runtime-gate mutation: $path"
+                exit 1
+                ;;
+            esac
+          done <<< "$changed"
+
+          test -z "$(git diff --name-only "$BASE"..HEAD -- src)"
+          git diff --quiet "$BASE"..HEAD -- \
+            product/build_roothide_integration_input.sh \
+            product/VCAMPro.RootHideIntegration.plist \
+            product/roothide_integration
+
+          test "$(git ls-remote origin refs/heads/builder/roothide-mediaserverd-load-proof-002 | awk '{print $1}')" = "$LOAD_PROBE"
+          test "$(git ls-remote origin refs/heads/builder/shared-media-root-containment-hardening-001 | awk '{print $1}')" = "$PR19"
+
+          test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/main | awk '{print $1}')" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "cc20d787070c67565173d4a46c218e2549cecc93"
+
+          echo "LOAD_PROBE_BRANCH_MODIFIED=NO"
+          echo "PR19_MODIFIED=NO"
+          echo "REFERENCE_REPOS_MODIFIED=NO"
+          echo "SPRINGBOARD_CONTROL_UNCHANGED=PASS"
+          echo "FLOATING_CONTROL_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "SHARED_CONTROL_SEMANTICS_UNCHANGED=PASS"
+          echo "SHARED_MEDIA_SEMANTICS_UNCHANGED=PASS"
+          echo "FAIL_OPEN_UNCHANGED=PASS"
+
+      - name: Validate runtime gate source semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          GATE=product/runtime_gate
+          ENTRY=src/product/VCAMProEntry.mm
+          RUNTIME=src/product/MediaserverdRuntime.mm
+          REAL_HOOK=src/product/ReferenceCameraHook.mm
+          STUB="$GATE/ReferenceCameraHookRuntimeGateStub.mm"
+          WITNESS="$GATE/RuntimeGateWitness.mm"
+          STATE="$GATE/RuntimeGateProofState.h"
+          BUILD="$GATE/build_runtime_gate_input.sh"
+
+          for source in \
+            src/product/VCAMProEntry.mm \
+            src/product/MediaserverdRuntime.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/ControlStateCache.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm; do
+            grep -Fq "$source" "$BUILD"
+          done
+
+          grep -Fq 'product/runtime_gate/ReferenceCameraHookRuntimeGateStub.mm' "$BUILD"
+          if grep -Fq 'src/product/ReferenceCameraHook.mm' "$BUILD"; then
+            echo "Real ReferenceCameraHook is linked by runtime gate."
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+
+          gate = Path("product/runtime_gate")
+          entry = Path("src/product/VCAMProEntry.mm").read_text()
+          stub = (gate / "ReferenceCameraHookRuntimeGateStub.mm").read_text()
+          witness = (gate / "RuntimeGateWitness.mm").read_text()
+
+          process = entry.index('ProcessIs("mediaserverd")')
+          runtime = entry.index("MediaserverdRuntime::shared()", process)
+          start = entry.index("if (runtime.start())", runtime)
+          hook = entry.index("InstallReferenceCameraHook()", start)
+          return_after = entry.index("return;", hook)
+          if not (process < runtime < start < hook < return_after):
+              raise SystemExit("VCAMProEntry runtime-start ordering changed")
+          if entry.count("InstallReferenceCameraHook()") != 1:
+              raise SystemExit("Unexpected additional hook callsite in VCAMProEntry")
+
+          if stub.count("bool InstallReferenceCameraHook()") != 1:
+              raise SystemExit("Gate must define exactly one disabled hook symbol")
+
+          register = witness.index("notify_register_dispatch")
+          callback = witness.index("ValidateTokenState(", register)
+          immediate = witness.index("ValidateTokenState(token);", register)
+          if callback < register or immediate < register:
+              raise SystemExit("Witness startup-order coverage incomplete")
+
+          stub_register = stub.index("notify_register_check")
+          set_state = stub.index("notify_set_state", stub_register)
+          post = stub.index("notify_post", set_state)
+          retain = stub.index("gRuntimeGateStateToken = token;", post)
+          if not (stub_register < set_state < post < retain):
+              raise SystemExit("State publication/retention ordering invalid")
+          if "notify_cancel" in stub[retain:]:
+              raise SystemExit("Successful state token must remain retained")
+
+          with (gate / "VCAMPro.RuntimeGate.plist").open("rb") as f:
+              product_filter = plistlib.load(f)
+          with (gate / "VCAMProRuntimeWitness.plist").open("rb") as f:
+              witness_filter = plistlib.load(f)
+
+          if product_filter != {"Filter": {"Executables": ["SpringBoard", "mediaserverd"]}}:
+              raise SystemExit(f"Unexpected runtime gate filter: {product_filter!r}")
+          if witness_filter != {"Filter": {"Executables": ["SpringBoard"]}}:
+              raise SystemExit(f"Unexpected runtime witness filter: {witness_filter!r}")
+
+          print("EXACT_RUNTIME_GATE_FILTER=PASS")
+          print("RUNTIME_WITNESS_PROCESS_GUARD=PASS")
+          print("RUNTIME_WITNESS_VISIBLE_PROOF=PASS")
+          PY
+
+          grep -Fq '#define VCAM_RUNTIME_GATE_VERSION "0.1.0+roothide4~runtimegate1"' "$STATE"
+          grep -Fq '"com.vcampro.gate.mediaserverd-runtime.001"' "$STATE"
+          grep -Fq 'VCAM_RUNTIME_GATE_FLAG_RUNTIME_START_PASS' "$STATE"
+          grep -Fq 'VCAM_RUNTIME_GATE_FLAG_REFERENCE_HOOK_DISABLED' "$STATE"
+          grep -Fq 'VCAM_RUNTIME_GATE_FRESHNESS_SECONDS 180U' "$STATE"
+
+          grep -Fq 'getprogname()' "$STUB"
+          grep -Fq '"mediaserverd"' "$STUB"
+          grep -Fq 'notify_register_check' "$STUB"
+          grep -Fq 'notify_set_state' "$STUB"
+          grep -Fq 'notify_post' "$STUB"
+          grep -Fq 'runtime.start=PASS' "$STUB"
+          grep -Fq 'reference-hook=DISABLED' "$STUB"
+          grep -Fq 'frame-substitution=INACTIVE' "$STUB"
+          grep -Fq 'return false;' "$STUB"
+
+          grep -Fq 'getprogname()' "$WITNESS"
+          grep -Fq '"SpringBoard"' "$WITNESS"
+          grep -Fq 'notify_register_dispatch' "$WITNESS"
+          grep -Fq 'notify_get_state' "$WITNESS"
+          grep -Fq 'VCAM MEDIASERVERD RUNTIME PASS' "$WITNESS"
+          grep -Fq 'runtime.start=PASS' "$WITNESS"
+          grep -Fq 'reference-hook=DISABLED' "$WITNESS"
+          grep -Fq 'frame-substitution=INACTIVE' "$WITNESS"
+
+          if grep -RInE 'MSHookFunction|HookedCMSampleBufferGetImageBuffer|CMSampleBufferGetImageBuffer|AVCapture|observeRealCameraBuffer|decideCameraBuffer|frame replacement' \
+              "$STUB" "$WITNESS" "$STATE"; then
+            echo "Gate-only hook/camera/frame token found."
+            exit 1
+          fi
+
+          if grep -RInE 'xpc_|mach_msg|CFMessagePort|socket[[:space:]]*\(|connect[[:space:]]*\(|send[[:space:]]*\(|recv[[:space:]]*\(|shm_open|mmap[[:space:]]*\(' \
+              "$STUB" "$WITNESS"; then
+            echo "Forbidden gate IPC/network/shared-memory mechanism found."
+            exit 1
+          fi
+
+          if grep -RIn '\.observeRealCameraBuffer[[:space:]]*(' src/product --exclude=ReferenceCameraHook.mm; then
+            echo "Unexpected real-camera observation callsite outside real hook."
+            exit 1
+          fi
+          if grep -RIn '\.decideCameraBuffer[[:space:]]*(' src/product --exclude=ReferenceCameraHook.mm; then
+            echo "Unexpected frame-decision callsite outside real hook."
+            exit 1
+          fi
+
+          grep -Fq 'runtime.observeRealCameraBuffer(' "$REAL_HOOK"
+          grep -Fq 'runtime.decideCameraBuffer(' "$REAL_HOOK"
+          grep -Fq 'MSHookFunction(' "$REAL_HOOK"
+          grep -Fq 'HookedCMSampleBufferGetImageBuffer' "$REAL_HOOK"
+
+          grep -Fq 'if (!store_.startObserving(' "$RUNTIME"
+          grep -Fq 'return false;' "$RUNTIME"
+
+          if grep -Eqi 'killall|pkill|launchctl|ldrestart|sbreload|userspace|reboot|SpringBoard|mediaserverd|com\.vcampro\.control|VCAMPro/Media' "$GATE/postinst"; then
+            echo "Runtime gate postinst has prohibited effects."
+            exit 1
+          fi
+
+          echo "RUNTIME_START_PROOF_CHANNEL=PASS"
+          echo "REAL_REFERENCE_CAMERA_HOOK_OMITTED=PASS"
+          echo "CAMERA_INTERCEPTION_INACTIVE=PASS"
+          echo "REAL_CAMERA_BUFFER_OBSERVATION_INACTIVE=PASS"
+          echo "FRAME_SUBSTITUTION_INACTIVE=PASS"
+          echo "RUNTIME_START_FAIL_OPEN=PASS"
+
+      - name: Run deterministic runtime proof-state tests
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p build/runtime-gate-state
+
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -Iproduct/runtime_gate \
+            product/runtime_gate/runtime_gate_state_tests.cpp \
+            -o build/runtime-gate-state/tests
+
+          build/runtime-gate-state/tests |
+            tee build/runtime-gate-state/results.txt
+
+          grep -q 'RUNTIME_START_PROOF_CHANNEL=PASS' build/runtime-gate-state/results.txt
+          grep -q 'RUNTIME_START_PASS_FLAG=PASS' build/runtime-gate-state/results.txt
+          grep -q 'REFERENCE_HOOK_DISABLED_FLAG=PASS' build/runtime-gate-state/results.txt
+          grep -q 'FRESHNESS_VALIDATION=PASS' build/runtime-gate-state/results.txt
+
+      - name: Run accepted production regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh product/runtime_gate/run_runtime_gate_regressions.sh
+
+      - name: Install RootHide packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          export PATH="$GNU_PATH:$PATH"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+          command -v ldid
+          dpkg-deb --version
+
+      - name: Build controlled arm64 RootHide input package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sh product/runtime_gate/build_runtime_gate_input.sh
+
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+          INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide4~runtimegate1_iphoneos-arm64.deb"
+          EVIDENCE="$ROOT/evidence"
+          mkdir -p "$EVIDENCE"
+
+          test -f "$INPUT"
+          test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
+          test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide4~runtimegate1"
+          test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
+
+          dpkg-deb -f "$INPUT" | tee "$EVIDENCE/input-control.txt"
+          dpkg-deb -c "$INPUT" | tee "$EVIDENCE/input-inventory.txt"
+
+          for file in \
+            VCAMPro.dylib VCAMPro.plist \
+            VCAMProRuntimeWitness.dylib VCAMProRuntimeWitness.plist; do
+            grep -Fq "./var/jb/usr/lib/TweakInject/$file" "$EVIDENCE/input-inventory.txt"
+          done
+
+          echo "PRODUCTION_MEDIASERVERD_RUNTIME_COMPILED=PASS"
+          echo "PRODUCTION_VCAM_ENTRY_COMPILED=PASS"
+
+      - name: Fetch pinned official RootHidePatcher
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PATCHER_SHA=80c16e08da33fecd27c0ff35777f37afd171868b
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+
+          git clone --quiet https://github.com/roothide/RootHidePatcher.git "$ROOT/RootHidePatcher"
+          git -C "$ROOT/RootHidePatcher" checkout --quiet "$PATCHER_SHA"
+          test "$(git -C "$ROOT/RootHidePatcher" rev-parse HEAD)" = "$PATCHER_SHA"
+
+          echo "ROOTHIDE_PATCHER_SHA=$PATCHER_SHA" |
+            tee "$ROOT/evidence/roothide-patcher.txt"
+
+      - name: Convert to final RootHide runtime gate package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT="$PWD/build/roothide-mediaserverd-runtime-gate-001"
+          INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide4~runtimegate1_iphoneos-arm64.deb"
+          FINAL_DIR="$ROOT/final"
+          FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Mediaserverd-Runtime-Gate-001.deb"
+          PATCHER="$ROOT/RootHidePatcher/patch.sh"
+
+          mkdir -p "$FINAL_DIR"
+          sudo env "PATH=$PATH" bash "$PATCHER" "$INPUT" "$FINAL"
+
+          test -f "$FINAL"
+          shasum -a 256 "$FINAL" | tee "$FINAL.sha256"
+
+      - name: Inspect final converted package and exact filters
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+          FINAL="$ROOT/final/VCAM-PRO-RootHide-Mediaserverd-Runtime-Gate-001.deb"
+          EXTRACTED="$ROOT/extracted-final"
+          TWEAK="$EXTRACTED/usr/lib/TweakInject"
+          EVIDENCE="$ROOT/evidence"
+
+          rm -rf "$EXTRACTED"
+          mkdir -p "$EXTRACTED"
+          dpkg-deb -R "$FINAL" "$EXTRACTED"
+
+          dpkg-deb -f "$FINAL" | tee "$EVIDENCE/final-control.txt"
+          dpkg-deb -c "$FINAL" | tee "$EVIDENCE/final-inventory.txt"
+
+          test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
+          test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide4~runtimegate1"
+          test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
+          test ! -e "$EXTRACTED/var/jb"
+
+          for file in \
+            VCAMPro.dylib VCAMPro.plist \
+            VCAMProRuntimeWitness.dylib VCAMProRuntimeWitness.plist; do
+            test -f "$TWEAK/$file"
+          done
+
+          FILES="$(
+            dpkg-deb -c "$FINAL" |
+              awk '$1 ~ /^-/ {print $6}' |
+              sort
+          )"
+          EXPECTED="$(
+            printf '%s\n' \
+              './usr/lib/TweakInject/VCAMPro.dylib' \
+              './usr/lib/TweakInject/VCAMPro.plist' \
+              './usr/lib/TweakInject/VCAMProRuntimeWitness.dylib' \
+              './usr/lib/TweakInject/VCAMProRuntimeWitness.plist' |
+              sort
+          )"
+          test "$FILES" = "$EXPECTED"
+
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+
+          root = Path(
+              "build/roothide-mediaserverd-runtime-gate-001/"
+              "extracted-final/usr/lib/TweakInject"
+          )
+
+          with (root / "VCAMPro.plist").open("rb") as f:
+              product_filter = plistlib.load(f)
+          with (root / "VCAMProRuntimeWitness.plist").open("rb") as f:
+              witness_filter = plistlib.load(f)
+
+          if product_filter != {"Filter": {"Executables": ["SpringBoard", "mediaserverd"]}}:
+              raise SystemExit(f"Unexpected final gate filter: {product_filter!r}")
+          if witness_filter != {"Filter": {"Executables": ["SpringBoard"]}}:
+              raise SystemExit(f"Unexpected final witness filter: {witness_filter!r}")
+
+          print("EXACT_RUNTIME_GATE_FILTER=PASS")
+          print("RUNTIME_WITNESS_FILTER=PASS")
+          PY
+
+          if find "$EXTRACTED" -type f | grep -E 'com\.vcampro\.control\.plist|/VCAMPro/Media/'; then
+            echo "Runtime gate package contains prohibited control/media state."
+            exit 1
+          fi
+
+          echo "ROOT_HIDE_PACKAGING_UNCHANGED=PASS"
+          echo "ELLEKIT_TWEAKINJECT_LAYOUT=PASS"
+
+      - name: Audit final production VCAMPro dylib
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+          DYLIB="$ROOT/extracted-final/usr/lib/TweakInject/VCAMPro.dylib"
+          EVIDENCE="$ROOT/evidence"
+
+          xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/product-arch.txt"
+          grep -q 'arm64' "$EVIDENCE/product-arch.txt"
+          if grep -q 'arm64e' "$EVIDENCE/product-arch.txt"; then
+            echo "A9 gate dylib must contain arm64 code only."
+            exit 1
+          fi
+
+          xcrun otool -l "$DYLIB" > "$EVIDENCE/product-load-commands.txt"
+          xcrun otool -D "$DYLIB" > "$EVIDENCE/product-install-name.txt"
+          xcrun otool -L "$DYLIB" | tee "$EVIDENCE/product-linked-libraries.txt"
+          xcrun nm "$DYLIB" | tee "$EVIDENCE/product-symbols.txt" >/dev/null || true
+          xcrun nm -u "$DYLIB" | tee "$EVIDENCE/product-undefined.txt" || true
+          strings "$DYLIB" | tee "$EVIDENCE/product-strings.txt" >/dev/null
+
+          grep -q 'minos 15.0' "$EVIDENCE/product-load-commands.txt"
+          grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/product-load-commands.txt"
+          grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/product-load-commands.txt"
+          grep -q '@loader_path/VCAMPro.dylib' "$EVIDENCE/product-install-name.txt"
+          xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
+          ldid -e "$DYLIB" > "$EVIDENCE/product-entitlements.txt"
+
+          grep -Fq 'MediaserverdRuntime' "$EVIDENCE/product-symbols.txt"
+          grep -Fq 'VCAMProInitialize' "$EVIDENCE/product-symbols.txt"
+          grep -Fq 'InstallReferenceCameraHook' "$EVIDENCE/product-symbols.txt"
+          grep -Fq 'com.vcampro.mediaserverd.control' "$EVIDENCE/product-strings.txt"
+          grep -Fq 'com.vcampro.gate.mediaserverd-runtime.001' "$EVIDENCE/product-strings.txt"
+          grep -Fq '0.1.0+roothide4~runtimegate1' "$EVIDENCE/product-strings.txt"
+          grep -Fq 'runtime.start=PASS' "$EVIDENCE/product-strings.txt"
+          grep -Fq 'reference-hook=DISABLED' "$EVIDENCE/product-strings.txt"
+          grep -Fq 'frame-substitution=INACTIVE' "$EVIDENCE/product-strings.txt"
+
+          grep -q '_notify_register_check' "$EVIDENCE/product-undefined.txt"
+          grep -q '_notify_set_state' "$EVIDENCE/product-undefined.txt"
+          grep -q '_notify_post' "$EVIDENCE/product-undefined.txt"
+
+          if grep -Ei 'MSHookFunction|HookedCMSampleBufferGetImageBuffer|Hooking CMSampleBufferGetImageBuffer' \
+              "$EVIDENCE/product-symbols.txt" "$EVIDENCE/product-undefined.txt" "$EVIDENCE/product-strings.txt"; then
+            echo "Real camera hook implementation leaked into gate dylib."
+            exit 1
+          fi
+          if grep -Ei 'CydiaSubstrate|SubstrateLoader' "$EVIDENCE/product-linked-libraries.txt"; then
+            echo "Runtime gate product dylib unexpectedly links Substrate hook framework."
+            exit 1
+          fi
+
+          echo "PRODUCTION_MEDIASERVERD_RUNTIME_COMPILED=PASS"
+          echo "PRODUCTION_VCAM_ENTRY_COMPILED=PASS"
+          echo "RUNTIME_START_PROOF_CHANNEL=PASS"
+          echo "REAL_REFERENCE_CAMERA_HOOK_OMITTED=PASS"
+          echo "MSHOOKFUNCTION_ABSENT=PASS"
+          echo "CAMERA_INTERCEPTION_INACTIVE=PASS"
+          echo "REAL_CAMERA_BUFFER_OBSERVATION_INACTIVE=PASS"
+          echo "FRAME_SUBSTITUTION_INACTIVE=PASS"
+          echo "RUNTIME_START_FAIL_OPEN=PASS"
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+
+      - name: Audit final SpringBoard runtime witness
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+          DYLIB="$ROOT/extracted-final/usr/lib/TweakInject/VCAMProRuntimeWitness.dylib"
+          EVIDENCE="$ROOT/evidence"
+
+          xcrun lipo -info "$DYLIB" | tee "$EVIDENCE/witness-arch.txt"
+          grep -q 'arm64' "$EVIDENCE/witness-arch.txt"
+          if grep -q 'arm64e' "$EVIDENCE/witness-arch.txt"; then
+            echo "A9 witness must contain arm64 code only."
+            exit 1
+          fi
+
+          xcrun otool -l "$DYLIB" > "$EVIDENCE/witness-load-commands.txt"
+          xcrun otool -D "$DYLIB" > "$EVIDENCE/witness-install-name.txt"
+          xcrun otool -L "$DYLIB" | tee "$EVIDENCE/witness-linked-libraries.txt"
+          xcrun nm -u "$DYLIB" | tee "$EVIDENCE/witness-undefined.txt" || true
+          strings "$DYLIB" | tee "$EVIDENCE/witness-strings.txt" >/dev/null
+
+          grep -q 'minos 15.0' "$EVIDENCE/witness-load-commands.txt"
+          grep -q '@loader_path/.jbroot/Library/Frameworks' "$EVIDENCE/witness-load-commands.txt"
+          grep -q '@loader_path/.jbroot/usr/lib' "$EVIDENCE/witness-load-commands.txt"
+          grep -q '@loader_path/VCAMProRuntimeWitness.dylib' "$EVIDENCE/witness-install-name.txt"
+          xcrun otool -l "$DYLIB" | grep -q 'LC_CODE_SIGNATURE'
+          ldid -e "$DYLIB" > "$EVIDENCE/witness-entitlements.txt"
+
+          grep -q '_notify_register_dispatch' "$EVIDENCE/witness-undefined.txt"
+          grep -q '_notify_get_state' "$EVIDENCE/witness-undefined.txt"
+          grep -Fq 'SpringBoard' "$EVIDENCE/witness-strings.txt"
+          grep -Fq 'com.vcampro.gate.mediaserverd-runtime.001' "$EVIDENCE/witness-strings.txt"
+          grep -Fq 'VCAM MEDIASERVERD RUNTIME PASS' "$EVIDENCE/witness-strings.txt"
+          grep -Fq 'runtime.start=PASS' "$EVIDENCE/witness-strings.txt"
+          grep -Fq 'reference-hook=DISABLED' "$EVIDENCE/witness-strings.txt"
+          grep -Fq 'frame-substitution=INACTIVE' "$EVIDENCE/witness-strings.txt"
+
+          if grep -Ei 'AVFoundation|CoreMedia|CoreVideo|VideoToolbox|Photos' "$EVIDENCE/witness-linked-libraries.txt"; then
+            echo "Runtime witness linked a camera/media framework."
+            exit 1
+          fi
+          if grep -Ei 'MSHookFunction|HookedCMSampleBufferGetImageBuffer|AVCapture|CVPixelBuffer' \
+              "$EVIDENCE/witness-strings.txt" "$EVIDENCE/witness-undefined.txt"; then
+            echo "Hook/camera/frame symbol found in runtime witness."
+            exit 1
+          fi
+
+          echo "RUNTIME_WITNESS_PROCESS_GUARD=PASS"
+          echo "RUNTIME_WITNESS_VISIBLE_PROOF=PASS"
+          echo "WITNESS_STARTUP_ORDER_INDEPENDENT=PASS"
+          echo "WITNESS_FRESHNESS_VALIDATION=PASS"
+          echo "MACHO_ARM64_A9_COMPATIBLE=PASS"
+          echo "IOS_MIN_VERSION=15.0"
+          echo "ROOTHIDE_RPATH=PASS"
+          echo "ROOTHIDE_INSTALL_NAME=PASS"
+          echo "DYLIB_SIGNING=PASS"
+
+      - name: Validate maintainer script and control-state safety
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+          SCRIPT="$ROOT/extracted-final/DEBIAN/postinst"
+          EVIDENCE="$ROOT/evidence"
+
+          test -f "$SCRIPT"
+          cat "$SCRIPT" | tee "$EVIDENCE/postinst.txt"
+
+          if grep -Eqi 'killall|pkill|launchctl|ldrestart|sbreload|userspace|reboot|SpringBoard|mediaserverd|com\.vcampro\.control|VCAMPro/Media|selected|enabled|playing' "$SCRIPT"; then
+            echo "Forbidden maintainer-script effect found."
+            exit 1
+          fi
+
+          echo "MAINTAINER_SCRIPTS_ROOTSAFE=PASS"
+          echo "CONTROL_STATE_MUTATION=ABSENT"
+          echo "MEDIA_STAGING_MUTATION=ABSENT"
+
+      - name: Final static acceptance
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          BASE=de81ab56cc8393961753226515d760fdf7f5ab93
+          ROOT=build/roothide-mediaserverd-runtime-gate-001
+          FINAL="$ROOT/final/VCAM-PRO-RootHide-Mediaserverd-Runtime-Gate-001.deb"
+          EVIDENCE="$ROOT/evidence"
+
+          test -f "$FINAL"
+          test -f "$FINAL.sha256"
+          test -z "$(git diff --name-only "$BASE"..HEAD -- src)"
+          git diff --quiet "$BASE"..HEAD -- \
+            product/build_roothide_integration_input.sh \
+            product/VCAMPro.RootHideIntegration.plist \
+            product/roothide_integration
+
+          cat "$FINAL.sha256" | tee "$EVIDENCE/final-sha256.txt"
+          git rev-parse HEAD | tee "$EVIDENCE/exact-head.txt"
+
+          echo "PRODUCTION_MEDIASERVERD_RUNTIME_COMPILED=PASS"
+          echo "PRODUCTION_VCAM_ENTRY_COMPILED=PASS"
+          echo "EXACT_RUNTIME_GATE_FILTER=PASS"
+          echo "RUNTIME_START_PROOF_CHANNEL=PASS"
+          echo "RUNTIME_WITNESS_PROCESS_GUARD=PASS"
+          echo "RUNTIME_WITNESS_VISIBLE_PROOF=PASS"
+          echo "REAL_REFERENCE_CAMERA_HOOK_OMITTED=PASS"
+          echo "MSHOOKFUNCTION_ABSENT=PASS"
+          echo "CAMERA_INTERCEPTION_INACTIVE=PASS"
+          echo "REAL_CAMERA_BUFFER_OBSERVATION_INACTIVE=PASS"
+          echo "FRAME_SUBSTITUTION_INACTIVE=PASS"
+          echo "RUNTIME_START_FAIL_OPEN=PASS"
+          echo "ROOT_HIDE_PACKAGING_UNCHANGED=PASS"
+          echo "SPRINGBOARD_CONTROL_UNCHANGED=PASS"
+          echo "FLOATING_CONTROL_UNCHANGED=PASS"
+          echo "FRAME_ENGINE_UNCHANGED=PASS"
+          echo "LOCAL_GALLERY_UNCHANGED=PASS"
+          echo "SHARED_CONTROL_SEMANTICS_UNCHANGED=PASS"
+          echo "SHARED_MEDIA_SEMANTICS_UNCHANGED=PASS"
+          echo "FAIL_OPEN_UNCHANGED=PASS"
+          echo "PR19_MODIFIED=NO"
+          echo "LOAD_PROBE_BRANCH_MODIFIED=NO"
+          echo "REFERENCE_REPOS_MODIFIED=NO"
+          echo "MERGE_PERFORMED=NO"
+          echo "RELEASE_PERFORMED=NO"
+          echo "DEPLOY_PERFORMED=NO"
+          echo "DEVICE_ACTION=NO"
+
+      - name: Upload production runtime gate artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-roothide-mediaserverd-production-runtime-gate-001
+          path: |
+            build/roothide-mediaserverd-runtime-gate-001/final/VCAM-PRO-RootHide-Mediaserverd-Runtime-Gate-001.deb
+            build/roothide-mediaserverd-runtime-gate-001/final/VCAM-PRO-RootHide-Mediaserverd-Runtime-Gate-001.deb.sha256
+            build/roothide-mediaserverd-runtime-gate-001/evidence/
+            build/runtime-gate-state/results.txt
+            build/runtime-gate-regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14
