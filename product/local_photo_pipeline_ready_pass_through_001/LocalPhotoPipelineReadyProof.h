@@ -7,6 +7,12 @@
 
 namespace vcam::product::proof {
 
+using ::LocalPhotoProofResult;
+using ::LocalPhotoProofMediaKind;
+using ::LocalPhotoProofPlaybackIntent;
+using ::LocalPhotoProofPlaybackState;
+using ::LocalPhotoProofPipelineStage;
+
 struct LocalPhotoCallbackFacts {
     std::uint64_t selectionGeneration = 0;
     bool callbackExercised = false;
