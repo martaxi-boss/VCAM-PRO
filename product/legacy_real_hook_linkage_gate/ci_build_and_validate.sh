@@ -206,7 +206,7 @@ grep -Fxq '_MSHookFunction' "$EVIDENCE/macho-undefined.txt"
 grep -Fxq '_CMSampleBufferGetImageBuffer' "$EVIDENCE/macho-undefined.txt"
 
 test -z "$(grep -F 'VCAMProInitialize' "$EVIDENCE/macho-symbols.txt" || true)"
-test -z "$(grep -F '[VCAM PRO] Hooking CMSampleBufferGetImageBuffer' "$EVIDENCE/macho-strings.txt" | grep -v . || true)"
+grep -Fq '[VCAM PRO] Hooking CMSampleBufferGetImageBuffer' "$EVIDENCE/macho-strings.txt"
 
 cp "$DYLIB" "$MODEL_DIR/VCAMProLegacyRealHookLinkageGate.dylib"
 test -f "$MODEL_DIR/VCAMProLegacyRealHookLinkageGate.dylib"
