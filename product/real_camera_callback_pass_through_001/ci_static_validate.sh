@@ -56,15 +56,16 @@ proof_state = (scope / "RealCameraCallbackPassThroughProofState.h").read_text()
 witness = (scope / "RealCameraCallbackPassThroughWitness.mm").read_text()
 build = (scope / "build_callback_pass_through_input.sh").read_text()
 
-hook_patterns = (
-    (r"gOriginalCMSampleBufferGetImageBuffer\s*\(\s*sampleBuffer\s*\)", "original provider call"),
-    (r"runtime\.observeRealCameraBuffer\s*\(\s*original\s*\)", "real-buffer observation"),
-    (r"runtime\.decideCameraBuffer\s*\(\s*original\s*\)", "production decision call"),
+hook_compact = re.sub(r"\\s+", "", hook)
+hook_calls = (
+    ("gOriginalCMSampleBufferGetImageBuffer(sampleBuffer)", "original provider call"),
+    ("runtime.observeRealCameraBuffer(original)", "real-buffer observation"),
+    ("runtime.decideCameraBuffer(original)", "production decision call"),
 )
-for pattern, label in hook_patterns:
-    matches = re.findall(pattern, hook)
-    if len(matches) != 1:
-        raise SystemExit(f"Frozen hook {label} count changed: {len(matches)}")
+for call, label in hook_calls:
+    count = hook_compact.count(call)
+    if count != 1:
+        raise SystemExit(f"Frozen hook {label} count changed: {count}")
 
 for token in (
     "return decision.pixelBuffer != nullptr",
