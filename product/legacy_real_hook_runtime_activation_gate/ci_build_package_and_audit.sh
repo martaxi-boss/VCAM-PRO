@@ -200,8 +200,7 @@ fi
 sh "$GATE/build_runtime_activation_gate_input.sh"
 
 mkdir -p "$EVIDENCE"
-HOST_CXX="$(xcrun -f clang++)"
-"$HOST_CXX" -std=c++17 -Wall -Wextra -Werror -I"$GATE" \
+xcrun --sdk macosx clang++ -std=c++17 -Wall -Wextra -Werror -pedantic -I"$GATE" \
     "$GATE/real_hook_runtime_state_tests.cpp" \
     -o "$ROOT/real-hook-runtime-state-tests"
 "$ROOT/real-hook-runtime-state-tests" | tee "$EVIDENCE/proof-state-tests.txt"
