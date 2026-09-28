@@ -163,6 +163,15 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
+      - name: Checkout RootHidePatcher exact pin
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/RootHidePatcher
+          ref: 80c16e08da33fecd27c0ff35777f37afd171868b
+          path: reference/RootHidePatcher
+          persist-credentials: false
+          fetch-depth: 1
+
       - name: Install packaging tools
         shell: bash
         run: |
@@ -386,7 +395,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sh product/ios15_central_motioncam_gallery_e2e_convergence_001/ci_build_package_and_audit.sh
+          ROOTHIDE_PATCHER_DIR="$PWD/reference/RootHidePatcher" \
+            sh product/ios15_central_motioncam_gallery_e2e_convergence_001/ci_build_package_and_audit.sh
 
           REPORT=build/ios15-central-motioncam-gallery-e2e-convergence-001/evidence/validation-report.txt
           grep -Fq 'PACKAGE_ROLE=CORRECTED_PRODUCT_CANDIDATE' "$REPORT"
