@@ -192,3 +192,17 @@ VCAM PRO must not depend on:
 - third-party commercial licensing.
 
 The implementation must be original and live exclusively in `martaxi-boss/VCAM-PRO`.
+
+## Active-mode ownership supersession (E2E Convergence 001)
+
+Earlier fail-open descriptions in this document are retained as historical design evidence. They no longer define active-mode product output semantics.
+
+The authoritative product behavior for supported 420v/420f camera paths is now:
+
+- **VCAM OFF -> ORIGINAL** camera output is permitted.
+- **VCAM ON + expected unavailable/pending media -> BLACK virtual output.**
+- **VCAM ON + prepared PHOTO/VIDEO -> prepared virtual output.**
+- **VCAM ON supported path -> physical camera pixels are not a normal output path**, including reconfiguration and first-seen supported geometry transitions.
+- Unsupported pixel formats remain explicitly classified and are not falsely certified as active-mode ownership coverage.
+
+The central architecture remains the IOS-15-USB model: CMSampleBufferGetImageBuffer ownership at the central camera path, with prepared virtual pixels committed into the original camera-shaped CVPixelBuffer and original buffer identity returned after a successful commit. Local gallery media remains producer-side work and does not move decode, file I/O, scale, pan or pinch into the camera callback.
