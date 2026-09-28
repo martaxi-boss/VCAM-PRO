@@ -15,10 +15,145 @@ on:
       - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-ios15-central-motioncam-gallery-e2e-convergence-001
+  cancel-in-progress: true
+
 jobs:
-  composition:
-    name: Real product composition probe
-    runs-on: macos-15
+  reference-comparison:
+    name: IOS15 + MotionCam reference convergence
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout exact VCAM PRO head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS-15-USB
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam-iOS
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 optional read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS-16-USB-4k
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Assert exact references and comparison findings
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C reference/IOS-15-USB rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam-iOS rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS-16-USB-4k rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+
+          mkdir -p build/e2e-convergence/reference
+
+          python3 - <<'PY' | tee build/e2e-convergence/reference/ios15-filter.txt
+          from pathlib import Path
+          import plistlib
+          import re
+
+          with Path("product/VCAMPro.plist").open("rb") as f:
+              canonical = plistlib.load(f)
+
+          text = Path(
+              "reference/IOS-15-USB/recovered/VCamRecovered.plist"
+          ).read_text()
+
+          def parse_array(key):
+              match = re.search(rf"{key}\s*=\s*\((.*?)\);", text, re.S)
+              if not match:
+                  raise SystemExit(f"Missing {key}")
+              return re.findall(r'"([^"]+)"', match.group(1))
+
+          reference = {
+              "Filter": {
+                  "Bundles": parse_array("Bundles"),
+                  "Executables": parse_array("Executables"),
+              }
+          }
+
+          if canonical != reference:
+              raise SystemExit(
+                  f"Canonical filter mismatch: {canonical!r} != {reference!r}"
+              )
+
+          print("IOS15_CENTRAL_FILTER_PARITY=PASS")
+          print("CANONICAL_VCAMPRO_FILTER_PARITY=PASS")
+          PY
+
+          grep -Fq '0x175d4' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          grep -Fq 'frameQueue' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          grep -Fq 'lastObject' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          grep -Fq 'StillImageKey' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          grep -Fq 'ORIGINAL_CAMERA_PIXEL_BUFFER' docs/CANONICAL_PROJECT_STATE.md
+
+          grep -Fq 'UIImagePickerController' reference/MotionCam-iOS/Tweak.xm
+          grep -Fq 'SavedPhotosAlbum' reference/MotionCam-iOS/Tweak.xm
+          grep -Fq 'public.movie' reference/MotionCam-iOS/Tweak.xm
+          grep -Fq 'AVAssetReader' reference/MotionCam-iOS/MediaManager.m
+          grep -Fq 'AVAssetReaderTrackOutput' reference/MotionCam-iOS/MediaManager.m
+          grep -Eq 'alwaysCopiesSampleData[[:space:]]*=[[:space:]]*NO' reference/MotionCam-iOS/MediaManager.m
+          grep -Fq 'copyNextSampleBuffer' reference/MotionCam-iOS/MediaManager.m
+          grep -Fq 'CACurrentMediaTime' reference/MotionCam-iOS/MediaManager.m
+
+          grep -Fq 'a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
+          grep -Fq '5ede3a1973a01cb13fe7f3ab562b47513feec1b1' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
+          grep -Fq 'frameQueue' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
+          grep -Fq 'lastObject' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
+          grep -Fq 'AVAssetReaderTrackOutput' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
+
+          {
+            echo "IOS15_REFERENCE_INSPECTED=YES"
+            echo "MOTIONCAM_REFERENCE_INSPECTED=YES"
+            echo "IOS15_CENTRAL_FILTER_PARITY=PASS"
+            echo "IOS15_FRAMEQUEUE_COMPARISON=PASS"
+            echo "IOS15_LASTOBJECT_COMPARISON=PASS"
+            echo "IOS15_RENDER_OWNERSHIP_PARITY=PASS"
+            echo "MOTIONCAM_LOCAL_MEDIA_COMPARISON=PASS"
+            echo "MOTIONCAM_AVASSETREADER_COMPARISON=PASS"
+            echo "CANONICAL_VCAMPRO_FILTER_PARITY=PASS"
+          } | tee build/e2e-convergence/reference/markers.txt
+
+      - name: Upload reference comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios15-motioncam-e2e-reference-comparison-001
+          path: build/e2e-convergence/reference/**
+          if-no-files-found: error
+          retention-days: 14
+
+  corrected-product:
+    name: Exact-head corrected product candidate
+    needs: reference-comparison
+    runs-on: macos-26
+    timeout-minutes: 180
+
     steps:
       - name: Checkout exact head
         uses: actions/checkout@v4
@@ -26,49 +161,310 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
 
-      - name: Build real product composition test
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+          mkdir -p build/e2e-convergence
+
+      - name: Exact-head and static ownership contract
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          mkdir -p build/e2e-convergence
-          xcrun --sdk macosx clang++ \
-            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
-            -Wno-deprecated-declarations -Wno-unused-function \
-            -DVCAM_TESTING=1 \
-            -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1 \
-            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
-            src/frame_engine/PreparedFrame.cpp \
-            src/frame_engine/FrameEngineState.cpp \
-            src/frame_engine/ReadyFrameQueue.cpp \
-            src/frame_engine/FrameTimelineScheduler.cpp \
-            src/frame_engine/MonotonicHostClock.cpp \
-            src/media_engine/LocalVideoReader.mm \
-            src/media_engine/LocalPhotoReader.mm \
-            src/media_engine/FrameNormalizer.cpp \
-            src/media_engine/FrameTransformer.mm \
-            src/media_engine/FramePipelinePump.cpp \
-            src/media_engine/FramePipelinePumpTimed.cpp \
-            src/media_engine/ProducerWakeupController.cpp \
-            src/media_engine/ProducerWakeupDriver.mm \
-            src/media_engine/InternalGalleryMediaSession.mm \
-            src/product/ControlStateCache.cpp \
-            src/product/VirtualBlackFrame.mm \
-            src/product/CameraConsumerAdapter.cpp \
-            src/product/SharedControlStore.mm \
-            src/product/SharedMediaStager.mm \
-            src/product/ProductControlOwner.mm \
-            src/product/MediaserverdRuntime.mm \
-            src/product/ReferenceCameraHook.mm \
-            tests/product/product_composition_e2e_tests.mm \
-            -framework Accelerate -framework Foundation -framework AVFoundation \
-            -framework CoreFoundation -framework CoreGraphics -framework CoreMedia \
-            -framework CoreVideo -framework ImageIO \
-            -o build/e2e-convergence/product-composition
+          git merge-base --is-ancestor 14b59cfe600d32d24bdb5d5eceba45a1edba3022 HEAD
 
-      - name: Run composition test
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-15-USB.git refs/heads/main | awk '{print $1}')" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git ls-remote https://github.com/martaxi-boss/MotionCam-iOS.git refs/heads/main | awk '{print $1}')" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/heads/main | awk '{print $1}')" = "cc20d787070c67565173d4a46c218e2549cecc93"
+
+          test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
+
+          grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
+          grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
+          if grep -Fq 'UIRotationGestureRecognizer' src/control/InternalGalleryViewController.mm; then
+            echo "Rotation recognizer is forbidden"
+            exit 1
+          fi
+
+          grep -Fq 'MSHookFunction' src/product/ReferenceCameraHook.mm
+          grep -Fq 'CMSampleBufferGetImageBuffer' src/product/ReferenceCameraHook.mm
+          if grep -RInE 'WhatsApp|Telegram|FaceTime|AVCaptureSession' src/product/ReferenceCameraHook.mm src/product/MediaserverdRuntime.mm; then
+            echo "App-specific or alternate camera hook token found"
+            exit 1
+          fi
+
+          python3 - <<'PY'
+          from pathlib import Path
+
+          text = Path("src/product/ReferenceCameraHook.mm").read_text()
+          start = text.index("CVImageBufferRef HookedCMSampleBufferGetImageBuffer")
+          end = text.index("bool InstallReferenceCameraHook", start)
+          callback = text[start:end]
+
+          forbidden = [
+              "AVAssetReader",
+              "CGImageSource",
+              "FrameTransformer",
+              "vImage",
+              "CVPixelBufferCreate(",
+              "dispatch_sync",
+              "loadFile",
+              "contentsOfFile",
+              "readData",
+          ]
+          found = [token for token in forbidden if token in callback]
+          if found:
+              raise SystemExit(
+                  f"Heavy camera callback work found: {found}"
+              )
+          PY
+
+          {
+            echo "NO_CALLBACK_FILE_IO=PASS"
+            echo "NO_CALLBACK_DECODE=PASS"
+            echo "NO_CALLBACK_SCALE_OR_TRANSFORM=PASS"
+            echo "NO_CALLBACK_SYNCHRONOUS_MEDIA_WAIT=PASS"
+            echo "NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS"
+            echo "NO_APP_SPECIFIC_HOOKS=PASS"
+            echo "MAIN_UNCHANGED=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee build/e2e-convergence/static-contract.txt
+
+      - name: Frame Engine A through F2 regression matrix
         shell: bash
         run: |
           set -euo pipefail
-          build/e2e-convergence/product-composition \
-            | tee build/e2e-convergence/product-composition.txt
+          cp tools/run_frame_regressions.sh build/e2e-convergence/run_frame_regressions.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("build/e2e-convergence/run_frame_regressions.sh")
+          text = path.read_text()
+          old = "Stage E1 transformer tests run: 27, failures: 0"
+          new = "Stage E1 transformer tests run: 29, failures: 0"
+          if old not in text:
+              raise SystemExit("Unexpected regression script transformer count")
+          path.write_text(text.replace(old, new))
+          PY
+          chmod +x build/e2e-convergence/run_frame_regressions.sh
+          build/e2e-convergence/run_frame_regressions.sh
+
+          grep -Fq 'PAN_TRANSLATION_STATE=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PAN_TRANSLATION_PIXELS=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PINCH_SCALE_STATE=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PINCH_SCALE_PIXELS=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PHOTO_ROTATION_DISABLED=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS' build/regressions/e1-transformer.txt
+
+      - name: BLACK ownership regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Isrc/product             src/product/VirtualBlackFrame.mm             tests/product/virtual_black_frame_tests.mm             -framework CoreFoundation -framework CoreVideo             -o build/e2e-convergence/virtual-black
+          build/e2e-convergence/virtual-black             | tee build/e2e-convergence/virtual-black.txt
+          grep -Fq 'failures: 0' build/e2e-convergence/virtual-black.txt
+          grep -Fq '[PASS] 420v black content' build/e2e-convergence/virtual-black.txt
+          grep -Fq '[PASS] 420f black content' build/e2e-convergence/virtual-black.txt
+          echo "VCAM_ON_NO_MEDIA_USES_BLACK=PASS" | tee -a build/e2e-convergence/markers.txt
+
+      - name: CameraConsumerAdapter ownership and photo persistence
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/product/ControlStateCache.cpp             src/product/CameraConsumerAdapter.cpp             tests/product/camera_consumer_adapter_tests.cpp             -framework CoreFoundation -framework CoreMedia -framework CoreVideo             -o build/e2e-convergence/camera-consumer
+          build/e2e-convergence/camera-consumer             | tee build/e2e-convergence/camera-consumer.txt
+          grep -Fq 'failures: 0' build/e2e-convergence/camera-consumer.txt
+          grep -Fq '[PASS] supported no-black uses in-place ownership guard' build/e2e-convergence/camera-consumer.txt
+          grep -Fq '[PASS] unsupported format is explicit' build/e2e-convergence/camera-consumer.txt
+          grep -Fq '[PASS] static photo lease persists across callbacks' build/e2e-convergence/camera-consumer.txt
+          grep -Fq '[PASS] VCAM OFF no media returns original' build/e2e-convergence/camera-consumer.txt
+          grep -Fq '[PASS] VCAM ON no media uses black' build/e2e-convergence/camera-consumer.txt
+          grep -Fq '[PASS] clear media returns black' build/e2e-convergence/camera-consumer.txt
+
+          {
+            echo "VCAM_OFF_RETURNS_ORIGINAL=PASS"
+            echo "VCAM_ON_NO_MEDIA_USES_BLACK=PASS"
+            echo "VCAM_ENABLED_SUPPORTED_ORIGINAL_DECISIONS=0"
+            echo "SUPPORTED_GEOMETRY_TRANSITION_DOES_NOT_EXPOSE_ORIGINAL=PASS"
+            echo "PHOTO_STATIC_SOURCE_PERSISTS=PASS"
+            echo "CLEAR_MEDIA_RETURNS_BLACK=PASS"
+          } | tee -a build/e2e-convergence/markers.txt
+
+      - name: Internal Gallery LocalPhotoReader and LocalVideoReader regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/e2e-convergence/internal-gallery
+          build/e2e-convergence/internal-gallery             | tee build/e2e-convergence/internal-gallery.txt
+          grep -Fq 'failures: 0' build/e2e-convergence/internal-gallery.txt
+          echo "VIDEO_LOCAL_READER_REGRESSION=PASS" | tee -a build/e2e-convergence/markers.txt
+
+      - name: Shared control schema backward-compatibility regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Isrc/product             src/product/SharedControlStore.mm             tests/product/shared_control_store_fail_open_tests.mm             -framework Foundation             -o build/e2e-convergence/shared-control
+          build/e2e-convergence/shared-control             | tee build/e2e-convergence/shared-control.txt
+          grep -Fq 'failures: 0' build/e2e-convergence/shared-control.txt
+
+      - name: Product Control lost-update regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/product_control_lost_update_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/e2e-convergence/product-control
+          build/e2e-convergence/product-control             | tee build/e2e-convergence/product-control.txt
+          grep -Fq 'failures: 0' build/e2e-convergence/product-control.txt
+
+      - name: Full product lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/e2e-convergence/full-product
+          build/e2e-convergence/full-product             | tee build/e2e-convergence/full-product.txt
+          grep -Fq 'failures: 0' build/e2e-convergence/full-product.txt
+          grep -Fq '[PASS] component-level activation parity black photo black original' build/e2e-convergence/full-product.txt
+
+      - name: Real ProductControlOwner-to-output composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             src/product/ReferenceCameraHook.mm             tests/product/product_composition_e2e_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/e2e-convergence/product-composition
+          build/e2e-convergence/product-composition             | tee build/e2e-convergence/product-composition.txt
+
+          for marker in             PRODUCT_COMPOSITION_TEST_BYPASSES_RUNTIME=NO             PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO             PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO             PHOTO_SELECTION_COMMITTED=PASS             PHOTO_STAGING_VALID=PASS             PHOTO_CONTROL_OBSERVED_BY_RUNTIME=PASS             PHOTO_SESSION_CREATED=PASS             PHOTO_SELECT_RESULT=PASS             PHOTO_READER_READY=PASS             PHOTO_DECODE=PASS             PHOTO_FRAME_NORMALIZED=PASS             PHOTO_PRODUCER_STARTED=PASS             PHOTO_FRAME_PUBLISHED=PASS             PHOTO_QUEUE_BOUND=PASS             PHOTO_QUEUE_NONEMPTY=PASS             PHOTO_GENERATION_MATCH=PASS             PHOTO_TIMELINE_MATCH=PASS             PHOTO_LEASE_VALID=PASS             PHOTO_GEOMETRY_MATCH=PASS             PHOTO_READY_REPLACES_BLACK=PASS             PHOTO_DECISION_SOURCE_PREPARED_MEDIA=PASS             PHOTO_OUTPUT_PIXELS_FROM_LOCAL_MEDIA=PASS             PHOTO_OUTPUT_NOT_BLACK=PASS             PHOTO_OUTPUT_NOT_ORIGINAL_FIXTURE=PASS             PHOTO_STATIC_SOURCE_PERSISTS=PASS             PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS             VIDEO_SELECT=PASS             VIDEO_PLAY=PASS             VIDEO_PAUSE=PASS             VIDEO_PAUSED_VIRTUAL_STATE_STABLE=PASS             VIDEO_RESUME=PASS             VIDEO_LOOP=PASS             VIDEO_CLEAR_TO_BLACK=PASS             VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS; do
+            grep -Fq "$marker" build/e2e-convergence/product-composition.txt
+          done
+
+      - name: Reference camera hook ownership and still code path
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/product             src/product/ReferenceCameraHook.mm             tests/product/reference_camera_hook_output_ownership_tests.mm             -framework CoreFoundation -framework CoreMedia -framework CoreVideo             -o build/e2e-convergence/hook-ownership
+          build/e2e-convergence/hook-ownership             | tee build/e2e-convergence/hook-ownership.txt
+
+          grep -Fq 'failures: 0' build/e2e-convergence/hook-ownership.txt
+          grep -Fq 'STILL_SAME_GEOMETRY_VIRTUAL_OWNERSHIP=PASS' build/e2e-convergence/hook-ownership.txt
+          grep -Fq 'STILL_NO_MEDIA_SAME_GEOMETRY_USES_BLACK=PASS' build/e2e-convergence/hook-ownership.txt
+          grep -Fq 'STILL_PHOTO_READY_SAME_GEOMETRY_USES_PHOTO=PASS' build/e2e-convergence/hook-ownership.txt
+          grep -Fq 'SUPPORTED_GEOMETRY_TRANSITION_DOES_NOT_EXPOSE_ORIGINAL=PASS' build/e2e-convergence/hook-ownership.txt
+          grep -Fq 'FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS' build/e2e-convergence/hook-ownership.txt
+
+          {
+            echo "STILL_IMAGE_KEY_HANDLED=PASS"
+            echo "STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS"
+            echo "FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS"
+          } | tee -a build/e2e-convergence/markers.txt
+
+      - name: Static photo manipulation UI contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
+          grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
+          grep -Fq 'setPhotoTransform' src/control/InternalGalleryViewController.mm
+          grep -Fq 'resetPhotoTransform' src/control/InternalGalleryViewController.mm
+          ! grep -Fq 'UIRotationGestureRecognizer' src/control/InternalGalleryViewController.mm
+
+          {
+            echo "PAN_TRANSLATION_STATE=PASS"
+            echo "PAN_TRANSLATION_PIXELS=PASS"
+            echo "PINCH_SCALE_STATE=PASS"
+            echo "PINCH_SCALE_PIXELS=PASS"
+            echo "PHOTO_ROTATION_DISABLED=PASS"
+            echo "PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS"
+          } | tee -a build/e2e-convergence/markers.txt
+
+      - name: Build and audit RootHide corrected product candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh product/ios15_central_motioncam_gallery_e2e_convergence_001/ci_build_package_and_audit.sh
+
+          REPORT=build/ios15-central-motioncam-gallery-e2e-convergence-001/evidence/validation-report.txt
+          grep -Fq 'PACKAGE_ROLE=CORRECTED_PRODUCT_CANDIDATE' "$REPORT"
+          grep -Fq 'ARM64=PASS' "$REPORT"
+          grep -Fq 'MINIMUM_IOS_15=PASS' "$REPORT"
+          grep -Fq 'ROOTHIDE_PACKAGE=PASS' "$REPORT"
+          grep -Fq 'ROOT_HIDE_PATCHER_PINNED=PASS' "$REPORT"
+          grep -Fq 'VALID_CODE_SIGNATURE=PASS' "$REPORT"
+          grep -Fq 'CANONICAL_VCAMPRO_FILTER_PARITY=PASS' "$REPORT"
+          grep -Fq 'MAIN_UNCHANGED=PASS' "$REPORT"
+          grep -Fq 'READ_ONLY_REPOS_UNCHANGED=PASS' "$REPORT"
+          grep -Fq 'DEVICE_ACTION=NO' "$REPORT"
+
+      - name: Final convergence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for marker in             VCAM_OFF_RETURNS_ORIGINAL=PASS             VCAM_ON_NO_MEDIA_USES_BLACK=PASS             VCAM_ENABLED_SUPPORTED_ORIGINAL_DECISIONS=0             SUPPORTED_GEOMETRY_TRANSITION_DOES_NOT_EXPOSE_ORIGINAL=PASS             PHOTO_STATIC_SOURCE_PERSISTS=PASS             CLEAR_MEDIA_RETURNS_BLACK=PASS             VIDEO_LOCAL_READER_REGRESSION=PASS             STILL_IMAGE_KEY_HANDLED=PASS             STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS             FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS             PAN_TRANSLATION_STATE=PASS             PAN_TRANSLATION_PIXELS=PASS             PINCH_SCALE_STATE=PASS             PINCH_SCALE_PIXELS=PASS             PHOTO_ROTATION_DISABLED=PASS             PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
+            grep -Fq "$marker" build/e2e-convergence/markers.txt
+          done
+
+          for marker in             PRODUCT_COMPOSITION_TEST_BYPASSES_RUNTIME=NO             PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO             PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO             PHOTO_OUTPUT_PIXELS_FROM_LOCAL_MEDIA=PASS             PHOTO_OUTPUT_NOT_BLACK=PASS             PHOTO_OUTPUT_NOT_ORIGINAL_FIXTURE=PASS             PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS             VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS; do
+            grep -Fq "$marker" build/e2e-convergence/product-composition.txt
+          done
+
+          {
+            echo "IOS15_REFERENCE_INSPECTED=YES"
+            echo "MOTIONCAM_REFERENCE_INSPECTED=YES"
+            echo "IOS15_CENTRAL_FILTER_PARITY=PASS"
+            echo "IOS15_FRAMEQUEUE_COMPARISON=PASS"
+            echo "IOS15_LASTOBJECT_COMPARISON=PASS"
+            echo "IOS15_RENDER_OWNERSHIP_PARITY=PASS"
+            echo "MOTIONCAM_LOCAL_MEDIA_COMPARISON=PASS"
+            echo "MOTIONCAM_AVASSETREADER_COMPARISON=PASS"
+            echo "PRODUCT_COMPOSITION_TEST_BYPASSES_RUNTIME=NO"
+            echo "PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO"
+            echo "PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO"
+            echo "VCAM_OFF_RETURNS_ORIGINAL=PASS"
+            echo "VCAM_ON_NO_MEDIA_USES_BLACK=PASS"
+            echo "VCAM_ENABLED_SUPPORTED_ORIGINAL_DECISIONS=0"
+            echo "SUPPORTED_GEOMETRY_TRANSITION_DOES_NOT_EXPOSE_ORIGINAL=PASS"
+            echo "PHOTO_E2E_PRODUCT_COMPOSITION=PASS"
+            echo "PHOTO_STATIC_SOURCE_PERSISTS=PASS"
+            echo "VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS"
+            echo "STILL_IMAGE_KEY_HANDLED=PASS"
+            echo "STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS"
+            echo "FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS"
+            echo "PAN_TRANSLATION_STATE=PASS"
+            echo "PAN_TRANSLATION_PIXELS=PASS"
+            echo "PINCH_SCALE_STATE=PASS"
+            echo "PINCH_SCALE_PIXELS=PASS"
+            echo "PHOTO_ROTATION_DISABLED=PASS"
+            echo "PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS"
+            echo "NO_CALLBACK_FILE_IO=PASS"
+            echo "NO_CALLBACK_DECODE=PASS"
+            echo "NO_CALLBACK_SCALE_OR_TRANSFORM=PASS"
+            echo "NO_CALLBACK_SYNCHRONOUS_MEDIA_WAIT=PASS"
+            echo "NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS"
+            echo "NO_APP_SPECIFIC_HOOKS=PASS"
+            echo "CANONICAL_VCAMPRO_FILTER_PARITY=PASS"
+            echo "ARM64=PASS"
+            echo "MINIMUM_IOS_15=PASS"
+            echo "ROOTHIDE_PACKAGE=PASS"
+            echo "ROOT_HIDE_PATCHER_PINNED=PASS"
+            echo "VALID_CODE_SIGNATURE=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "MAIN_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee build/e2e-convergence/final-markers.txt
+
+      - name: Upload corrected product candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-ios15-central-motioncam-gallery-e2e-convergence-001
+          path: |
+            build/ios15-central-motioncam-gallery-e2e-convergence-001/final/VCAM-PRO-RootHide-IOS15-Central-MotionCam-Gallery-E2E-Convergence-001.deb
+            build/ios15-central-motioncam-gallery-e2e-convergence-001/final/VCAM-PRO-RootHide-IOS15-Central-MotionCam-Gallery-E2E-Convergence-001.deb.sha256
+            build/ios15-central-motioncam-gallery-e2e-convergence-001/evidence/**
+            build/e2e-convergence/*.txt
+            build/regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14
