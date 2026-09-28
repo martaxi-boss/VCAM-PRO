@@ -28,6 +28,9 @@ using vcam::product::ProductPlaybackIntent;
 @property(nonatomic, strong) UISwitch* vcamSwitch;
 @property(nonatomic, strong) UILabel* selectedLabel;
 @property(nonatomic, strong) UILabel* statusLabel;
+@property(nonatomic, strong) UIView* photoManipulationSurface;
+@property(nonatomic, strong) UILabel* photoManipulationLabel;
+@property(nonatomic, strong) UIButton* resetPhotoTransformButton;
 @property(nonatomic, strong, nullable) NSURL* ownedMediaURL;
 - (BOOL)claimFileCompletionForRequestToken:
     (std::uint64_t)requestToken;
@@ -38,6 +41,9 @@ using vcam::product::ProductPlaybackIntent;
     ProductControlOwner* _productOwner;
     SelectionCompletionGate _selectionGate;
     std::uint64_t _presentedSelectionToken;
+    double _panStartX;
+    double _panStartY;
+    double _pinchStartScale;
 }
 
 - (instancetype)initWithMediaSession:
@@ -151,6 +157,76 @@ using vcam::product::ProductPlaybackIntent;
     loopRow.distribution =
         UIStackViewDistributionEqualSpacing;
 
+    self.photoManipulationSurface =
+        [[UIView alloc] init];
+    self.photoManipulationSurface
+        .backgroundColor =
+        [UIColor tertiarySystemFillColor];
+    self.photoManipulationSurface
+        .translatesAutoresizingMaskIntoConstraints =
+        NO;
+
+    self.photoManipulationLabel =
+        [[UILabel alloc] init];
+    self.photoManipulationLabel.text =
+        @"PHOTO: drag to position • pinch to zoom";
+    self.photoManipulationLabel.textAlignment =
+        NSTextAlignmentCenter;
+    self.photoManipulationLabel.numberOfLines = 2;
+    self.photoManipulationLabel
+        .translatesAutoresizingMaskIntoConstraints =
+        NO;
+
+    [self.photoManipulationSurface
+        addSubview:
+            self.photoManipulationLabel];
+
+    [NSLayoutConstraint
+        activateConstraints:@[
+            [self.photoManipulationSurface
+                .heightAnchor
+                constraintEqualToConstant:120.0],
+            [self.photoManipulationLabel
+                .leadingAnchor
+                constraintEqualToAnchor:
+                    self.photoManipulationSurface
+                        .leadingAnchor
+                constant:12.0],
+            [self.photoManipulationLabel
+                .trailingAnchor
+                constraintEqualToAnchor:
+                    self.photoManipulationSurface
+                        .trailingAnchor
+                constant:-12.0],
+            [self.photoManipulationLabel
+                .centerYAnchor
+                constraintEqualToAnchor:
+                    self.photoManipulationSurface
+                        .centerYAnchor]
+        ]];
+
+    UIPanGestureRecognizer* photoPan =
+        [[UIPanGestureRecognizer alloc]
+            initWithTarget:self
+                    action:
+                @selector(photoPanChanged:)];
+    [self.photoManipulationSurface
+        addGestureRecognizer:photoPan];
+
+    UIPinchGestureRecognizer* photoPinch =
+        [[UIPinchGestureRecognizer alloc]
+            initWithTarget:self
+                    action:
+                @selector(photoPinchChanged:)];
+    [self.photoManipulationSurface
+        addGestureRecognizer:photoPinch];
+
+    self.resetPhotoTransformButton =
+        [self buttonWithTitle:
+            @"Reset Photo Position / Zoom"
+                       action:
+            @selector(resetPhotoTransformTapped:)];
+
     self.vcamSwitch =
         [[UISwitch alloc] init];
     [self.vcamSwitch
@@ -186,6 +262,8 @@ using vcam::product::ProductPlaybackIntent;
                 self.selectButton,
                 self.changeButton,
                 self.clearButton,
+                self.photoManipulationSurface,
+                self.resetPhotoTransformButton,
                 self.playbackButton,
                 loopRow
             ]];
@@ -585,6 +663,105 @@ using vcam::product::ProductPlaybackIntent;
     [self refreshControls];
 }
 
+- (void)photoPanChanged:
+    (UIPanGestureRecognizer*)gesture {
+    if (_productOwner == nullptr) {
+        return;
+    }
+
+    const auto snapshot =
+        _productOwner->snapshot();
+    if (snapshot.mediaKind !=
+            ProductMediaKind::Photo ||
+        !snapshot.hasMedia()) {
+        return;
+    }
+
+    if (gesture.state ==
+        UIGestureRecognizerStateBegan) {
+        _panStartX =
+            snapshot.photoTransform.translationX;
+        _panStartY =
+            snapshot.photoTransform.translationY;
+    }
+
+    const CGPoint translation =
+        [gesture translationInView:
+            self.photoManipulationSurface];
+    const CGFloat width =
+        MAX(
+            self.photoManipulationSurface
+                .bounds.size.width,
+            1.0);
+    const CGFloat height =
+        MAX(
+            self.photoManipulationSurface
+                .bounds.size.height,
+            1.0);
+
+    (void)_productOwner->setPhotoTransform(
+        _panStartX +
+            static_cast<double>(
+                translation.x / width) * 2.0,
+        _panStartY +
+            static_cast<double>(
+                translation.y / height) * 2.0,
+        snapshot.photoTransform.scale);
+
+    if (gesture.state ==
+            UIGestureRecognizerStateEnded ||
+        gesture.state ==
+            UIGestureRecognizerStateCancelled) {
+        [self refreshControls];
+    }
+}
+
+- (void)photoPinchChanged:
+    (UIPinchGestureRecognizer*)gesture {
+    if (_productOwner == nullptr) {
+        return;
+    }
+
+    const auto snapshot =
+        _productOwner->snapshot();
+    if (snapshot.mediaKind !=
+            ProductMediaKind::Photo ||
+        !snapshot.hasMedia()) {
+        return;
+    }
+
+    if (gesture.state ==
+        UIGestureRecognizerStateBegan) {
+        _pinchStartScale =
+            snapshot.photoTransform.scale;
+    }
+
+    (void)_productOwner->setPhotoTransform(
+        snapshot.photoTransform.translationX,
+        snapshot.photoTransform.translationY,
+        _pinchStartScale *
+            static_cast<double>(
+                gesture.scale));
+
+    if (gesture.state ==
+            UIGestureRecognizerStateEnded ||
+        gesture.state ==
+            UIGestureRecognizerStateCancelled) {
+        [self refreshControls];
+    }
+}
+
+- (void)resetPhotoTransformTapped:(id)sender {
+    (void)sender;
+
+    if (_productOwner != nullptr) {
+        (void)_productOwner
+            ->resetPhotoTransform();
+    }
+
+    [self refreshControls];
+}
+
 - (void)clearMediaTapped:(id)sender {
     (void)sender;
 
@@ -749,6 +926,18 @@ using vcam::product::ProductPlaybackIntent;
         self.loopSwitch.on =
             snapshot.loopEnabled;
 
+        const BOOL photoSelected =
+            hasMedia &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo;
+        self.photoManipulationSurface.hidden =
+            !photoSelected;
+        self.resetPhotoTransformButton.hidden =
+            !photoSelected;
+        self.photoManipulationSurface
+            .userInteractionEnabled =
+            photoSelected;
+
         [self.playbackButton
             setTitle:
                 snapshot.playbackIntent ==
@@ -842,6 +1031,8 @@ using vcam::product::ProductPlaybackIntent;
         hasMedia &&
         selected.kind ==
             SelectedMediaKind::Video;
+    self.photoManipulationSurface.hidden = YES;
+    self.resetPhotoTransformButton.hidden = YES;
 }
 
 @end
