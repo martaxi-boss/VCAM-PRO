@@ -67,7 +67,7 @@ jobs:
           ).read_text()
 
           def parse_array(key):
-              match = re.search(rf"{key}\\s*=\\s*\\((.*?)\\);", reference_text, re.S)
+              match = re.search(rf"{key}\s*=\s*\((.*?)\);", reference_text, re.S)
               if not match:
                   raise SystemExit(f"Missing {key} in IOS-15-USB filter")
               return re.findall(r'"([^"]+)"', match.group(1))
