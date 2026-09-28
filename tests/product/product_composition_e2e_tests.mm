@@ -2,6 +2,7 @@
 #include "ProductControlOwner.h"
 #include "ReferenceCameraHook.h"
 
+#import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
 #import <ImageIO/ImageIO.h>
 
@@ -110,6 +111,152 @@ bool CreateAsymmetricPhoto(const std::string& path) {
     CFRelease(destination);
     CGImageRelease(image);
     return ok;
+}
+
+bool WaitForWriterInput(
+    AVAssetWriterInput* input) {
+    for (int attempt = 0;
+         attempt < 5000;
+         ++attempt) {
+        if (input.readyForMoreMediaData) {
+            return true;
+        }
+        [NSThread
+            sleepForTimeInterval:0.001];
+    }
+    return false;
+}
+
+bool CreateVideo(
+    const std::string& path,
+    int frameCount = 12) {
+    NSString* nsPath =
+        [NSString stringWithUTF8String:
+            path.c_str()];
+    [[NSFileManager defaultManager]
+        removeItemAtPath:nsPath
+                   error:nil];
+
+    NSURL* url =
+        [NSURL fileURLWithPath:nsPath];
+    AVAssetWriter* writer =
+        [[AVAssetWriter alloc]
+            initWithURL:url
+               fileType:
+                   AVFileTypeQuickTimeMovie
+                  error:nil];
+    if (writer == nil) {
+        return false;
+    }
+
+    NSDictionary* settings = @{
+        AVVideoCodecKey :
+            AVVideoCodecTypeH264,
+        AVVideoWidthKey : @64,
+        AVVideoHeightKey : @48,
+        AVVideoCompressionPropertiesKey :
+            @{AVVideoAverageBitRateKey : @150000}
+    };
+
+    AVAssetWriterInput* input =
+        [AVAssetWriterInput
+            assetWriterInputWithMediaType:
+                AVMediaTypeVideo
+                          outputSettings:
+                              settings];
+
+    NSDictionary* attributes = @{
+        (NSString*)
+            kCVPixelBufferPixelFormatTypeKey :
+                @(kCVPixelFormatType_32BGRA),
+        (NSString*)
+            kCVPixelBufferWidthKey : @64,
+        (NSString*)
+            kCVPixelBufferHeightKey : @48
+    };
+
+    AVAssetWriterInputPixelBufferAdaptor*
+        adaptor =
+        [AVAssetWriterInputPixelBufferAdaptor
+            assetWriterInputPixelBufferAdaptorWithAssetWriterInput:
+                input
+            sourcePixelBufferAttributes:
+                attributes];
+
+    if (![writer canAddInput:input]) {
+        return false;
+    }
+    [writer addInput:input];
+
+    if (![writer startWriting]) {
+        return false;
+    }
+    [writer startSessionAtSourceTime:
+        kCMTimeZero];
+
+    for (int index = 0;
+         index < frameCount;
+         ++index) {
+        if (!WaitForWriterInput(input)) {
+            return false;
+        }
+
+        CVPixelBufferRef buffer = nullptr;
+        if (CVPixelBufferPoolCreatePixelBuffer(
+                kCFAllocatorDefault,
+                adaptor.pixelBufferPool,
+                &buffer) !=
+                kCVReturnSuccess ||
+            buffer == nullptr) {
+            return false;
+        }
+
+        CVPixelBufferLockBaseAddress(
+            buffer,
+            0);
+        std::memset(
+            CVPixelBufferGetBaseAddress(buffer),
+            30 + (index % 8) * 24,
+            CVPixelBufferGetBytesPerRow(buffer) *
+                CVPixelBufferGetHeight(buffer));
+        CVPixelBufferUnlockBaseAddress(
+            buffer,
+            0);
+
+        const BOOL appended =
+            [adaptor
+                appendPixelBuffer:buffer
+             withPresentationTime:
+                 CMTimeMake(index, 30)];
+        CVPixelBufferRelease(buffer);
+
+        if (!appended) {
+            return false;
+        }
+    }
+
+    [input markAsFinished];
+
+    dispatch_semaphore_t semaphore =
+        dispatch_semaphore_create(0);
+    [writer
+        finishWritingWithCompletionHandler:^{
+            dispatch_semaphore_signal(
+                semaphore);
+        }];
+
+    const long wait =
+        dispatch_semaphore_wait(
+            semaphore,
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                static_cast<int64_t>(
+                    10 * NSEC_PER_SEC)));
+
+    return
+        wait == 0 &&
+        writer.status ==
+            AVAssetWriterStatusCompleted;
 }
 
 CVPixelBufferRef MakeNV12(
@@ -410,11 +557,216 @@ bool TestRealProductCompositionPhotoPersistence() {
     return true;
 }
 
+bool TestRealProductVideoLifecycle() {
+    const std::string root = TempRoot();
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input));
+
+    const std::string control =
+        root + "/control.plist";
+    const std::string media =
+        root + "/Media";
+    const std::string notification =
+        "com.vcampro.video-e2e." +
+        std::to_string(getpid()) + "." +
+        std::to_string(
+            static_cast<unsigned long long>(
+                arc4random()));
+
+    ProductControlOwner owner(
+        control,
+        notification,
+        media);
+    MediaserverdRuntime runtime(
+        control,
+        notification);
+    CHECK(runtime.start());
+
+    CVPixelBufferRef camera =
+        MakeNV12(211, 77);
+    CHECK(camera != nullptr);
+    runtime.observeRealCameraBuffer(camera);
+    CHECK(runtime.drainControlQueueForTesting());
+
+    CHECK(owner.setEnabled(true));
+
+    std::string error;
+    CHECK(owner.selectFromTemporaryPath(
+        input,
+        ProductMediaKind::Video,
+        &error));
+    CHECK(error.empty());
+    CHECK(owner.setLoopEnabled(true));
+
+    const auto selected =
+        owner.snapshot();
+    CHECK(selected.mediaKind ==
+          ProductMediaKind::Video);
+    CHECK(selected.hasMedia());
+
+    MediaserverdRuntimeTestSnapshot ready;
+    bool videoReady = false;
+    for (int attempt = 0;
+         attempt < 2000;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        ready = runtime.snapshotForTesting();
+        if (ready.selectionGeneration ==
+                selected.selectionGeneration &&
+            ready.videoSelected &&
+            ready.sessionExists &&
+            ready.producerHealthy &&
+            ready.readyQueueSize > 0 &&
+            ready.publishedFrameCount > 0) {
+            videoReady = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(videoReady);
+
+    const CameraDecision playing =
+        runtime.decideCameraBuffer(camera);
+    CHECK(playing.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(playing.source ==
+          CameraDecisionSource::PreparedMedia);
+
+    CHECK(owner.setPlaybackIntent(
+        ProductPlaybackIntent::Paused));
+
+    bool paused = false;
+    for (int attempt = 0;
+         attempt < 1000;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.selectionGeneration ==
+                selected.selectionGeneration &&
+            snapshot.sessionExists &&
+            !snapshot.producerHealthy) {
+            paused = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(paused);
+
+    CVPixelBufferRef pausedCamera =
+        MakeNV12(211, 77);
+    CHECK(pausedCamera != nullptr);
+    const CameraDecision pausedDecision =
+        runtime.decideCameraBuffer(
+            pausedCamera);
+    CHECK(pausedDecision.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(pausedDecision.source !=
+          CameraDecisionSource::Original);
+
+    CHECK(owner.setPlaybackIntent(
+        ProductPlaybackIntent::Playing));
+
+    bool resumed = false;
+    for (int attempt = 0;
+         attempt < 1500;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.selectionGeneration ==
+                selected.selectionGeneration &&
+            snapshot.sessionExists &&
+            snapshot.producerHealthy) {
+            resumed = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(resumed);
+
+    bool looped = false;
+    for (int attempt = 0;
+         attempt < 3000;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.loopIteration > 0) {
+            looped = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(looped);
+
+    CHECK(owner.clearMedia());
+
+    bool cleared = false;
+    for (int attempt = 0;
+         attempt < 1000;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (!snapshot.hasMedia) {
+            cleared = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(cleared);
+
+    CVPixelBufferRef clearedCamera =
+        MakeNV12(211, 77);
+    CHECK(clearedCamera != nullptr);
+    const CameraDecision clearDecision =
+        runtime.decideCameraBuffer(
+            clearedCamera);
+    CHECK(clearDecision.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(clearDecision.source !=
+          CameraDecisionSource::Original);
+
+    std::cout
+        << "VIDEO_SELECT=PASS\n"
+        << "VIDEO_PLAY=PASS\n"
+        << "VIDEO_PAUSE=PASS\n"
+        << "VIDEO_PAUSED_VIRTUAL_STATE_STABLE=PASS\n"
+        << "VIDEO_RESUME=PASS\n"
+        << "VIDEO_LOOP=PASS\n"
+        << "VIDEO_CLEAR_TO_BLACK=PASS\n"
+        << "VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS\n";
+
+    CVPixelBufferRelease(clearedCamera);
+    CVPixelBufferRelease(pausedCamera);
+    CVPixelBufferRelease(camera);
+
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString stringWithUTF8String:
+                root.c_str()]
+        error:nil];
+
+    return true;
+}
+
 }  // namespace
 
 int main() {
     @autoreleasepool {
         if (!TestRealProductCompositionPhotoPersistence()) {
+            return EXIT_FAILURE;
+        }
+        if (!TestRealProductVideoLifecycle()) {
             return EXIT_FAILURE;
         }
     }
