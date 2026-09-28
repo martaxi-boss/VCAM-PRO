@@ -249,6 +249,80 @@ setPhotoTransform(
 }
 
 bool InternalGalleryMediaSession::
+preparePhotoVariant(
+    const NormalizationTarget& target) {
+    if (selected_.kind !=
+            SelectedMediaKind::Photo ||
+        photoReader_ == nullptr ||
+        pump_ == nullptr ||
+        driver_ == nullptr) {
+        setStatus(
+            "Photo variant requires a selected photo.");
+        return false;
+    }
+
+    frame_engine::QueueContext context;
+    context.currentMediaGeneration =
+        state_.mediaGeneration();
+    context.currentTimelineEpoch =
+        state_.timelineEpoch();
+
+    if (queue_.hasEligibleMatching(
+            context,
+            target.width,
+            target.height,
+            target.pixelFormat)) {
+        return true;
+    }
+
+    // Static PHOTO preparation is producer/control-side only. Stop the
+    // single-publication wakeup driver before retargeting the shared pump so
+    // there is never concurrent producer work.
+    driver_->stop();
+
+    config_.target = target;
+    pump_->setTarget(target);
+    pump_->setForceTransform(
+        transformer_.
+            hasNonDefaultPhotoTransform());
+    scheduler_.reset();
+
+    const auto result =
+        pump_->pumpOnce();
+    if (result.status !=
+        FramePipelinePumpStatus::Published) {
+        setStatus(
+            "Unable to prepare requested photo geometry.");
+        return false;
+    }
+
+    setStatus(
+        "Photo geometry variant prepared.");
+    return true;
+}
+
+bool InternalGalleryMediaSession::
+hasQueuedPhotoVariant(
+    const NormalizationTarget& target) const {
+    if (selected_.kind !=
+            SelectedMediaKind::Photo) {
+        return false;
+    }
+
+    frame_engine::QueueContext context;
+    context.currentMediaGeneration =
+        state_.mediaGeneration();
+    context.currentTimelineEpoch =
+        state_.timelineEpoch();
+
+    return queue_.hasEligibleMatching(
+        context,
+        target.width,
+        target.height,
+        target.pixelFormat);
+}
+
+bool InternalGalleryMediaSession::
 setVideoLoopEnabled(bool enabled) {
     if (videoReader_ == nullptr ||
         selected_.kind !=
@@ -316,6 +390,12 @@ InternalGalleryMediaSession::state() noexcept {
 frame_engine::ReadyFrameQueue&
 InternalGalleryMediaSession::
 readyQueue() noexcept {
+    return queue_;
+}
+
+const frame_engine::ReadyFrameQueue&
+InternalGalleryMediaSession::
+readyQueue() const noexcept {
     return queue_;
 }
 
