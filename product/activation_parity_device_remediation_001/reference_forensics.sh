@@ -18,6 +18,8 @@ otool -hv "$BIN" > "$OUT_DIR/otool-hv.txt"
 otool -l "$BIN" > "$OUT_DIR/otool-l.txt"
 otool -L "$BIN" > "$OUT_DIR/otool-L.txt"
 otool -Iv "$BIN" > "$OUT_DIR/otool-Iv.txt"
+otool -v -s __DATA_CONST __cfstring "$BIN" > "$OUT_DIR/otool-cfstring.txt" 2>&1 || true
+otool -v -s __TEXT __cstring "$BIN" > "$OUT_DIR/otool-cstring.txt" 2>&1 || true
 nm -u "$BIN" > "$OUT_DIR/nm-u.txt" || true
 nm -m "$BIN" > "$OUT_DIR/nm-m.txt" || true
 strings -a -t x "$BIN" > "$OUT_DIR/strings-offsets.txt"
@@ -106,6 +108,30 @@ for i,line in enumerate(otool):
 (out / "summary.txt").write_text("\n".join(summary)+"\n")
 print("\n".join(summary))
 PY
+
+# Persist exact address ranges used by the forensic report.
+python3 - "$OUT_DIR/otool-tvV.txt" "$OUT_DIR" <<'PYRANGES'
+from pathlib import Path
+import re, sys
+src=Path(sys.argv[1]).read_text(errors="replace").splitlines()
+out=Path(sys.argv[2])
+ranges={
+  "replacement_175d4": (0x175d4,0x1aa0c),
+  "still_branch_19780": (0x19780,0x19f20),
+  "attachment_helpers_872f0": (0x872f0,0x87368),
+  "samplebuffer_ready_helper_10d6c": (0x10d6c,0x11a40),
+}
+pat=re.compile(r"^([0-9a-fA-F]{16})\\s")
+for name,(lo,hi) in ranges.items():
+    lines=[]
+    for line in src:
+        m=pat.match(line)
+        if not m: continue
+        addr=int(m.group(1),16)
+        if lo <= addr < hi:
+            lines.append(line)
+    (out/f"range-{name}.txt").write_text("\\n".join(lines)+"\\n")
+PYRANGES
 
 grep -F '_CMSampleBufferGetImageBuffer' "$OUT_DIR/nm-u.txt" >/dev/null
 grep -F '_MSHookFunction' "$OUT_DIR/nm-u.txt" >/dev/null
