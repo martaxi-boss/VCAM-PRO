@@ -69,6 +69,10 @@ public:
     bool setVideoLoopEnabled(bool enabled);
     bool setPhotoTransform(
         const PhotoTransformState& transform);
+    bool preparePhotoVariant(
+        const NormalizationTarget& target);
+    bool hasQueuedPhotoVariant(
+        const NormalizationTarget& target) const;
     void clearMedia();
 
     const SelectedMediaRecord&
@@ -83,6 +87,8 @@ public:
     state() noexcept;
     frame_engine::ReadyFrameQueue&
     readyQueue() noexcept;
+    const frame_engine::ReadyFrameQueue&
+    readyQueue() const noexcept;
     ProducerWakeupDriverState producerDriverState() const;
     std::optional<FramePipelinePumpStatus> lastPumpStatus() const;
     std::uint64_t publishedFrameCount() const;
