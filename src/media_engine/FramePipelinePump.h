@@ -115,6 +115,10 @@ public:
 
     const NormalizationTarget& target() const noexcept;
 
+    void setForceTransform(bool enabled) noexcept {
+        forceTransform_ = enabled;
+    }
+
 private:
     friend class FramePipelinePumpStageE1TestAccess;
     friend class FramePipelinePumpStageF1TestAccess;
@@ -191,6 +195,7 @@ private:
     std::optional<frame_engine::PreparedFrame> pendingTimedFrame_;
     FramePipelinePumpResult pendingPreparedResult_{};
 
+    bool forceTransform_ = false;
     bool timedContextInitialized_ = false;
     std::uint64_t timedMediaGeneration_ = 0;
     std::uint64_t timedTimelineEpoch_ = 0;
