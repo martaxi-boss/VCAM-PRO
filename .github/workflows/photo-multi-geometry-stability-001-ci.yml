@@ -1,0 +1,82 @@
+name: VCAM PRO Photo Multi Geometry Stability 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/product/MediaserverdRuntime.*"
+      - "tests/product/photo_multi_geometry_prefx_tests.mm"
+      - ".github/workflows/photo-multi-geometry-stability-001-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pre-fix-reproduction:
+    name: Pre-fix multi-geometry reproduction
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Build real-product pre-fix reproduction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          mkdir -p build/photo-multi-geometry-prefx
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            tests/product/photo_multi_geometry_prefx_tests.mm \
+            -framework Accelerate -framework Foundation -framework AVFoundation \
+            -framework CoreFoundation -framework CoreGraphics -framework CoreMedia \
+            -framework CoreVideo -framework ImageIO \
+            -o build/photo-multi-geometry-prefx/repro
+
+          build/photo-multi-geometry-prefx/repro \
+            | tee build/photo-multi-geometry-prefx/repro.txt
+
+          grep -Fq 'PRE_FIX_MULTI_GEOMETRY_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
+          grep -Fq 'PRE_FIX_SESSION_CHURN_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
+          grep -Fq 'PRE_FIX_REDECODE_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
+          grep -Fq 'PRE_FIX_GLOBAL_GEOMETRY_ALIASING_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
+          grep -Fq 'PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO' build/photo-multi-geometry-prefx/repro.txt
+          grep -Fq 'PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO' build/photo-multi-geometry-prefx/repro.txt
+
+      - name: Upload pre-fix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-multi-geometry-prefx-evidence
+          path: build/photo-multi-geometry-prefx/repro.txt
+          if-no-files-found: error
+          retention-days: 14
