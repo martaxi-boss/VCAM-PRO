@@ -115,11 +115,18 @@ bool SameMediaIdentity(
 
 struct MediaserverdRuntime::Impl {
     Impl()
-        : store_(
+        : Impl(
               SharedControlStore::
                   kDefaultControlPath,
               SharedControlStore::
                   kDefaultNotification) {}
+
+    Impl(
+        std::string controlPath,
+        std::string notificationName)
+        : store_(
+              std::move(controlPath),
+              std::move(notificationName)) {}
 
     ~Impl() {
         store_.stopObserving();
@@ -3491,6 +3498,93 @@ struct MediaserverdRuntime::Impl {
 MediaserverdRuntime::MediaserverdRuntime()
     : impl_(
           std::make_unique<Impl>()) {}
+
+#if defined(VCAM_TESTING)
+MediaserverdRuntime::MediaserverdRuntime(
+    std::string controlPath,
+    std::string notificationName)
+    : impl_(
+          std::make_unique<Impl>(
+              std::move(controlPath),
+              std::move(notificationName))) {}
+
+bool MediaserverdRuntime::
+drainControlQueueForTesting() {
+    if (!impl_ ||
+        impl_->controlQueue_ == nullptr) {
+        return false;
+    }
+
+    dispatch_sync(
+        impl_->controlQueue_,
+        ^{});
+    return true;
+}
+
+MediaserverdRuntimeTestSnapshot
+MediaserverdRuntime::snapshotForTesting() {
+    MediaserverdRuntimeTestSnapshot result;
+    if (!impl_) {
+        return result;
+    }
+
+    if (impl_->controlQueue_ == nullptr) {
+        const ProductControlSnapshot control =
+            impl_->cache_.snapshot();
+        result.enabled = control.enabled;
+        result.photoSelected =
+            control.mediaKind ==
+                ProductMediaKind::Photo;
+        result.hasMedia = control.hasMedia();
+        result.selectionGeneration =
+            control.selectionGeneration;
+        result.controlRefreshCount =
+            impl_->cache_.refreshCount();
+        return result;
+    }
+
+    dispatch_sync(
+        impl_->controlQueue_,
+        ^{
+            const ProductControlSnapshot control =
+                impl_->cache_.snapshot();
+            result.enabled = control.enabled;
+            result.photoSelected =
+                control.mediaKind ==
+                    ProductMediaKind::Photo;
+            result.hasMedia =
+                control.hasMedia();
+            result.selectionGeneration =
+                control.selectionGeneration;
+            result.controlRefreshCount =
+                impl_->cache_.refreshCount();
+
+            if (impl_->session_ != nullptr) {
+                result.sessionExists = true;
+                result.producerHealthy =
+                    impl_->session_->playbackState() ==
+                    frame_engine::
+                        PlaybackState::Playing;
+                result.readyQueueSize =
+                    impl_->session_->readyQueue().size();
+                result.queueGeneration =
+                    impl_->session_->state().
+                        mediaGeneration();
+                result.queueEpoch =
+                    impl_->session_->state().
+                        timelineEpoch();
+                result.publishedFrameCount =
+                    impl_->session_->
+                        publishedFrameCount();
+                result.photoDecodeCount =
+                    impl_->session_->
+                        photoDecodeCount();
+            }
+        });
+
+    return result;
+}
+#endif
 
 MediaserverdRuntime::~MediaserverdRuntime() =
     default;
