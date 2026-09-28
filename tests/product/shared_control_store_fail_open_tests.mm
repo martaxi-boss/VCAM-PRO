@@ -540,13 +540,17 @@ bool TestValidSnapshotRoundTrip() {
     ProductControlSnapshot input;
     input.enabled = true;
     input.mediaKind =
-        ProductMediaKind::Video;
+        ProductMediaKind::Photo;
     input.mediaPath =
-        root + "/movie.mov";
+        root + "/image.png";
     input.selectionGeneration = 42;
-    input.loopEnabled = true;
+    input.loopEnabled = false;
     input.playbackIntent =
         ProductPlaybackIntent::Paused;
+    input.photoTransform.translationX = 0.35;
+    input.photoTransform.translationY = -0.45;
+    input.photoTransform.scale = 1.75;
+    input.photoTransform.revision = 9;
 
     CHECK(store.save(
         input,
@@ -573,6 +577,46 @@ bool TestValidSnapshotRoundTrip() {
     CHECK(
         output.playbackIntent ==
         input.playbackIntent);
+    CHECK(
+        output.photoTransform.translationX ==
+        input.photoTransform.translationX);
+    CHECK(
+        output.photoTransform.translationY ==
+        input.photoTransform.translationY);
+    CHECK(
+        output.photoTransform.scale ==
+        input.photoTransform.scale);
+    CHECK(
+        output.photoTransform.revision ==
+        input.photoTransform.revision);
+
+    RemoveTree(root);
+    return true;
+}
+
+bool TestLegacySnapshotDefaultsPhotoTransform() {
+    const std::string root =
+        TempRoot();
+    CHECK(CreateDirectory(root));
+
+    const std::string path =
+        root + "/control.plist";
+    NSMutableDictionary* dict =
+        ValidVideoDictionary();
+    dict[@"mediaKind"] = @"photo";
+    dict[@"mediaPath"] = @"/tmp/legacy.png";
+    dict[@"loopEnabled"] = @NO;
+
+    CHECK(WritePlistObject(
+        path,
+        dict));
+
+    ProductControlSnapshot snapshot;
+    CHECK(Load(path, &snapshot));
+    CHECK(snapshot.photoTransform.translationX == 0.0);
+    CHECK(snapshot.photoTransform.translationY == 0.0);
+    CHECK(snapshot.photoTransform.scale == 1.0);
+    CHECK(snapshot.photoTransform.revision == 0);
 
     RemoveTree(root);
     return true;
@@ -732,6 +776,9 @@ int main() {
         Run(
             "valid snapshot round trip",
             TestValidSnapshotRoundTrip);
+        Run(
+            "legacy snapshot defaults photo transform",
+            TestLegacySnapshotDefaultsPhotoTransform);
         Run(
             "observer corruption fail open",
             TestObserverCorruptionFailOpen);

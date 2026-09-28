@@ -404,7 +404,15 @@ bool SamePersistentState(
         left.loopEnabled ==
             right.loopEnabled &&
         left.playbackIntent ==
-            right.playbackIntent;
+            right.playbackIntent &&
+        left.photoTransform.translationX ==
+            right.photoTransform.translationX &&
+        left.photoTransform.translationY ==
+            right.photoTransform.translationY &&
+        left.photoTransform.scale ==
+            right.photoTransform.scale &&
+        left.photoTransform.revision ==
+            right.photoTransform.revision;
 }
 
 bool LoadPersisted(

@@ -55,6 +55,13 @@ public:
     bool setPlaybackIntent(
         ProductPlaybackIntent intent);
 
+    bool setPhotoTransform(
+        double translationX,
+        double translationY,
+        double scale);
+
+    bool resetPhotoTransform();
+
     std::string
     lastStatus() const;
 

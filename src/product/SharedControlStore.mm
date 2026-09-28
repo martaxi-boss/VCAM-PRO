@@ -6,6 +6,7 @@
 #include <notify.h>
 #include <sys/stat.h>
 
+#include <cmath>
 #include <utility>
 
 namespace vcam::product {
@@ -273,6 +274,42 @@ bool ParseUnsignedGeneration(
     }
 }
 
+bool ParseOptionalFiniteDouble(
+    id value,
+    double fallback,
+    double* output,
+    bool* typeConfused) {
+    if (output == nullptr) {
+        return false;
+    }
+
+    *output = fallback;
+    if (value == nil) {
+        return true;
+    }
+
+    if (!IsNumber(value) ||
+        CFGetTypeID((__bridge CFTypeRef)value) ==
+            CFBooleanGetTypeID()) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return false;
+    }
+
+    const double parsed =
+        [(NSNumber*)value doubleValue];
+    if (!std::isfinite(parsed)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return false;
+    }
+
+    *output = parsed;
+    return true;
+}
+
 bool HasCompleteSchema(
     NSDictionary* dict) {
     if (dict == nil) {
@@ -378,9 +415,20 @@ void NormalizeSnapshot(
         return;
     }
 
+    snapshot->photoTransform =
+        NormalizeProductPhotoTransform(
+            snapshot->photoTransform);
+
     if (snapshot->mediaKind ==
         ProductMediaKind::Photo) {
         snapshot->loopEnabled = false;
+    } else {
+        const std::uint64_t revision =
+            snapshot->photoTransform.revision;
+        snapshot->photoTransform =
+            ProductPhotoTransform{};
+        snapshot->photoTransform.revision =
+            revision;
     }
 }
 
@@ -530,13 +578,41 @@ SharedControlStore::loadWithProvenance(
                 &typeConfused,
                 &playbackRecognized);
 
+        const bool transformXValid =
+            ParseOptionalFiniteDouble(
+                dict[@"photoTranslationX"],
+                0.0,
+                &result.photoTransform.translationX,
+                &typeConfused);
+        const bool transformYValid =
+            ParseOptionalFiniteDouble(
+                dict[@"photoTranslationY"],
+                0.0,
+                &result.photoTransform.translationY,
+                &typeConfused);
+        const bool transformScaleValid =
+            ParseOptionalFiniteDouble(
+                dict[@"photoScale"],
+                1.0,
+                &result.photoTransform.scale,
+                &typeConfused);
+        const bool transformRevisionValid =
+            ParseUnsignedGeneration(
+                dict[@"photoTransformRevision"],
+                &result.photoTransform.revision,
+                &typeConfused);
+
         const bool trusted =
             IsCanonicalSnapshotEncoding(
                 result,
                 typeConfused,
                 mediaKindRecognized,
                 playbackRecognized,
-                generationValid,
+                generationValid &&
+                    transformXValid &&
+                    transformYValid &&
+                    transformScaleValid &&
+                    transformRevisionValid,
                 HasCompleteSchema(dict));
 
         NormalizeSnapshot(
@@ -597,6 +673,14 @@ bool SharedControlStore::save(
             @"playbackIntent" :
                 PlaybackString(
                     snapshot.playbackIntent),
+            @"photoTranslationX" :
+                @(snapshot.photoTransform.translationX),
+            @"photoTranslationY" :
+                @(snapshot.photoTransform.translationY),
+            @"photoScale" :
+                @(snapshot.photoTransform.scale),
+            @"photoTransformRevision" :
+                @(snapshot.photoTransform.revision),
         };
 
         if (![dict writeToFile:path

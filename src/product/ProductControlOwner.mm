@@ -70,6 +70,12 @@ bool ProductControlOwner::initializeAndRecoverStorage() {
         loaded.loopEnabled = false;
         loaded.playbackIntent =
             ProductPlaybackIntent::Stopped;
+        const std::uint64_t priorTransformRevision =
+            loaded.photoTransform.revision;
+        loaded.photoTransform =
+            ProductPhotoTransform{};
+        loaded.photoTransform.revision =
+            nextGeneration(priorTransformRevision);
 
         repairedInvalidMedia = true;
 
@@ -270,6 +276,12 @@ bool ProductControlOwner::selectFromTemporaryPath(
             next.mediaPath = stagedPath;
             next.selectionGeneration =
                 generation;
+            const std::uint64_t priorTransformRevision =
+                current_.photoTransform.revision;
+            next.photoTransform =
+                ProductPhotoTransform{};
+            next.photoTransform.revision =
+                nextGeneration(priorTransformRevision);
 
             if (kind ==
                 ProductMediaKind::Photo) {
@@ -364,6 +376,12 @@ bool ProductControlOwner::clearMedia() {
         next.loopEnabled = false;
         next.playbackIntent =
             ProductPlaybackIntent::Stopped;
+        const std::uint64_t priorTransformRevision =
+            current_.photoTransform.revision;
+        next.photoTransform =
+            ProductPhotoTransform{};
+        next.photoTransform.revision =
+            nextGeneration(priorTransformRevision);
 
         if (!store_.save(next)) {
             lastStatus_ =
@@ -459,6 +477,67 @@ bool ProductControlOwner::setPlaybackIntent(
     }
 
     return true;
+}
+
+bool ProductControlOwner::setPhotoTransform(
+    double translationX,
+    double translationY,
+    double scale) {
+    std::lock_guard<std::mutex>
+        lock(mutex_);
+
+    if (current_.mediaKind != ProductMediaKind::Photo ||
+        !current_.hasMedia()) {
+        lastStatus_ =
+            "Photo transform requires a selected photo.";
+        return false;
+    }
+
+    ProductPhotoTransform requested =
+        current_.photoTransform;
+    requested.translationX = translationX;
+    requested.translationY = translationY;
+    requested.scale = scale;
+    requested =
+        NormalizeProductPhotoTransform(
+            requested);
+
+    if (requested.translationX ==
+            current_.photoTransform.translationX &&
+        requested.translationY ==
+            current_.photoTransform.translationY &&
+        requested.scale ==
+            current_.photoTransform.scale) {
+        lastStatus_ =
+            "Photo transform unchanged.";
+        return true;
+    }
+
+    ProductControlSnapshot next =
+        current_;
+    requested.revision =
+        nextGeneration(
+            current_.photoTransform.revision);
+    next.photoTransform =
+        requested;
+
+    if (!store_.save(next)) {
+        lastStatus_ =
+            "Unable to persist photo transform.";
+        return false;
+    }
+
+    current_ = next;
+    lastStatus_ =
+        "Photo position / zoom updated.";
+    return true;
+}
+
+bool ProductControlOwner::resetPhotoTransform() {
+    return setPhotoTransform(
+        0.0,
+        0.0,
+        1.0);
 }
 
 std::string
