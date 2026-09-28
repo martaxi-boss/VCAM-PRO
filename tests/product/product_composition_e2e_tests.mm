@@ -304,6 +304,8 @@ bool TestRealProductCompositionPhotoPersistence() {
         selected.selectionGeneration,
         &runtimeSnapshot));
 
+    CHECK(runtimeSnapshot.publishedFrameCount == 1);
+
     std::cout
         << "PHOTO_CONTROL_OBSERVED_BY_RUNTIME=PASS\n"
         << "PHOTO_SESSION_CREATED=PASS\n"
@@ -389,6 +391,7 @@ bool TestRealProductCompositionPhotoPersistence() {
 
     std::cout
         << "PHOTO_STATIC_SOURCE_PERSISTS=PASS\n"
+        << "PHOTO_STATIC_SOURCE_SINGLE_PUBLICATION=PASS\n"
         << "PRODUCT_COMPOSITION_TEST_BYPASSES_RUNTIME=NO\n"
         << "PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO\n"
         << "PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO\n";

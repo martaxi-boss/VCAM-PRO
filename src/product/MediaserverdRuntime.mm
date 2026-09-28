@@ -1094,6 +1094,9 @@ struct MediaserverdRuntime::Impl {
             pixelFormat;
         config.videoPixelFormat =
             pixelFormat;
+        config.producer.singlePublication =
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo;
 
         auto candidate =
             std::make_unique<

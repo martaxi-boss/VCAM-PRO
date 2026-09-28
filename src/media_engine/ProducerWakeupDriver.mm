@@ -328,6 +328,13 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
                     std::numeric_limits<std::uint64_t>::max()) {
                 ++publishedFrameCount_;
             }
+
+            if (config_.singlePublication &&
+                *result.pumpStatus ==
+                    FramePipelinePumpStatus::Published) {
+                controller_->stop();
+                disarm();
+            }
         }
     }
 

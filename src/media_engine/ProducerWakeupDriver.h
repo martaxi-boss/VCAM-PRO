@@ -18,6 +18,11 @@ struct ProducerWakeupDriverConfig {
 
     // Public libdispatch timer leeway for producer wakeups.
     std::uint64_t timerLeewayNs = 0;
+
+    // Static media policy: after one successful publication, stop rearming
+    // the producer. Camera callbacks reuse the generation/epoch-bound
+    // prepared lease through CameraConsumerAdapter.
+    bool singlePublication = false;
 };
 
 // Production Stage F2 wrapper.
