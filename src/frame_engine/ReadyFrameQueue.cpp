@@ -84,6 +84,11 @@ std::size_t ReadyFrameQueue::size() const {
     return entries_.size();
 }
 
+void ReadyFrameQueue::clear() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    entries_.clear();
+}
+
 PublishResult ReadyFrameQueue::publish(
     PreparedFrame frame,
     const QueueContext& context) {
