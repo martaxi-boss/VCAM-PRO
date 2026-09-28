@@ -296,6 +296,11 @@ preparePhotoVariant(
         return false;
     }
 
+    if (photoVariantPreparationCount_ !=
+        UINT64_MAX) {
+        ++photoVariantPreparationCount_;
+    }
+
     setStatus(
         "Photo geometry variant prepared.");
     return true;
@@ -425,6 +430,11 @@ photoDecodeCount() const noexcept {
     return photoReader_
         ? photoReader_->decodeCount()
         : 0;
+}
+
+std::uint64_t InternalGalleryMediaSession::
+photoVariantPreparationCount() const noexcept {
+    return photoVariantPreparationCount_;
 }
 
 void InternalGalleryMediaSession::
