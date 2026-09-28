@@ -4,6 +4,7 @@
 
 #include <CoreVideo/CoreVideo.h>
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -26,6 +27,10 @@ struct MediaserverdRuntimeTestSnapshot {
     std::uint64_t publishedFrameCount = 0;
     std::uint64_t photoDecodeCount = 0;
     std::uint64_t loopIteration = 0;
+    std::uint64_t logicalPhotoSessionCreationCount = 0;
+    std::uint64_t totalPhotoDecodeCount = 0;
+    std::array<std::uint64_t, 8> appliedGeometryHistory{};
+    std::size_t appliedGeometryHistoryCount = 0;
 };
 #endif
 
@@ -38,6 +43,8 @@ public:
         std::string notificationName);
 
     bool drainControlQueueForTesting();
+    bool suspendControlQueueForTesting();
+    bool resumeControlQueueForTesting();
     MediaserverdRuntimeTestSnapshot
     snapshotForTesting();
 #endif
