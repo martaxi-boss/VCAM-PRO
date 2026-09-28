@@ -1,5 +1,7 @@
 name: VCAM PRO IOS15 Central MotionCam Gallery E2E Convergence 001
 
+# Canonical-state mutations are exact-head recertification inputs.
+
 on:
   push:
     branches:
