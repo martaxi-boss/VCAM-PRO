@@ -1313,11 +1313,20 @@ struct MediaserverdRuntime::Impl {
             session_->state()
                 .timelineEpoch();
 
+        const ProductControlSnapshot
+            bindingSnapshot =
+                cache_.snapshot();
+        const bool reusableStaticMedia =
+            bindingSnapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            bindingSnapshot.hasMedia();
+
         adapter_.bindQueue(
             &session_->readyQueue(),
             queueGeneration,
             queueEpoch,
-            producerHealthy);
+            producerHealthy,
+            reusableStaticMedia);
 
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
         const ProductControlSnapshot

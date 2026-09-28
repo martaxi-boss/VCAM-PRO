@@ -22,6 +22,7 @@ enum class CameraDecisionSource : std::uint8_t {
     Original = 0,
     PreparedMedia,
     BlackFallback,
+    InPlaceBlackOwnershipGuard,
 };
 
 enum class CameraFailOpenReason : std::uint8_t {
@@ -33,6 +34,7 @@ enum class CameraFailOpenReason : std::uint8_t {
     InvalidLease,
     GeometryMismatch,
     BlackFallbackUnavailable,
+    UnsupportedPixelFormat,
 };
 
 struct CameraDecision {
@@ -68,12 +70,14 @@ public:
         frame_engine::ReadyFrameQueue* queue,
         std::uint64_t mediaGeneration,
         std::uint64_t timelineEpoch,
-        bool producerHealthy);
+        bool producerHealthy,
+        bool reusableStaticMedia = false);
 
     void updateContext(
         std::uint64_t mediaGeneration,
         std::uint64_t timelineEpoch,
-        bool producerHealthy);
+        bool producerHealthy,
+        bool reusableStaticMedia = false);
 
     void unbindQueue();
 
@@ -95,6 +99,9 @@ public:
     std::uint64_t mediaVirtualDecisionCount() const noexcept;
     std::uint64_t blackVirtualDecisionCount() const noexcept;
     std::uint64_t emergencyOriginalDecisionCount() const noexcept;
+    std::uint64_t inPlaceBlackGuardDecisionCount() const noexcept;
+    std::uint64_t unsupportedFormatDecisionCount() const noexcept;
+    std::uint64_t enabledSupportedOriginalDecisionCount() const noexcept;
 
 private:
     bool matchesOriginalGeometry(
@@ -118,11 +125,17 @@ private:
     std::atomic<std::uint64_t> mediaVirtualDecisionCount_{0};
     std::atomic<std::uint64_t> blackVirtualDecisionCount_{0};
     std::atomic<std::uint64_t> emergencyOriginalDecisionCount_{0};
+    std::atomic<std::uint64_t> inPlaceBlackGuardDecisionCount_{0};
+    std::atomic<std::uint64_t> unsupportedFormatDecisionCount_{0};
+    std::atomic<std::uint64_t> enabledSupportedOriginalDecisionCount_{0};
 
     mutable std::mutex mutex_;
     frame_engine::ReadyFrameQueue* queue_ = nullptr;
     frame_engine::QueueContext context_{};
     bool producerHealthy_ = false;
+    bool reusableStaticMedia_ = false;
+    std::optional<frame_engine::ReadyFrameLease>
+        reusableStaticLease_;
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,

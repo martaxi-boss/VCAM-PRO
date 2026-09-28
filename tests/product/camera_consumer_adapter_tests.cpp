@@ -529,7 +529,7 @@ bool TestRepeatedToggleSafe() {
     return true;
 }
 
-bool TestEmergencyOriginalWithoutBlack() {
+bool TestSupportedNoBlackUsesOwnershipGuard() {
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
 
@@ -541,16 +541,93 @@ bool TestEmergencyOriginalWithoutBlack() {
         adapter.decide(original);
 
     CHECK(result.kind ==
+          CameraDecisionKind::Virtual);
+    CHECK(result.source ==
+          CameraDecisionSource::
+              InPlaceBlackOwnershipGuard);
+    CHECK(result.pixelBuffer == original);
+    CHECK(result.reason ==
+          CameraFailOpenReason::None);
+    CHECK(result.mediaFailureReason ==
+          CameraFailOpenReason::ProducerUnavailable);
+    CHECK(adapter.inPlaceBlackGuardDecisionCount() == 1);
+    CHECK(adapter.emergencyOriginalDecisionCount() == 0);
+    CHECK(adapter.enabledSupportedOriginalDecisionCount() == 0);
+
+    CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestUnsupportedFormatIsExplicit() {
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+
+    CVPixelBufferRef original =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_32BGRA);
+    CHECK(original != nullptr);
+
+    const auto result =
+        adapter.decide(original);
+
+    CHECK(result.kind ==
           CameraDecisionKind::Original);
     CHECK(result.source ==
           CameraDecisionSource::Original);
-    CHECK(result.pixelBuffer == original);
     CHECK(result.reason ==
-          CameraFailOpenReason::BlackFallbackUnavailable);
-    CHECK(result.mediaFailureReason ==
-          CameraFailOpenReason::ProducerUnavailable);
-    CHECK(adapter.emergencyOriginalDecisionCount() == 1);
+          CameraFailOpenReason::UnsupportedPixelFormat);
+    CHECK(adapter.unsupportedFormatDecisionCount() == 1);
+    CHECK(adapter.enabledSupportedOriginalDecisionCount() == 0);
 
+    CVPixelBufferRelease(original);
+    return true;
+}
+
+bool TestStaticPhotoLeasePersistsAcrossCallbacks() {
+    ReadyFrameQueue queue(4);
+    CHECK(Publish(queue, 0, 1, 1));
+
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+    adapter.bindQueue(
+        &queue,
+        1,
+        1,
+        true,
+        true);
+
+    CVPixelBufferRef original =
+        MakeBuffer();
+    CHECK(original != nullptr);
+
+    const auto first =
+        adapter.decide(original);
+    CHECK(first.source ==
+          CameraDecisionSource::PreparedMedia);
+    CHECK(first.pixelBuffer != nullptr);
+
+    adapter.updateContext(
+        1,
+        1,
+        false,
+        true);
+
+    for (int callback = 0;
+         callback < 16;
+         ++callback) {
+        const auto repeated =
+            adapter.decide(original);
+        CHECK(repeated.source ==
+              CameraDecisionSource::PreparedMedia);
+        CHECK(repeated.pixelBuffer ==
+              first.pixelBuffer);
+    }
+
+    CHECK(adapter.enabledSupportedOriginalDecisionCount() == 0);
+
+    adapter.unbindQueue();
     CVPixelBufferRelease(original);
     return true;
 }
@@ -742,8 +819,12 @@ int main() {
         TestOffThenOnRestoresVirtualOwnership);
     Run("repeated toggles remain safe",
         TestRepeatedToggleSafe);
-    Run("emergency no-black returns original",
-        TestEmergencyOriginalWithoutBlack);
+    Run("supported no-black uses in-place ownership guard",
+        TestSupportedNoBlackUsesOwnershipGuard);
+    Run("unsupported format is explicit",
+        TestUnsupportedFormatIsExplicit);
+    Run("static photo lease persists across callbacks",
+        TestStaticPhotoLeasePersistsAcrossCallbacks);
     Run("pinned lease survives queue destruction",
         TestPinnedLeaseSurvivesQueueDestruction);
     Run("pinned storage remains bounded",

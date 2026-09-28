@@ -1,3 +1,5 @@
+#include "ReferenceCameraHook.h"
+
 #include <CoreFoundation/CoreFoundation.h>
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
@@ -8,14 +10,6 @@
 #include <cstring>
 #include <functional>
 #include <iostream>
-
-namespace vcam::product {
-bool CommitVirtualCameraOutputIntoOriginal(
-    CVPixelBufferRef virtualBuffer,
-    CVPixelBufferRef original) noexcept;
-bool ReferenceSampleBufferHasStillImageKey(
-    CMSampleBufferRef sampleBuffer) noexcept;
-}
 
 namespace {
 
@@ -373,6 +367,71 @@ bool TestUnmarkedSampleNotClassifiedStill() {
     return true;
 }
 
+bool TestSupportedInPlaceBlackGuardSanitizesPhysicalPixels() {
+    struct Case {
+        OSType format;
+        std::uint8_t expectedY;
+    };
+    const Case cases[] = {
+        {
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+            0,
+        },
+        {
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            16,
+        },
+    };
+
+    for (const auto& item : cases) {
+        CVPixelBufferRef original =
+            MakeBuffer(
+                64,
+                48,
+                item.format);
+        CVPixelBufferRef black =
+            MakeBuffer(
+                64,
+                48,
+                item.format);
+        CHECK(original != nullptr);
+        CHECK(black != nullptr);
+        CHECK(FillNV12(original, 211, 77));
+        CHECK(FillNV12(
+            black,
+            item.expectedY,
+            128));
+
+        vcam::product::CameraDecision decision;
+        decision.kind =
+            vcam::product::
+                CameraDecisionKind::Virtual;
+        decision.source =
+            vcam::product::
+                CameraDecisionSource::
+                    InPlaceBlackOwnershipGuard;
+        decision.pixelBuffer = original;
+
+        bool guardApplied = false;
+        CHECK(vcam::product::
+            ApplyCameraDecisionToOriginal(
+                decision,
+                original,
+                nullptr,
+                nullptr,
+                &guardApplied) == original);
+        CHECK(guardApplied);
+        CHECK(ActiveBytesEqual(
+            black,
+            original));
+
+        CVPixelBufferRelease(black);
+        CVPixelBufferRelease(original);
+    }
+
+    return true;
+}
+
 bool TestGeometryMismatchDoesNotOverwriteOriginal() {
     CVPixelBufferRef original =
         MakeBuffer(64, 48);
@@ -433,6 +492,9 @@ int main() {
         "ordinary sample not classified still",
         TestUnmarkedSampleNotClassifiedStill);
     Run(
+        "supported in-place guard sanitizes physical pixels",
+        TestSupportedInPlaceBlackGuardSanitizesPhysicalPixels);
+    Run(
         "geometry mismatch leaves original untouched",
         TestGeometryMismatchDoesNotOverwriteOriginal);
 
@@ -442,7 +504,9 @@ int main() {
             << "STILL_NO_MEDIA_SAME_GEOMETRY_USES_BLACK=PASS\n"
             << "STILL_PHOTO_READY_SAME_GEOMETRY_USES_PHOTO=PASS\n"
             << "STILL_GEOMETRY_MISMATCH_PRESERVES_ORIGINAL=OBSERVED\n"
-            << "STILL_GEOMETRY_RACE_DEVICE_CLASSIFICATION=REQUIRED\n";
+            << "STILL_GEOMETRY_RACE_DEVICE_CLASSIFICATION=REQUIRED\n"
+            << "SUPPORTED_GEOMETRY_TRANSITION_DOES_NOT_EXPOSE_ORIGINAL=PASS\n"
+            << "FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS\n";
     }
 
     std::cout

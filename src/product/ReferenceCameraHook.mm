@@ -276,6 +276,158 @@ bool CommitVirtualCameraOutputIntoOriginal(
     return true;
 }
 
+bool SanitizeSupportedCameraBufferToBlackInPlace(
+    CVPixelBufferRef original) noexcept {
+    if (original == nullptr ||
+        !CVPixelBufferIsPlanar(original) ||
+        CVPixelBufferGetPlaneCount(original) != 2) {
+        return false;
+    }
+
+    const OSType format =
+        CVPixelBufferGetPixelFormatType(
+            original);
+    std::uint8_t yValue = 0;
+    if (format ==
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) {
+        yValue = 16;
+    } else if (
+        format !=
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+        return false;
+    }
+
+    if (CVPixelBufferLockBaseAddress(
+            original,
+            0) != kCVReturnSuccess) {
+        return false;
+    }
+
+    bool success = true;
+    for (std::size_t plane = 0;
+         plane < 2;
+         ++plane) {
+        auto* base =
+            static_cast<std::uint8_t*>(
+                CVPixelBufferGetBaseAddressOfPlane(
+                    original,
+                    plane));
+        const std::size_t stride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                original,
+                plane);
+        const std::size_t height =
+            CVPixelBufferGetHeightOfPlane(
+                original,
+                plane);
+
+        if (base == nullptr ||
+            stride == 0 ||
+            height == 0) {
+            success = false;
+            break;
+        }
+
+        const std::uint8_t value =
+            plane == 0
+                ? yValue
+                : 128;
+        for (std::size_t row = 0;
+             row < height;
+             ++row) {
+            std::memset(
+                base + row * stride,
+                value,
+                stride);
+        }
+    }
+
+    CVPixelBufferUnlockBaseAddress(
+        original,
+        0);
+
+    if (success) {
+        CVBufferSetAttachment(
+            original,
+            CFSTR("vcam_patched"),
+            kCFBooleanTrue,
+            kCVAttachmentMode_ShouldPropagate);
+    }
+
+    return success;
+}
+
+CVImageBufferRef ApplyCameraDecisionToOriginal(
+    const CameraDecision& decision,
+    CVImageBufferRef original,
+    bool* commitAttempted,
+    bool* commitSucceeded,
+    bool* ownershipGuardApplied) noexcept {
+    if (commitAttempted != nullptr) {
+        *commitAttempted = false;
+    }
+    if (commitSucceeded != nullptr) {
+        *commitSucceeded = false;
+    }
+    if (ownershipGuardApplied != nullptr) {
+        *ownershipGuardApplied = false;
+    }
+
+    if (original == nullptr) {
+        return nullptr;
+    }
+
+    if (decision.kind ==
+            CameraDecisionKind::Original) {
+        return original;
+    }
+
+    if (decision.source ==
+            CameraDecisionSource::
+                InPlaceBlackOwnershipGuard &&
+        decision.pixelBuffer == original) {
+        const bool guarded =
+            SanitizeSupportedCameraBufferToBlackInPlace(
+                original);
+        if (ownershipGuardApplied != nullptr) {
+            *ownershipGuardApplied = guarded;
+        }
+        return original;
+    }
+
+    if (decision.pixelBuffer != nullptr &&
+        decision.pixelBuffer != original) {
+        if (commitAttempted != nullptr) {
+            *commitAttempted = true;
+        }
+
+        const bool committed =
+            CommitVirtualCameraOutputIntoOriginal(
+                decision.pixelBuffer,
+                original);
+        if (commitSucceeded != nullptr) {
+            *commitSucceeded = committed;
+        }
+
+        if (committed) {
+            return original;
+        }
+
+        const bool guarded =
+            SanitizeSupportedCameraBufferToBlackInPlace(
+                original);
+        if (ownershipGuardApplied != nullptr) {
+            *ownershipGuardApplied = guarded;
+        }
+
+        return guarded
+            ? original
+            : decision.pixelBuffer;
+    }
+
+    return original;
+}
+
 bool ReferenceSampleBufferHasStillImageKey(
     CMSampleBufferRef sampleBuffer) noexcept {
     return
@@ -311,35 +463,17 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
         runtime.decideCameraBuffer(
             original);
 
-#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
     bool commitAttempted = false;
-#endif
     bool commitSucceeded = false;
+    bool ownershipGuardApplied = false;
 
     CVImageBufferRef output =
-        original;
-
-    if (decision.kind ==
-            CameraDecisionKind::Virtual &&
-        decision.pixelBuffer != nullptr &&
-        decision.pixelBuffer != original) {
-#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
-        commitAttempted = true;
-#endif
-        commitSucceeded =
-            CommitVirtualCameraOutputIntoOriginal(
-                decision.pixelBuffer,
-                original);
-
-        output =
-            commitSucceeded
-                ? original
-                : decision.pixelBuffer;
-    } else if (
-        decision.pixelBuffer != nullptr) {
-        output =
-            decision.pixelBuffer;
-    }
+        ApplyCameraDecisionToOriginal(
+            decision,
+            original,
+            &commitAttempted,
+            &commitSucceeded,
+            &ownershipGuardApplied);
 
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
     proof::ActivationParityHookObservation
