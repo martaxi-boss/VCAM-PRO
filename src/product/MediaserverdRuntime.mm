@@ -69,6 +69,21 @@ std::uint64_t GeometryKey(
              pixelFormat) << 32U);
 }
 
+media_engine::PhotoTransformState
+PhotoTransformForSnapshot(
+    const ProductControlSnapshot& snapshot) noexcept {
+    media_engine::PhotoTransformState result;
+    result.translationX =
+        snapshot.photoTransform.translationX;
+    result.translationY =
+        snapshot.photoTransform.translationY;
+    result.scale =
+        snapshot.photoTransform.scale;
+    return
+        media_engine::NormalizePhotoTransformState(
+            result);
+}
+
 void DecodeGeometryKey(
     std::uint64_t key,
     std::size_t* width,
@@ -1140,6 +1155,15 @@ struct MediaserverdRuntime::Impl {
         }
 #endif
 
+        if (selected &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+            selected =
+                candidate->setPhotoTransform(
+                    PhotoTransformForSnapshot(
+                        snapshot));
+        }
+
         if (!selected) {
             adapter_.unbindQueue();
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
@@ -1227,6 +1251,19 @@ struct MediaserverdRuntime::Impl {
             snapshot) {
         if (session_ == nullptr) {
             return;
+        }
+
+        if (snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.photoTransform.revision !=
+                applied_.photoTransform.revision) {
+            adapter_.unbindQueue();
+
+            if (!session_->setPhotoTransform(
+                    PhotoTransformForSnapshot(
+                        snapshot))) {
+                return;
+            }
         }
 
         if (snapshot.mediaKind ==
