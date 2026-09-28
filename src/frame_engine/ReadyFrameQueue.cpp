@@ -173,6 +173,107 @@ AcquireResult ReadyFrameQueue::tryAcquire(
     return {AcquireResultKind::NoEligibleFrame, std::nullopt};
 }
 
+AcquireResult ReadyFrameQueue::tryAcquireMatching(
+    const QueueContext& context,
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat) {
+    std::unique_lock<std::mutex> lock(
+        mutex_,
+        std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return {
+            AcquireResultKind::Contended,
+            std::nullopt,
+        };
+    }
+
+    const bool wasEmpty = entries_.empty();
+    purgeContextLocked(context);
+
+    if (entries_.empty()) {
+        return {
+            wasEmpty
+                ? AcquireResultKind::Empty
+                : AcquireResultKind::NoEligibleFrame,
+            std::nullopt,
+        };
+    }
+
+    for (const auto& entry : entries_) {
+        if (entryIsLogicallyConsumed(entry) ||
+            entry->tracker->leased.load(
+                std::memory_order_acquire) ||
+            !frameMatchesContext(
+                entry->frame,
+                context) ||
+            entry->frame.width() != width ||
+            entry->frame.height() != height ||
+            entry->frame.pixelFormat() !=
+                pixelFormat) {
+            continue;
+        }
+
+        entry->tracker->leased.store(
+            true,
+            std::memory_order_release);
+        auto frameLease =
+            entry->frame.acquireLease(
+                context.currentMediaGeneration,
+                context.currentTimelineEpoch);
+
+        if (!frameLease.has_value()) {
+            entry->tracker->leased.store(
+                false,
+                std::memory_order_release);
+            continue;
+        }
+
+        AcquireResult result;
+        result.kind =
+            AcquireResultKind::Acquired;
+        ReadyFrameLease readyLease(
+            std::move(*frameLease),
+            entry->tracker);
+        result.lease.emplace(
+            std::move(readyLease));
+        return result;
+    }
+
+    return {
+        AcquireResultKind::NoEligibleFrame,
+        std::nullopt,
+    };
+}
+
+bool ReadyFrameQueue::hasEligibleMatching(
+    const QueueContext& context,
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    for (const auto& entry : entries_) {
+        if (entryIsLogicallyConsumed(entry) ||
+            entry->tracker->leased.load(
+                std::memory_order_acquire) ||
+            !frameMatchesContext(
+                entry->frame,
+                context)) {
+            continue;
+        }
+
+        if (entry->frame.width() == width &&
+            entry->frame.height() == height &&
+            entry->frame.pixelFormat() ==
+                pixelFormat) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 std::size_t ReadyFrameQueue::purgeGeneration(
     std::uint64_t currentMediaGeneration) {
     std::lock_guard<std::mutex> lock(mutex_);
