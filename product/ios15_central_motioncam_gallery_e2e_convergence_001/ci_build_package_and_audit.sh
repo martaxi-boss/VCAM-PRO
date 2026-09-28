@@ -27,11 +27,11 @@ test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide16~e2econverge1"
 test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
 dpkg-deb -c "$INPUT" | tee "$EVIDENCE/input-inventory.txt"
 
-git clone --quiet https://github.com/roothide/RootHidePatcher.git "$ROOT/RootHidePatcher"
-git -C "$ROOT/RootHidePatcher" checkout --quiet "$PATCHER_SHA"
-test "$(git -C "$ROOT/RootHidePatcher" rev-parse HEAD)" = "$PATCHER_SHA"
+PATCHER_DIR="${ROOTHIDE_PATCHER_DIR:-$PWD/reference/RootHidePatcher}"
+test -d "$PATCHER_DIR/.git"
+test "$(git -C "$PATCHER_DIR" rev-parse HEAD)" = "$PATCHER_SHA"
 
-sudo env "PATH=$PATH" bash "$ROOT/RootHidePatcher/patch.sh" "$INPUT" "$FINAL"
+sudo env "PATH=$PATH" bash "$PATCHER_DIR/patch.sh" "$INPUT" "$FINAL"
 
 test -f "$FINAL"
 shasum -a 256 "$FINAL" | tee "$FINAL.sha256"
