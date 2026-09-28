@@ -21,6 +21,7 @@ namespace vcam::product {
 
 namespace {
 
+#if !defined(VCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST)
 using CMSampleBufferGetImageBufferFunction =
     CVImageBufferRef (*)(
         CMSampleBufferRef);
@@ -33,6 +34,7 @@ extern "C" void MSHookFunction(
     void* symbol,
     void* replacement,
     void** original);
+#endif
 
 bool SameGeometryAndFormat(
     CVPixelBufferRef source,
@@ -281,6 +283,7 @@ bool ReferenceSampleBufferHasStillImageKey(
             sampleBuffer);
 }
 
+#if !defined(VCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST)
 namespace {
 
 CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
@@ -383,5 +386,6 @@ bool InstallReferenceCameraHook() {
         gOriginalCMSampleBufferGetImageBuffer !=
         nullptr;
 }
+#endif
 
 }  // namespace vcam::product
