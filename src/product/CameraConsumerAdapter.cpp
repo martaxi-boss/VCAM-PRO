@@ -27,6 +27,11 @@ bool SupportsInPlaceBlackOwnership(
 }  // namespace
 
 CameraConsumerAdapter::~CameraConsumerAdapter() {
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clearPhotoVariantsLocked();
+    }
+
     blackFallback_.store(
         nullptr,
         std::memory_order_release);
@@ -52,6 +57,11 @@ void CameraConsumerAdapter::setEnabled(
     enabled_.store(
         enabled,
         std::memory_order_release);
+
+    if (!enabled) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        clearPhotoVariantsLocked();
+    }
 }
 
 void CameraConsumerAdapter::bindQueue(
@@ -59,22 +69,27 @@ void CameraConsumerAdapter::bindQueue(
     std::uint64_t mediaGeneration,
     std::uint64_t timelineEpoch,
     bool producerHealthy,
-    bool reusableStaticMedia) {
+    bool reusableStaticMedia,
+    std::uint64_t reusableStaticRevision) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    const bool identityChanged =
-        queue_ != queue ||
+    const bool logicalIdentityChanged =
         context_.currentMediaGeneration !=
             mediaGeneration ||
         context_.currentTimelineEpoch !=
             timelineEpoch ||
         reusableStaticMedia_ !=
-            reusableStaticMedia;
+            reusableStaticMedia ||
+        reusableStaticRevision_ !=
+            reusableStaticRevision;
 
-    if (identityChanged) {
-        reusableStaticLease_.reset();
+    if (logicalIdentityChanged) {
+        clearPhotoVariantsLocked();
     }
 
+    // Queue replacement alone is not logical PHOTO invalidation. Geometry
+    // variants belong to generation/epoch/transform revision, not a queue
+    // object's address.
     queue_ = queue;
     context_.currentMediaGeneration =
         mediaGeneration;
@@ -85,13 +100,18 @@ void CameraConsumerAdapter::bindQueue(
     producerHealthy_ = producerHealthy;
     reusableStaticMedia_ =
         reusableStaticMedia;
+    reusableStaticRevision_ =
+        reusableStaticMedia
+            ? reusableStaticRevision
+            : 0;
 }
 
 void CameraConsumerAdapter::updateContext(
     std::uint64_t mediaGeneration,
     std::uint64_t timelineEpoch,
     bool producerHealthy,
-    bool reusableStaticMedia) {
+    bool reusableStaticMedia,
+    std::uint64_t reusableStaticRevision) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     if (context_.currentMediaGeneration !=
@@ -99,8 +119,10 @@ void CameraConsumerAdapter::updateContext(
         context_.currentTimelineEpoch !=
             timelineEpoch ||
         reusableStaticMedia_ !=
-            reusableStaticMedia) {
-        reusableStaticLease_.reset();
+            reusableStaticMedia ||
+        reusableStaticRevision_ !=
+            reusableStaticRevision) {
+        clearPhotoVariantsLocked();
     }
 
     context_.currentMediaGeneration =
@@ -112,14 +134,19 @@ void CameraConsumerAdapter::updateContext(
     producerHealthy_ = producerHealthy;
     reusableStaticMedia_ =
         reusableStaticMedia;
+    reusableStaticRevision_ =
+        reusableStaticMedia
+            ? reusableStaticRevision
+            : 0;
 }
 
 void CameraConsumerAdapter::unbindQueue() {
     std::lock_guard<std::mutex> lock(mutex_);
-    reusableStaticLease_.reset();
+    clearPhotoVariantsLocked();
     queue_ = nullptr;
     producerHealthy_ = false;
     reusableStaticMedia_ = false;
+    reusableStaticRevision_ = 0;
     context_ = {};
 }
 
@@ -209,19 +236,16 @@ CameraDecision CameraConsumerAdapter::decide(
             CameraFailOpenReason::
                 ReconfigurationContended;
     } else {
-        if (reusableStaticMedia_ &&
-            reusableStaticLease_.has_value() &&
-            reusableStaticLease_->valid()) {
-            const frame_engine::FrameLease*
-                retained =
-                    reusableStaticLease_->
-                        frameLease();
+        if (reusableStaticMedia_) {
+            PhotoVariantSlot* retained =
+                findPhotoVariantLocked(
+                    original);
             if (retained != nullptr &&
-                retained->pixelBuffer() !=
-                    nullptr &&
-                matchesOriginalGeometry(
-                    original,
-                    *retained)) {
+                retained->pixelBuffer !=
+                    nullptr) {
+                retained->lastUseSerial =
+                    nextPhotoVariantUseSerialLocked();
+
                 virtualDecisionCount_.
                     fetch_add(
                         1,
@@ -237,7 +261,7 @@ CameraDecision CameraConsumerAdapter::decide(
                     CameraDecisionSource::
                         PreparedMedia;
                 decision.pixelBuffer =
-                    retained->pixelBuffer();
+                    retained->pixelBuffer;
                 return decision;
             }
         }
@@ -254,7 +278,18 @@ CameraDecision CameraConsumerAdapter::decide(
                     ProducerUnavailable;
         } else {
             auto acquired =
-                queue_->tryAcquire(context_);
+                reusableStaticMedia_ &&
+                        original != nullptr
+                    ? queue_->tryAcquireMatching(
+                          context_,
+                          CVPixelBufferGetWidth(
+                              original),
+                          CVPixelBufferGetHeight(
+                              original),
+                          CVPixelBufferGetPixelFormatType(
+                              original))
+                    : queue_->tryAcquire(
+                          context_);
 
             if (acquired.kind !=
                     frame_engine::
@@ -287,17 +322,14 @@ CameraDecision CameraConsumerAdapter::decide(
                         lease->pixelBuffer();
 
                     if (reusableStaticMedia_) {
-                        reusableStaticLease_.reset();
-                        reusableStaticLease_.emplace(
-                            std::move(
-                                *acquired.lease));
-                        const auto* retained =
-                            reusableStaticLease_->
-                                frameLease();
                         selected =
-                            retained != nullptr
-                                ? retained->pixelBuffer()
-                                : selected;
+                            retainPhotoVariantLocked(
+                                selected,
+                                context_.
+                                    currentMediaGeneration,
+                                context_.
+                                    currentTimelineEpoch,
+                                reusableStaticRevision_);
                     } else {
                         pin(
                             std::move(
@@ -428,6 +460,37 @@ CameraConsumerAdapter::pinnedLeaseCount() const {
 }
 
 std::size_t
+CameraConsumerAdapter::photoVariantCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::size_t count = 0;
+    for (const auto& slot : photoVariants_) {
+        if (slot.pixelBuffer != nullptr) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+bool CameraConsumerAdapter::
+hasReusablePhotoVariant(
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return findPhotoVariantLocked(
+               width,
+               height,
+               pixelFormat,
+               mediaGeneration,
+               timelineEpoch,
+               transformRevision) != nullptr;
+}
+
+std::size_t
 CameraConsumerAdapter::
 blackFallbackCacheCount() const {
     std::lock_guard<std::mutex> lock(
@@ -542,6 +605,181 @@ matchesOriginalGeometry(
             original) ==
             CVPixelBufferGetPixelFormatType(
                 candidate);
+}
+
+void CameraConsumerAdapter::
+clearPhotoVariantsLocked() noexcept {
+    for (auto& slot : photoVariants_) {
+        if (slot.pixelBuffer != nullptr) {
+            CVPixelBufferRelease(
+                slot.pixelBuffer);
+        }
+        slot = {};
+    }
+    photoVariantUseSerial_ = 0;
+}
+
+CameraConsumerAdapter::PhotoVariantSlot*
+CameraConsumerAdapter::findPhotoVariantLocked(
+    CVPixelBufferRef original) noexcept {
+    if (original == nullptr) {
+        return nullptr;
+    }
+
+    return const_cast<PhotoVariantSlot*>(
+        static_cast<const CameraConsumerAdapter*>(
+            this)->findPhotoVariantLocked(
+                CVPixelBufferGetWidth(
+                    original),
+                CVPixelBufferGetHeight(
+                    original),
+                CVPixelBufferGetPixelFormatType(
+                    original),
+                context_.
+                    currentMediaGeneration,
+                context_.
+                    currentTimelineEpoch,
+                reusableStaticRevision_));
+}
+
+const CameraConsumerAdapter::PhotoVariantSlot*
+CameraConsumerAdapter::findPhotoVariantLocked(
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) const noexcept {
+    for (const auto& slot : photoVariants_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.mediaGeneration ==
+                mediaGeneration &&
+            slot.timelineEpoch ==
+                timelineEpoch &&
+            slot.transformRevision ==
+                transformRevision &&
+            slot.width == width &&
+            slot.height == height &&
+            slot.pixelFormat ==
+                pixelFormat) {
+            return &slot;
+        }
+    }
+
+    return nullptr;
+}
+
+CVPixelBufferRef
+CameraConsumerAdapter::
+retainPhotoVariantLocked(
+    CVPixelBufferRef pixelBuffer,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) noexcept {
+    if (pixelBuffer == nullptr) {
+        return nullptr;
+    }
+
+    const std::size_t width =
+        CVPixelBufferGetWidth(
+            pixelBuffer);
+    const std::size_t height =
+        CVPixelBufferGetHeight(
+            pixelBuffer);
+    const OSType pixelFormat =
+        CVPixelBufferGetPixelFormatType(
+            pixelBuffer);
+
+    PhotoVariantSlot* destination = nullptr;
+
+    for (auto& slot : photoVariants_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.mediaGeneration ==
+                mediaGeneration &&
+            slot.timelineEpoch ==
+                timelineEpoch &&
+            slot.transformRevision ==
+                transformRevision &&
+            slot.width == width &&
+            slot.height == height &&
+            slot.pixelFormat ==
+                pixelFormat) {
+            destination = &slot;
+            break;
+        }
+    }
+
+    if (destination == nullptr) {
+        for (auto& slot : photoVariants_) {
+            if (slot.pixelBuffer == nullptr ||
+                slot.mediaGeneration !=
+                    mediaGeneration ||
+                slot.timelineEpoch !=
+                    timelineEpoch ||
+                slot.transformRevision !=
+                    transformRevision) {
+                destination = &slot;
+                break;
+            }
+        }
+    }
+
+    if (destination == nullptr) {
+        destination =
+            &photoVariants_[0];
+        for (auto& slot : photoVariants_) {
+            if (slot.lastUseSerial <
+                destination->lastUseSerial) {
+                destination = &slot;
+            }
+        }
+    }
+
+    if (destination->pixelBuffer !=
+        pixelBuffer) {
+        CVPixelBufferRetain(pixelBuffer);
+        if (destination->pixelBuffer !=
+            nullptr) {
+            CVPixelBufferRelease(
+                destination->pixelBuffer);
+        }
+        destination->pixelBuffer =
+            pixelBuffer;
+    }
+
+    destination->mediaGeneration =
+        mediaGeneration;
+    destination->timelineEpoch =
+        timelineEpoch;
+    destination->transformRevision =
+        transformRevision;
+    destination->width = width;
+    destination->height = height;
+    destination->pixelFormat =
+        pixelFormat;
+    destination->lastUseSerial =
+        nextPhotoVariantUseSerialLocked();
+
+    return destination->pixelBuffer;
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+nextPhotoVariantUseSerialLocked() noexcept {
+    if (photoVariantUseSerial_ ==
+        UINT64_MAX) {
+        std::uint64_t next = 1;
+        for (auto& slot : photoVariants_) {
+            if (slot.pixelBuffer != nullptr) {
+                slot.lastUseSerial = next++;
+            }
+        }
+        photoVariantUseSerial_ = next;
+    } else {
+        ++photoVariantUseSerial_;
+    }
+
+    return photoVariantUseSerial_;
 }
 
 void CameraConsumerAdapter::pin(
