@@ -235,4 +235,14 @@ const NormalizationTarget& FramePipelinePump::target() const noexcept {
     return target_;
 }
 
+void FramePipelinePump::setTarget(
+    const NormalizationTarget& target) noexcept {
+    target_ = target;
+    pendingTimedFrame_.reset();
+    pendingPreparedResult_ = {};
+    timedContextInitialized_ = false;
+    timedMediaGeneration_ = 0;
+    timedTimelineEpoch_ = 0;
+}
+
 }  // namespace vcam::media_engine
