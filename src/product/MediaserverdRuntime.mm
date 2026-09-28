@@ -335,6 +335,16 @@ struct MediaserverdRuntime::Impl {
                 key,
                 std::memory_order_acq_rel);
 
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        if (previous != 0 &&
+            previous != key) {
+            activationRemediationGeometryChangeCount_.
+                fetch_add(
+                    1,
+                    std::memory_order_acq_rel);
+        }
+#endif
+
         if (previous == key) {
             return;
         }
@@ -357,7 +367,27 @@ struct MediaserverdRuntime::Impl {
 
     CameraDecision decide(
         CVPixelBufferRef original) noexcept {
-#if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        const std::uint64_t activeGeneration =
+            activationRemediationActiveGeneration_.load(
+                std::memory_order_acquire);
+
+        CameraDecision decision =
+            adapter_.decide(
+                original);
+
+        if (activeGeneration != 0 &&
+            activationRemediationActiveGeneration_.load(
+                std::memory_order_acquire) ==
+                activeGeneration) {
+            proof::ObserveActivationParityCameraDecision(
+                activeGeneration,
+                decision,
+                original);
+        }
+
+        return decision;
+#elif defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
         std::uint64_t generationBefore = 0;
         std::uint32_t flagsBefore = 0;
         const bool beforeValid =
