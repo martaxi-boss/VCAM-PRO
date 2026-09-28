@@ -73,6 +73,7 @@ public:
 
     std::size_t capacity() const noexcept;
     std::size_t size() const;
+    void clear();
 
     PublishResult publish(PreparedFrame frame,
                           const QueueContext& context);
