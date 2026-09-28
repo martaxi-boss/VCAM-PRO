@@ -54,6 +54,8 @@ public:
     static constexpr std::size_t
         kPinnedLeaseCapacity = 4;
     static constexpr std::size_t
+        kPhotoVariantCapacity = 4;
+    static constexpr std::size_t
         kBlackFallbackCapacity = 4;
 
     CameraConsumerAdapter() = default;
@@ -71,13 +73,15 @@ public:
         std::uint64_t mediaGeneration,
         std::uint64_t timelineEpoch,
         bool producerHealthy,
-        bool reusableStaticMedia = false);
+        bool reusableStaticMedia = false,
+        std::uint64_t reusableStaticRevision = 0);
 
     void updateContext(
         std::uint64_t mediaGeneration,
         std::uint64_t timelineEpoch,
         bool producerHealthy,
-        bool reusableStaticMedia = false);
+        bool reusableStaticMedia = false,
+        std::uint64_t reusableStaticRevision = 0);
 
     void unbindQueue();
 
@@ -89,7 +93,16 @@ public:
         CVPixelBufferRef original) noexcept;
 
     std::size_t pinnedLeaseCount() const;
+    std::size_t photoVariantCount() const;
     std::size_t blackFallbackCacheCount() const;
+
+    bool hasReusablePhotoVariant(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) const;
 
     bool hasCompatibleBlackFallback(
         CVPixelBufferRef original) const noexcept;
@@ -104,6 +117,17 @@ public:
     std::uint64_t enabledSupportedOriginalDecisionCount() const noexcept;
 
 private:
+    struct PhotoVariantSlot {
+        CVPixelBufferRef pixelBuffer = nullptr;
+        std::uint64_t mediaGeneration = 0;
+        std::uint64_t timelineEpoch = 0;
+        std::uint64_t transformRevision = 0;
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+        std::uint64_t lastUseSerial = 0;
+    };
+
     bool matchesOriginalGeometry(
         CVPixelBufferRef original,
         const frame_engine::FrameLease& lease) const noexcept;
@@ -114,6 +138,23 @@ private:
 
     void pin(
         frame_engine::ReadyFrameLease lease);
+
+    void clearPhotoVariantsLocked() noexcept;
+    PhotoVariantSlot* findPhotoVariantLocked(
+        CVPixelBufferRef original) noexcept;
+    const PhotoVariantSlot* findPhotoVariantLocked(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) const noexcept;
+    CVPixelBufferRef retainPhotoVariantLocked(
+        CVPixelBufferRef pixelBuffer,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) noexcept;
+    std::uint64_t nextPhotoVariantUseSerialLocked() noexcept;
 
     CameraDecision blackOrEmergencyOriginal(
         CVPixelBufferRef original,
@@ -134,8 +175,10 @@ private:
     frame_engine::QueueContext context_{};
     bool producerHealthy_ = false;
     bool reusableStaticMedia_ = false;
-    std::optional<frame_engine::ReadyFrameLease>
-        reusableStaticLease_;
+    std::uint64_t reusableStaticRevision_ = 0;
+    std::array<PhotoVariantSlot, kPhotoVariantCapacity>
+        photoVariants_{};
+    std::uint64_t photoVariantUseSerial_ = 0;
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,
