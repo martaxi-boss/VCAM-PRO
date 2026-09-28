@@ -22,6 +22,11 @@
 #include "IOS15ActivationParityProof.h"
 #endif
 
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+#include "ActivationParityDeviceRemediationProof.h"
+#include "SharedMediaStager.h"
+#endif
+
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
 #include "FirstLocalPhotoSubstitutionDiagnosticProof.h"
 #include "FirstLocalPhotoSubstitutionDiagnosticProofState.h"
@@ -146,6 +151,9 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
         proof::ResetIOS15ActivationParityProofState();
 #endif
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        proof::ResetActivationParityDeviceRemediationProof();
+#endif
 
         controlQueue_ =
             dispatch_queue_create(
@@ -189,6 +197,11 @@ struct MediaserverdRuntime::Impl {
         updateIOS15ActivationParityControlSnapshot(
             initial);
 #endif
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        updateActivationParityRemediationControlSnapshot(
+            initial,
+            true);
+#endif
         adapter_.setEnabled(
             initial.enabled);
 
@@ -220,6 +233,11 @@ struct MediaserverdRuntime::Impl {
                     updateIOS15ActivationParityControlSnapshot(
                         snapshot);
 #endif
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+                    updateActivationParityRemediationControlSnapshot(
+                        snapshot,
+                        true);
+#endif
                     adapter_.setEnabled(
                         snapshot.enabled);
 
@@ -233,6 +251,9 @@ struct MediaserverdRuntime::Impl {
 #endif
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
                                 this->beginOrStopFirstPhotoSubstitutionDiagnostic();
+#endif
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+                                this->beginOrRefreshActivationParityRemediationDiagnostic();
 #endif
                                 this->prepareBlackFallbackForObservedGeometry();
                                 this->applyCachedState(
@@ -259,6 +280,9 @@ struct MediaserverdRuntime::Impl {
 #endif
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
                 this->beginOrStopFirstPhotoSubstitutionDiagnostic();
+#endif
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+                this->beginOrRefreshActivationParityRemediationDiagnostic();
 #endif
                 this->applyCachedState(
                     true);
