@@ -187,6 +187,68 @@ bool InternalGalleryMediaSession::resume() {
 }
 
 bool InternalGalleryMediaSession::
+setPhotoTransform(
+    const PhotoTransformState& transform) {
+    if (selected_.kind !=
+            SelectedMediaKind::Photo ||
+        photoReader_ == nullptr ||
+        pump_ == nullptr ||
+        driver_ == nullptr) {
+        setStatus(
+            "Photo transform requires a selected photo.");
+        return false;
+    }
+
+    const PhotoTransformState normalized =
+        NormalizePhotoTransformState(
+            transform);
+    const PhotoTransformState current =
+        transformer_.photoTransform();
+
+    if (current.translationX ==
+            normalized.translationX &&
+        current.translationY ==
+            normalized.translationY &&
+        current.scale ==
+            normalized.scale) {
+        return true;
+    }
+
+    transformer_.setPhotoTransform(
+        normalized);
+    pump_->setForceTransform(
+        transformer_.
+            hasNonDefaultPhotoTransform());
+
+    queue_.clear();
+    scheduler_.reset();
+
+    if (state_.playbackState() ==
+        frame_engine::PlaybackState::Playing) {
+        if (!driver_->start()) {
+            setStatus(
+                "Unable to republish transformed photo.");
+            return false;
+        }
+    } else if (
+        state_.playbackState() ==
+        frame_engine::PlaybackState::Paused) {
+        const auto result =
+            pump_->pumpOnce();
+        if (result.status !=
+            FramePipelinePumpStatus::Published) {
+            setStatus(
+                "Unable to refresh paused photo transform.");
+            return false;
+        }
+    }
+
+    setStatus(
+        "Photo position / zoom updated.");
+    return true;
+}
+
+bool InternalGalleryMediaSession::
 setVideoLoopEnabled(bool enabled) {
     if (videoReader_ == nullptr ||
         selected_.kind !=
@@ -335,6 +397,11 @@ installPipelineForActiveSource() {
             scheduler_,
             queue_,
             config_.target);
+    pump_->setForceTransform(
+        selected_.kind ==
+                SelectedMediaKind::Photo &&
+        transformer_.
+            hasNonDefaultPhotoTransform());
 
     driver_ =
         std::make_unique<ProducerWakeupDriver>(
