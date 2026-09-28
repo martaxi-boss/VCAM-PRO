@@ -708,7 +708,7 @@ bool TestInvalidReplacementPreservesSelection(
     return true;
 }
 
-bool TestActivationParityBlackPhotoBlackOriginal() {
+bool TestComponentActivationParityBlackPhotoBlackOriginal() {
     const std::string root =
         TempRoot();
     CHECK(CreateDirectory(root));
@@ -928,8 +928,8 @@ int main() {
                     video);
             });
         Run(
-            "activation parity black photo black original",
-            TestActivationParityBlackPhotoBlackOriginal);
+            "component-level activation parity black photo black original",
+            TestComponentActivationParityBlackPhotoBlackOriginal);
 
         RemoveTree(root);
 
