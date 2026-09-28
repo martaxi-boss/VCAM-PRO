@@ -59,6 +59,11 @@ struct ActivationParityPhotoSnapshot {
     std::uint8_t readerState = 0;
     std::uint8_t readerError = 0;
     std::uint64_t frameSequenceCount = 0;
+    std::uint8_t producerDriverState = 0;
+    bool producerPumpStatusValid = false;
+    std::uint8_t producerPumpStatus = 0;
+    std::uint64_t publishedFrameCount = 0;
+    std::uint64_t photoDecodeCount = 0;
 
     bool queueBound = false;
     std::uint32_t readyQueueSize = 0;
@@ -99,6 +104,8 @@ struct ActivationParityHookObservation {
         CameraFailOpenReason::None;
     bool virtualCommitAttempted = false;
     bool virtualCommitSucceeded = false;
+    bool blackFallbackCompatible = false;
+    bool preparedFallbackExisted = false;
     std::uint64_t originalGeometry = 0;
 };
 

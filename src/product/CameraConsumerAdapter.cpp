@@ -302,6 +302,15 @@ blackFallbackCacheCount() const {
     return blackFallbackHistoryCount_;
 }
 
+bool CameraConsumerAdapter::
+hasCompatibleBlackFallback(
+    CVPixelBufferRef original) const noexcept {
+    return matchesOriginalGeometry(
+        original,
+        blackFallback_.load(
+            std::memory_order_acquire));
+}
+
 std::uint64_t
 CameraConsumerAdapter::decisionCount() const noexcept {
     return decisionCount_.load(

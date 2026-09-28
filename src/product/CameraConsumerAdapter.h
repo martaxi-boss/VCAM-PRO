@@ -87,6 +87,9 @@ public:
     std::size_t pinnedLeaseCount() const;
     std::size_t blackFallbackCacheCount() const;
 
+    bool hasCompatibleBlackFallback(
+        CVPixelBufferRef original) const noexcept;
+
     std::uint64_t decisionCount() const noexcept;
     std::uint64_t virtualDecisionCount() const noexcept;
     std::uint64_t mediaVirtualDecisionCount() const noexcept;

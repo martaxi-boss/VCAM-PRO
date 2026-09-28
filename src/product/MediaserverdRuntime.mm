@@ -1634,6 +1634,22 @@ struct MediaserverdRuntime::Impl {
             facts.frameSequenceCount =
                 session_->state()
                     .nextSequence();
+            facts.producerDriverState =
+                static_cast<std::uint8_t>(
+                    session_->producerDriverState());
+            const auto pumpStatus =
+                session_->lastPumpStatus();
+            facts.producerPumpStatusValid =
+                pumpStatus.has_value();
+            facts.producerPumpStatus =
+                pumpStatus.has_value()
+                    ? static_cast<std::uint8_t>(
+                          *pumpStatus)
+                    : 0;
+            facts.publishedFrameCount =
+                session_->publishedFrameCount();
+            facts.photoDecodeCount =
+                session_->photoDecodeCount();
 
             facts.readyQueueSize =
                 static_cast<std::uint32_t>(

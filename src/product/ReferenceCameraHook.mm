@@ -357,6 +357,17 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
         commitAttempted;
     observation.virtualCommitSucceeded =
         commitSucceeded;
+    observation.blackFallbackCompatible =
+        runtime.cameraAdapter().
+            hasCompatibleBlackFallback(
+                original);
+    observation.preparedFallbackExisted =
+        decision.source ==
+            CameraDecisionSource::PreparedMedia ||
+        decision.mediaFailureReason ==
+            CameraFailOpenReason::GeometryMismatch ||
+        decision.mediaFailureReason ==
+            CameraFailOpenReason::InvalidLease;
     observation.originalGeometry =
         PixelBufferGeometryKey(
             original);
