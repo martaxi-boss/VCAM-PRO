@@ -536,13 +536,71 @@ bool TestRealProductCompositionPhotoPersistence() {
     CHECK(paused.source ==
           CameraDecisionSource::PreparedMedia);
 
+    CVPixelBufferRef baselinePhoto =
+        MakeNV12(0, 128);
+    CHECK(baselinePhoto != nullptr);
+    CHECK(CommitVirtualCameraOutputIntoOriginal(
+        paused.pixelBuffer,
+        baselinePhoto));
+
+    CHECK(owner.setPhotoTransform(
+        0.5,
+        -0.25,
+        1.5));
+
+    bool transformedReady = false;
+    CVPixelBufferRef transformedOutput =
+        MakeNV12(211, 77);
+    CHECK(transformedOutput != nullptr);
+
+    for (int attempt = 0;
+         attempt < 1500;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+
+        CVPixelBufferRef probe =
+            MakeNV12(211, 77);
+        CHECK(probe != nullptr);
+        const CameraDecision transformed =
+            runtime.decideCameraBuffer(
+                probe);
+
+        if (transformed.kind ==
+                CameraDecisionKind::Virtual &&
+            transformed.source ==
+                CameraDecisionSource::PreparedMedia &&
+            transformed.pixelBuffer != nullptr) {
+            CHECK(CommitVirtualCameraOutputIntoOriginal(
+                transformed.pixelBuffer,
+                transformedOutput));
+            CVPixelBufferRelease(probe);
+
+            if (!ActiveBytesEqual(
+                    baselinePhoto,
+                    transformedOutput)) {
+                transformedReady = true;
+                break;
+            }
+        } else {
+            CVPixelBufferRelease(probe);
+        }
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+
+    CHECK(transformedReady);
+
     std::cout
         << "PHOTO_STATIC_SOURCE_PERSISTS=PASS\n"
         << "PHOTO_STATIC_SOURCE_SINGLE_PUBLICATION=PASS\n"
+        << "PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS\n"
         << "PRODUCT_COMPOSITION_TEST_BYPASSES_RUNTIME=NO\n"
         << "PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO\n"
         << "PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO\n";
 
+    CVPixelBufferRelease(transformedOutput);
+    CVPixelBufferRelease(baselinePhoto);
     CVPixelBufferRelease(pausedOriginal);
     CVPixelBufferRelease(blackFixture);
     CVPixelBufferRelease(originalFixture);
