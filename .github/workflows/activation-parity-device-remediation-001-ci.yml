@@ -110,6 +110,9 @@ jobs:
           grep -Fq 'CMSAMPLEBUFFERCREATEREADY_NOT_INTRODUCED=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'NO_APP_SPECIFIC_HOOKS=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'STILL_GEOMETRY_RACE_STATUS=UNRESOLVED' build/activation-remediation-tests/static-validation.txt
+          grep -Fq 'PHOTO_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' build/activation-remediation-tests/static-validation.txt
+          grep -Fq 'STILL_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' build/activation-remediation-tests/static-validation.txt
+          grep -Fq 'DIAGNOSTIC_QUEUE_CONSUMPTION=NO' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'DEVICE_ACTION=NO' build/activation-remediation-tests/static-validation.txt
 
       - name: Activation remediation state transport tests
@@ -128,7 +131,9 @@ jobs:
             ACTIVATION_REMEDIATION_FRESHNESS=PASS \
             ACTIVATION_REMEDIATION_GENERATION_BINDING=PASS \
             ACTIVATION_REMEDIATION_SESSION_FIELDS=PASS \
-            ACTIVATION_REMEDIATION_PRODUCER_FIELDS=PASS; do
+            ACTIVATION_REMEDIATION_PRODUCER_FIELDS=PASS \
+            ACTIVATION_REMEDIATION_PRODUCER_DIAGNOSTICS=PASS \
+            ACTIVATION_REMEDIATION_STILL_DIAGNOSTICS=PASS; do
             grep -Fq "$marker" build/activation-remediation-tests/state-tests.txt
           done
 
@@ -291,6 +296,7 @@ jobs:
           grep -Fq 'MINIMUM_IOS_15=PASS' "$REPORT"
           grep -Fq 'ROOTHIDE_PACKAGE=PASS' "$REPORT"
           grep -Fq 'VALID_CODE_SIGNATURE=PASS' "$REPORT"
+          grep -Fq 'PHOTO_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' "$REPORT"
           grep -Fq 'STILL_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' "$REPORT"
           grep -Fq 'STILL_GEOMETRY_RACE_STATUS=UNRESOLVED' "$REPORT"
           grep -Fq 'FLASH_STILL_CAPTURE_DOES_NOT_EXPOSE_ORIGINAL=UNRESOLVED' "$REPORT"

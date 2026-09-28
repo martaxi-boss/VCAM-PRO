@@ -91,6 +91,36 @@ for token in \
 done
 
 for token in \
+    'producerDriverState' \
+    'lastPumpStatus' \
+    'publishedFrameCount' \
+    'photoDecodeCount'; do
+    grep -Fq "$token" "$RUNTIME"
+done
+
+for token in \
+    'hasCompatibleBlackFallback' \
+    'preparedFallbackExisted'; do
+    grep -Fq "$token" "$HOOK"
+done
+
+for token in \
+    'producer-driver=' \
+    'photo-decodes=' \
+    'preview-geometry=' \
+    'still-black-compatible=' \
+    'prepared-fallback-existed='; do
+    grep -Fq "$token" "$SCOPE/ActivationParityDeviceRemediationWitness.mm"
+done
+
+if grep -E 'tryAcquire\(|\.acquire\(' \
+    "$SCOPE/ActivationParityDeviceRemediationProof.mm" \
+    "$SCOPE/ActivationParityDeviceRemediationWitness.mm"; then
+    echo "Diagnostic transport must not consume ReadyFrameQueue"
+    exit 1
+fi
+
+for token in \
     'STILL_SAME_GEOMETRY_VIRTUAL_OWNERSHIP=PASS' \
     'STILL_GEOMETRY_MISMATCH_PRESERVES_ORIGINAL=OBSERVED' \
     'STILL_GEOMETRY_RACE_DEVICE_CLASSIFICATION=REQUIRED'; do
@@ -181,6 +211,9 @@ test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/hea
 
 printf '%s\n' \
     "REMEDIATION_SCOPE=PASS" \
+    "PHOTO_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS" \
+    "STILL_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS" \
+    "DIAGNOSTIC_QUEUE_CONSUMPTION=NO" \
     "HISTORICAL_DESTINATION_OWNERSHIP_ADAPTED=PASS" \
     "STILLIMAGEKEY_DIAGNOSTIC_PRESENT=PASS" \
     "CMSAMPLEBUFFERCREATEREADY_NOT_INTRODUCED=PASS" \
