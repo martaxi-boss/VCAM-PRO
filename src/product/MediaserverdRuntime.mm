@@ -146,6 +146,14 @@ struct MediaserverdRuntime::Impl {
     ~Impl() {
         store_.stopObserving();
 
+#if defined(VCAM_TESTING)
+        if (controlQueue_ != nullptr &&
+            testControlQueueSuspended_) {
+            dispatch_resume(controlQueue_);
+            testControlQueueSuspended_ = false;
+        }
+#endif
+
         if (controlQueue_ != nullptr) {
             dispatch_sync(
                 controlQueue_,
@@ -1066,6 +1074,17 @@ struct MediaserverdRuntime::Impl {
             return;
         }
 
+#if defined(VCAM_TESTING)
+        if (snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            testAppliedGeometryHistoryCount_ <
+                testAppliedGeometryHistory_.size()) {
+            testAppliedGeometryHistory_[
+                testAppliedGeometryHistoryCount_++] =
+                    geometry;
+        }
+#endif
+
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
         firstPhotoSubDiagnosticTargetGeneration_ =
             snapshot.selectionGeneration;
@@ -1163,6 +1182,16 @@ struct MediaserverdRuntime::Impl {
                     PhotoTransformForSnapshot(
                         snapshot));
         }
+
+#if defined(VCAM_TESTING)
+        if (selected &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+            ++testLogicalPhotoSessionCreationCount_;
+            testTotalPhotoDecodeCount_ +=
+                candidate->photoDecodeCount();
+        }
+#endif
 
         if (!selected) {
             adapter_.unbindQueue();
@@ -3541,6 +3570,15 @@ struct MediaserverdRuntime::Impl {
                     WaitingControl;
 #endif
 
+#if defined(VCAM_TESTING)
+    bool testControlQueueSuspended_ = false;
+    std::uint64_t testLogicalPhotoSessionCreationCount_ = 0;
+    std::uint64_t testTotalPhotoDecodeCount_ = 0;
+    std::array<std::uint64_t, 8>
+        testAppliedGeometryHistory_{};
+    std::size_t testAppliedGeometryHistoryCount_ = 0;
+#endif
+
     bool started_ = false;
 };
 
@@ -3560,13 +3598,42 @@ MediaserverdRuntime::MediaserverdRuntime(
 bool MediaserverdRuntime::
 drainControlQueueForTesting() {
     if (!impl_ ||
-        impl_->controlQueue_ == nullptr) {
+        impl_->controlQueue_ == nullptr ||
+        impl_->testControlQueueSuspended_) {
         return false;
     }
 
     dispatch_sync(
         impl_->controlQueue_,
         ^{});
+    return true;
+}
+
+bool MediaserverdRuntime::
+suspendControlQueueForTesting() {
+    if (!impl_ ||
+        impl_->controlQueue_ == nullptr ||
+        impl_->testControlQueueSuspended_) {
+        return false;
+    }
+
+    dispatch_suspend(
+        impl_->controlQueue_);
+    impl_->testControlQueueSuspended_ = true;
+    return true;
+}
+
+bool MediaserverdRuntime::
+resumeControlQueueForTesting() {
+    if (!impl_ ||
+        impl_->controlQueue_ == nullptr ||
+        !impl_->testControlQueueSuspended_) {
+        return false;
+    }
+
+    impl_->testControlQueueSuspended_ = false;
+    dispatch_resume(
+        impl_->controlQueue_);
     return true;
 }
 
@@ -3638,6 +3705,15 @@ MediaserverdRuntime::snapshotForTesting() {
                     impl_->session_->state().
                         loopIteration();
             }
+
+            result.logicalPhotoSessionCreationCount =
+                impl_->testLogicalPhotoSessionCreationCount_;
+            result.totalPhotoDecodeCount =
+                impl_->testTotalPhotoDecodeCount_;
+            result.appliedGeometryHistoryCount =
+                impl_->testAppliedGeometryHistoryCount_;
+            result.appliedGeometryHistory =
+                impl_->testAppliedGeometryHistory_;
         });
 
     return result;
