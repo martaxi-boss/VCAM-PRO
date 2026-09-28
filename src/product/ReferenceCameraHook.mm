@@ -311,7 +311,9 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
         runtime.decideCameraBuffer(
             original);
 
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
     bool commitAttempted = false;
+#endif
     bool commitSucceeded = false;
 
     CVImageBufferRef output =
@@ -321,7 +323,9 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
             CameraDecisionKind::Virtual &&
         decision.pixelBuffer != nullptr &&
         decision.pixelBuffer != original) {
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
         commitAttempted = true;
+#endif
         commitSucceeded =
             CommitVirtualCameraOutputIntoOriginal(
                 decision.pixelBuffer,

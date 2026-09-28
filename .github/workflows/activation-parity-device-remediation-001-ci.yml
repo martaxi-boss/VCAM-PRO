@@ -53,9 +53,10 @@ jobs:
           sh product/activation_parity_device_remediation_001/reference_forensics.sh
 
       - name: Upload reference-forensics evidence
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: activation-parity-reference-forensics-001
           path: build/activation-parity-device-remediation-001/reference-forensics/**
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 14
