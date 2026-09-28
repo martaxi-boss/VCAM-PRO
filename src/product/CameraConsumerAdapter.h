@@ -57,6 +57,8 @@ public:
         kPhotoVariantCapacity = 4;
     static constexpr std::size_t
         kBlackFallbackCapacity = 4;
+    static constexpr std::size_t
+        kReusablePhotoVariantCapacity = 4;
 
     CameraConsumerAdapter() = default;
     ~CameraConsumerAdapter();
