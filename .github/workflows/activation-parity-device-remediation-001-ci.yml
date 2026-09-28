@@ -1,0 +1,61 @@
+name: VCAM PRO Activation Parity Device Remediation 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "product/activation_parity_device_remediation_001/**"
+      - "docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md"
+      - "docs/CANONICAL_PROJECT_STATE.md"
+      - "src/product/MediaserverdRuntime.mm"
+      - "src/product/CameraConsumerAdapter.h"
+      - "src/product/CameraConsumerAdapter.cpp"
+      - "src/product/ReferenceCameraHook.mm"
+      - "src/product/VirtualBlackFrame.h"
+      - "src/product/VirtualBlackFrame.mm"
+      - "src/media_engine/InternalGalleryMediaSession.mm"
+      - "src/media_engine/LocalPhotoReader.mm"
+      - "tests/**"
+      - ".github/workflows/activation-parity-device-remediation-001-ci.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-activation-parity-device-remediation-001
+  cancel-in-progress: true
+
+jobs:
+  reference-forensics:
+    name: iOS15 USB still-capture forensics
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact VCAM PRO head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS-15-USB
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Disassemble and map still-capture reference evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh product/activation_parity_device_remediation_001/reference_forensics.sh
+
+      - name: Upload reference-forensics evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: activation-parity-reference-forensics-001
+          path: build/activation-parity-device-remediation-001/reference-forensics/**
+          if-no-files-found: error
+          retention-days: 14
