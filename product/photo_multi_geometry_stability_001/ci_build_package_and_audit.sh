@@ -211,6 +211,7 @@ test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/hea
 {
     echo "TASK_ID=VCAM-PRO-PHOTO-MULTI-GEOMETRY-STABILITY-REMEDIATION-001"
     echo "PACKAGE_ROLE=CORRECTED_PRODUCT_CANDIDATE"
+    echo "PHOTO_MULTI_GEOMETRY_STABILITY_PACKAGE=PASS"
     echo "ARM64=PASS"
     echo "MINIMUM_IOS_15=PASS"
     echo "ROOTHIDE_PACKAGE=PASS"
