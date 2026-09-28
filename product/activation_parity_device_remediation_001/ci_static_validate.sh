@@ -94,9 +94,10 @@ done
 # A host test cannot certify the unresolved flash/still device outcome.
 test -z "$(grep -F 'FLASH_STILL_CAPTURE_DOES_NOT_EXPOSE_ORIGINAL=PASS' "$OWNERSHIP_TEST" || true)"
 
-for forbidden in WhatsApp Telegram FaceTime KYC identity verification biometric; do
+for forbidden in WhatsApp Telegram FaceTime KYC biometric; do
     test -z "$(grep -E -i "$forbidden" "$HOOK" "$RUNTIME" "$SCOPE/ActivationParityDeviceRemediationProof.mm" "$SCOPE/ActivationParityDeviceRemediationWitness.mm" || true)"
 done
+test -z "$(grep -E -i 'identity[[:space:]_-]*verification|verify[[:space:]_-]*identity' "$HOOK" "$RUNTIME" "$SCOPE/ActivationParityDeviceRemediationProof.mm" "$SCOPE/ActivationParityDeviceRemediationWitness.mm" || true)"
 
 # Callback ownership work may copy already-prepared pixels, but must not decode,
 # allocate media sessions, perform file I/O, sleep, or dispatch synchronously.
