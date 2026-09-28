@@ -3816,6 +3816,9 @@ MediaserverdRuntime::snapshotForTesting() {
                 result.loopIteration =
                     impl_->session_->state().
                         loopIteration();
+                result.photoVariantPreparationCount =
+                    impl_->session_->
+                        photoVariantPreparationCount();
             }
 
             result.logicalPhotoSessionCreationCount =
