@@ -105,8 +105,27 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sh product/activation_parity_device_remediation_001/ci_static_validate.sh \
-            | tee build/activation-remediation-tests/static-validation.txt
+          implementation_head=41d32d3b75bdbf2d22ca36419cc05125b9598a23
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git diff --quiet "$implementation_head"..HEAD -- \
+            src \
+            tests \
+            product \
+            docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          reconciliation_changed="$(git diff --name-only "$implementation_head"..HEAD | sort)"
+          expected_reconciliation_changed="$(printf '%s\n' \
+            '.github/workflows/activation-parity-device-remediation-001-ci.yml' \
+            'docs/CANONICAL_PROJECT_STATE.md')"
+          test "$reconciliation_changed" = "$expected_reconciliation_changed"
+
+          validation_tree="$RUNNER_TEMP/activation-remediation-static-validation"
+          rm -rf "$validation_tree"
+          git worktree add --detach "$validation_tree" "$implementation_head"
+          (
+            cd "$validation_tree"
+            sh product/activation_parity_device_remediation_001/ci_static_validate.sh
+          ) | tee build/activation-remediation-tests/static-validation.txt
+          git worktree remove --force "$validation_tree"
           grep -Fq 'HISTORICAL_DESTINATION_OWNERSHIP_ADAPTED=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'CMSAMPLEBUFFERCREATEREADY_NOT_INTRODUCED=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'NO_APP_SPECIFIC_HOOKS=PASS' build/activation-remediation-tests/static-validation.txt
