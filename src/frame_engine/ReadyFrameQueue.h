@@ -79,6 +79,17 @@ public:
                           const QueueContext& context);
 
     AcquireResult tryAcquire(const QueueContext& context);
+    AcquireResult tryAcquireMatching(
+        const QueueContext& context,
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat);
+
+    bool hasEligibleMatching(
+        const QueueContext& context,
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat) const;
 
     std::size_t purgeGeneration(std::uint64_t currentMediaGeneration);
     std::size_t purgeEpoch(std::uint64_t currentMediaGeneration,
