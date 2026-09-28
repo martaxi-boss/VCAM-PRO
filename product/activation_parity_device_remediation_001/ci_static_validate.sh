@@ -18,6 +18,12 @@ printf '%s\n' "$changed" | while IFS= read -r item; do
         docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md|\
         src/product/MediaserverdRuntime.mm|\
         src/product/ReferenceCameraHook.mm|\
+        src/product/CameraConsumerAdapter.h|\
+        src/product/CameraConsumerAdapter.cpp|\
+        src/media_engine/InternalGalleryMediaSession.h|\
+        src/media_engine/InternalGalleryMediaSession.mm|\
+        src/media_engine/ProducerWakeupDriver.h|\
+        src/media_engine/ProducerWakeupDriver.mm|\
         tests/product/reference_camera_hook_output_ownership_tests.mm|\
         .github/workflows/activation-parity-device-remediation-001-ci.yml)
             ;;
