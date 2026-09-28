@@ -179,7 +179,8 @@ grep -Eiq '(^|[^0-9a-f])0*19798([^0-9a-f]|$)' \
     "$OUT_DIR/range-still_branch_19780.txt"
 grep -Fq 'StillImageKey' "$OUT_DIR/range-still_branch_19780.txt"
 grep -Fq 'CMGetAttachment' "$OUT_DIR/range-still_branch_19780.txt"
-grep -Eiq '(^|[^0-9a-f])0*197e0([^0-9a-f]|$)|(^|[^0-9a-f])0*197f4([^0-9a-f]|$)' \
+grep -Fq '_kCFBooleanTrue' "$OUT_DIR/range-still_branch_19780.txt"
+grep -Eiq '(^|[^0-9a-f])0*197ec([^0-9a-f]|$)' \
     "$OUT_DIR/range-still_branch_19780.txt"
 
 grep -Fq 'CMSampleBufferCreateReady' \
@@ -190,16 +191,20 @@ test -s "$OUT_DIR/range-render_helper_14390.txt"
 grep -Fq 'imageWithCVPixelBuffer:' "$OUT_DIR/range-render_helper_14390.txt"
 grep -Fq 'render:toCVPixelBuffer:' "$OUT_DIR/range-render_helper_14390.txt"
 
-# At least one installation neighborhood must jointly identify target,
-# replacement address, and MSHookFunction.
+# At least one installation neighborhood must jointly identify the target,
+# build x1 as 0x17000 + 0x5d4 == 0x175d4, and call MSHookFunction.
+# This verifies the replacement-pointer relationship without depending on the
+# disassembler rendering the computed address as a single literal.
 installer_ok=0
 for installer in \
     "$OUT_DIR/range-installer_5c7c0.txt" \
     "$OUT_DIR/range-installer_5dfc0.txt"; do
     if test -s "$installer" && \
        grep -Fq 'CMSampleBufferGetImageBuffer' "$installer" && \
-       grep -Fq 'MSHookFunction' "$installer" && \
-       grep -Eiq '(^|[^0-9a-f])0*175d4([^0-9a-f]|$)' "$installer"; then
+       grep -Fq 'adrp	x1,' "$installer" && \
+       grep -Fq '; 0x17000' "$installer" && \
+       grep -Fq 'add	x1, x1, #0x5d4' "$installer" && \
+       grep -Fq 'MSHookFunction' "$installer"; then
         installer_ok=1
         break
     fi
