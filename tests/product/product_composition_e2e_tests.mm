@@ -17,6 +17,12 @@
 #include <thread>
 #include <unistd.h>
 
+namespace vcam::product {
+bool CommitVirtualCameraOutputIntoOriginal(
+    CVPixelBufferRef virtualBuffer,
+    CVPixelBufferRef original) noexcept;
+}
+
 namespace {
 
 using namespace vcam::product;
