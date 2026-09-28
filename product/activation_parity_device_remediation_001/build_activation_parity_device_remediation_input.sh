@@ -93,7 +93,7 @@ TWEAK_DIR="$PKG_ROOT/var/jb/usr/lib/TweakInject"
 mkdir -p "$TWEAK_DIR"
 
 cp "$IOS_DIR/VCAMPro.dylib" "$TWEAK_DIR/VCAMPro.dylib"
-cp "$SCOPE_DIR/VCAMPro.ActivationParityDeviceRemediation.plist" "$TWEAK_DIR/VCAMPro.plist"
+cp "$ROOT_DIR/product/VCAMPro.plist" "$TWEAK_DIR/VCAMPro.plist"
 
 cp "$IOS_DIR/VCAMProFullProductRealHookWitness.dylib" \
   "$TWEAK_DIR/VCAMProFullProductRealHookWitness.dylib"
@@ -117,7 +117,7 @@ chmod 0644 "$TWEAK_DIR/VCAMProFullProductRealHookWitness.plist"
 chmod 0644 "$TWEAK_DIR/VCAMProActivationParityDeviceRemediationWitness.plist"
 chmod 0644 "$PKG_ROOT/DEBIAN/control"
 
-INPUT_DEB="$INPUT_DIR/com.vcampro.camera_0.1.0+roothide14~activationremed1_iphoneos-arm64.deb"
+INPUT_DEB="$INPUT_DIR/com.vcampro.camera_0.1.0+roothide15~activationremed2_iphoneos-arm64.deb"
 dpkg-deb -Zzstd --build --root-owner-group "$PKG_ROOT" "$INPUT_DEB"
 
 printf '%s\n' "$INPUT_DEB"

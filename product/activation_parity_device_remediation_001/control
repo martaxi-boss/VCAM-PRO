@@ -1,6 +1,6 @@
 Package: com.vcampro.camera
 Name: VCAM PRO Activation Parity Device Remediation
-Version: 0.1.0+roothide14~activationremed1
+Version: 0.1.0+roothide15~activationremed2
 Architecture: iphoneos-arm64
 Depends: mobilesubstrate, firmware (>= 15.0)
 Description: VCAM PRO activation-parity remediation diagnostic candidate with evidence-backed central ownership and bounded device diagnostics.

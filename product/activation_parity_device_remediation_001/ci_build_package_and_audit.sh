@@ -9,9 +9,9 @@ PATCHER_SHA=80c16e08da33fecd27c0ff35777f37afd171868b
 
 ROOT="$PWD/build/activation-parity-device-remediation-001"
 SCOPE=product/activation_parity_device_remediation_001
-INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide14~activationremed1_iphoneos-arm64.deb"
+INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide15~activationremed2_iphoneos-arm64.deb"
 FINAL_DIR="$ROOT/final"
-FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-001.deb"
+FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-002.deb"
 EXTRACT="$ROOT/extracted-final"
 EVIDENCE="$ROOT/evidence"
 
@@ -28,7 +28,7 @@ mkdir -p "$EVIDENCE" "$FINAL_DIR"
 
 test -f "$INPUT"
 test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide14~activationremed1"
+test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide15~activationremed2"
 test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
 dpkg-deb -c "$INPUT" | tee "$EVIDENCE/input-inventory.txt"
 
@@ -49,7 +49,7 @@ dpkg-deb -f "$FINAL" | tee "$EVIDENCE/final-control.txt"
 dpkg-deb -c "$FINAL" | tee "$EVIDENCE/final-inventory.txt"
 
 test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide14~activationremed1"
+test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide15~activationremed2"
 test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
 test ! -e "$EXTRACT/var/jb"
 
@@ -82,18 +82,54 @@ tweak = root / "usr/lib/TweakInject"
 
 with (tweak / "VCAMPro.plist").open("rb") as f:
     product = plistlib.load(f)
+with Path("product/VCAMPro.plist").open("rb") as f:
+    canonical = plistlib.load(f)
 with (tweak / "VCAMProFullProductRealHookWitness.plist").open("rb") as f:
     install = plistlib.load(f)
 with (tweak / "VCAMProActivationParityDeviceRemediationWitness.plist").open("rb") as f:
     remediation = plistlib.load(f)
 
-if product != {"Filter": {"Executables": ["SpringBoard", "mediaserverd"]}}:
-    raise SystemExit(product)
+expected_product = {
+    "Filter": {
+        "Bundles": [
+            "com.apple.mediaserverd",
+            "com.apple.springboard",
+            "com.apple.UIKit",
+        ],
+        "Executables": ["mediaserverd"],
+    }
+}
+if canonical != expected_product:
+    raise SystemExit(canonical)
+if product != canonical:
+    raise SystemExit("Packaged VCAMPro.plist differs from canonical product filter")
+if "SpringBoard" in product["Filter"]["Executables"]:
+    raise SystemExit("Unexpected SpringBoard executable override")
 expected_witness = {"Filter": {"Executables": ["SpringBoard"]}}
 if install != expected_witness:
     raise SystemExit(install)
 if remediation != expected_witness:
     raise SystemExit(remediation)
+
+scope = Path("product/activation_parity_device_remediation_001")
+if (scope / "VCAMPro.ActivationParityDeviceRemediation.plist").exists():
+    raise SystemExit("Diagnostic product filter override still exists")
+build_text = (scope / "build_activation_parity_device_remediation_input.sh").read_text()
+if "VCAMPro.ActivationParityDeviceRemediation.plist" in build_text:
+    raise SystemExit("Diagnostic product filter override still referenced")
+
+(root / "filter-parity.txt").write_text(
+    "\n".join([
+        "PACKAGED_VCAMPRO_PLIST_PRESENT=PASS",
+        "PACKAGED_VCAMPRO_PLIST_CANONICAL_MATCH=PASS",
+        "PACKAGED_FILTER_BUNDLES_MATCH=PASS",
+        "PACKAGED_FILTER_EXECUTABLES_MATCH=PASS",
+        "IOS15_USB_FILTER_PARITY=PASS",
+        "NO_DIAGNOSTIC_PRODUCT_FILTER_OVERRIDE=PASS",
+        "PACKAGED_PRODUCT_FILTER_HAS_SPRINGBOARD_EXECUTABLE_OVERRIDE=NO",
+        "",
+    ])
+)
 
 expected_postinst = "#!/bin/sh\nset -e\n\nexit 0\n"
 if (root / "DEBIAN/postinst").read_text() != expected_postinst:
@@ -282,10 +318,22 @@ test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/hea
     echo "VALID_CODE_SIGNATURE=PASS"
     echo "PACKAGE_ID_CORRECT=PASS"
     echo "PACKAGE_VERSION_CORRECT=PASS"
+    echo "CANONICAL_FILTER_SOURCE=product/VCAMPro.plist"
+    echo "PACKAGED_FILTER_SOURCE=product/VCAMPro.plist"
+    echo "PACKAGED_VCAMPRO_PLIST_PRESENT=PASS"
+    echo "PACKAGED_VCAMPRO_PLIST_CANONICAL_MATCH=PASS"
+    echo "PACKAGED_FILTER_BUNDLES_MATCH=PASS"
+    echo "PACKAGED_FILTER_EXECUTABLES_MATCH=PASS"
+    echo "IOS15_USB_FILTER_PARITY=PASS"
+    echo "NO_DIAGNOSTIC_PRODUCT_FILTER_OVERRIDE=PASS"
+    echo "PACKAGED_PRODUCT_FILTER_HAS_SPRINGBOARD_EXECUTABLE_OVERRIDE=NO"
+    echo "PHOTO_ROOT_CAUSE=UNRESOLVED_PENDING_DEVICE_DIAGNOSTIC"
     echo "PHOTO_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS"
     echo "STILL_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS"
+    echo "VCAM_ON_NO_MEDIA_USES_BLACK=PASS"
     echo "STILL_GEOMETRY_RACE_STATUS=UNRESOLVED"
     echo "FLASH_STILL_CAPTURE_DOES_NOT_EXPOSE_ORIGINAL=UNRESOLVED"
+    echo "STILL_CAPTURE_REMEDIATION=INCOMPLETE_EVIDENCE"
     echo "MAIN_UNCHANGED=PASS"
     echo "READ_ONLY_REPOS_UNCHANGED=PASS"
     echo "DEVICE_ACTION=NO"

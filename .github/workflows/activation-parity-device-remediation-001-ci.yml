@@ -6,6 +6,7 @@ on:
       - builder/canonical-hook-continuation-001
     paths:
       - "product/activation_parity_device_remediation_001/**"
+      - "product/VCAMPro.plist"
       - "docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md"
       - "docs/CANONICAL_PROJECT_STATE.md"
       - "src/product/MediaserverdRuntime.mm"
@@ -53,6 +54,43 @@ jobs:
         run: |
           set -euo pipefail
           sh product/activation_parity_device_remediation_001/reference_forensics.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          import plistlib
+          import re
+
+          with Path("product/VCAMPro.plist").open("rb") as f:
+              canonical = plistlib.load(f)
+
+          reference_text = Path(
+              "reference/IOS-15-USB/recovered/VCamRecovered.plist"
+          ).read_text()
+
+          def parse_array(key):
+              match = re.search(rf"{key}\\s*=\\s*\\((.*?)\\);", reference_text, re.S)
+              if not match:
+                  raise SystemExit(f"Missing {key} in IOS-15-USB filter")
+              return re.findall(r'"([^"]+)"', match.group(1))
+
+          reference = {
+              "Filter": {
+                  "Bundles": parse_array("Bundles"),
+                  "Executables": parse_array("Executables"),
+              }
+          }
+          if canonical["Filter"]["Bundles"] != reference["Filter"]["Bundles"]:
+              raise SystemExit("IOS-15-USB Bundles mismatch")
+          if canonical["Filter"]["Executables"] != reference["Filter"]["Executables"]:
+              raise SystemExit("IOS-15-USB Executables mismatch")
+          if canonical != reference:
+              raise SystemExit("Canonical VCAMPro filter differs from IOS-15-USB")
+          PY
+          cat >> build/activation-parity-device-remediation-001/reference-forensics/markers.txt <<'EOF'
+          IOS15_USB_FILTER_BUNDLES_MATCH=PASS
+          IOS15_USB_FILTER_EXECUTABLES_MATCH=PASS
+          VCAMPRO_CANONICAL_FILTER_PARITY=PASS
+          CANONICAL_FILTER_MATCHES_IOS15_USB=YES
+          EOF
           for marker in \
             IOS15_REFERENCE_INSPECTED=YES \
             IOS15_STILL_BINARY_DISASSEMBLED=PASS \
@@ -66,6 +104,10 @@ jobs:
             IOS15_CI_RENDER_HELPER_AUDITED=PASS \
             IOS15_CMSAMPLEBUFFERCREATEREADY_XREF_AUDITED=PASS \
             IOS15_CMSAMPLEBUFFERCREATEREADY_STILL_ROLE=UNRESOLVED \
+            IOS15_USB_FILTER_BUNDLES_MATCH=PASS \
+            IOS15_USB_FILTER_EXECUTABLES_MATCH=PASS \
+            VCAMPRO_CANONICAL_FILTER_PARITY=PASS \
+            CANONICAL_FILTER_MATCHES_IOS15_USB=YES \
             RANGE_FILES_NONEMPTY=PASS; do
             grep -Fq "$marker" build/activation-parity-device-remediation-001/reference-forensics/markers.txt
           done
@@ -105,27 +147,42 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          implementation_head=41d32d3b75bdbf2d22ca36419cc05125b9598a23
+          task_start=e1d5ec3e806be57f1081c938b4c912ed263c70a9
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          git diff --quiet "$implementation_head"..HEAD -- \
-            src \
-            tests \
-            product \
-            docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
-          reconciliation_changed="$(git diff --name-only "$implementation_head"..HEAD | sort)"
-          expected_reconciliation_changed="$(printf '%s\n' \
-            '.github/workflows/activation-parity-device-remediation-001-ci.yml' \
-            'docs/CANONICAL_PROJECT_STATE.md')"
-          test "$reconciliation_changed" = "$expected_reconciliation_changed"
+          test "$(git merge-base "$task_start" HEAD)" = "$task_start"
 
-          validation_tree="$RUNNER_TEMP/activation-remediation-static-validation"
-          rm -rf "$validation_tree"
-          git worktree add --detach "$validation_tree" "$implementation_head"
-          (
-            cd "$validation_tree"
-            sh product/activation_parity_device_remediation_001/ci_static_validate.sh
-          ) | tee build/activation-remediation-tests/static-validation.txt
-          git worktree remove --force "$validation_tree"
+          git diff --quiet "$task_start"..HEAD -- \
+            src/product/ReferenceCameraHook.mm \
+            src/product/MediaserverdRuntime.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/CameraConsumerAdapter.h \
+            src/product/VirtualBlackFrame.h \
+            src/product/VirtualBlackFrame.mm \
+            src/media_engine \
+            src/frame_engine \
+            product/VCAMPro.plist
+
+          changed="$(git diff --name-only "$task_start"..HEAD)"
+          printf '%s\n' "$changed" | while IFS= read -r item; do
+            test -n "$item" || continue
+            case "$item" in
+              .github/workflows/activation-parity-device-remediation-001-ci.yml|\
+              docs/CANONICAL_PROJECT_STATE.md|\
+              product/activation_parity_device_remediation_001/VCAMPro.ActivationParityDeviceRemediation.plist|\
+              product/activation_parity_device_remediation_001/build_activation_parity_device_remediation_input.sh|\
+              product/activation_parity_device_remediation_001/ci_build_package_and_audit.sh|\
+              product/activation_parity_device_remediation_001/ci_static_validate.sh|\
+              product/activation_parity_device_remediation_001/control)
+                ;;
+              *)
+                echo "Unexpected topology-reconciliation mutation: $item"
+                exit 1
+                ;;
+            esac
+          done
+
+          sh product/activation_parity_device_remediation_001/ci_static_validate.sh \
+            | tee build/activation-remediation-tests/static-validation.txt
           grep -Fq 'HISTORICAL_DESTINATION_OWNERSHIP_ADAPTED=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'CMSAMPLEBUFFERCREATEREADY_NOT_INTRODUCED=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'NO_APP_SPECIFIC_HOOKS=PASS' build/activation-remediation-tests/static-validation.txt
@@ -133,6 +190,9 @@ jobs:
           grep -Fq 'PHOTO_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'STILL_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'DIAGNOSTIC_QUEUE_CONSUMPTION=NO' build/activation-remediation-tests/static-validation.txt
+          grep -Fq 'VCAMPRO_CANONICAL_FILTER_SHAPE=PASS' build/activation-remediation-tests/static-validation.txt
+          grep -Fq 'NO_DIAGNOSTIC_PRODUCT_FILTER_OVERRIDE=PASS' build/activation-remediation-tests/static-validation.txt
+          grep -Fq 'PHOTO_ROOT_CAUSE=UNRESOLVED_PENDING_DEVICE_DIAGNOSTIC' build/activation-remediation-tests/static-validation.txt
           grep -Fq 'DEVICE_ACTION=NO' build/activation-remediation-tests/static-validation.txt
 
       - name: Activation remediation state transport tests
@@ -312,14 +372,26 @@ jobs:
           set -euo pipefail
           REPORT=build/activation-parity-device-remediation-001/evidence/validation-report.txt
           grep -Fq 'PACKAGE_ROLE=DIAGNOSTIC_REMEDIATION_CANDIDATE' "$REPORT"
+          grep -Fq 'CANONICAL_FILTER_SOURCE=product/VCAMPro.plist' "$REPORT"
+          grep -Fq 'PACKAGED_FILTER_SOURCE=product/VCAMPro.plist' "$REPORT"
+          grep -Fq 'PACKAGED_VCAMPRO_PLIST_PRESENT=PASS' "$REPORT"
+          grep -Fq 'PACKAGED_VCAMPRO_PLIST_CANONICAL_MATCH=PASS' "$REPORT"
+          grep -Fq 'PACKAGED_FILTER_BUNDLES_MATCH=PASS' "$REPORT"
+          grep -Fq 'PACKAGED_FILTER_EXECUTABLES_MATCH=PASS' "$REPORT"
+          grep -Fq 'IOS15_USB_FILTER_PARITY=PASS' "$REPORT"
+          grep -Fq 'NO_DIAGNOSTIC_PRODUCT_FILTER_OVERRIDE=PASS' "$REPORT"
+          grep -Fq 'PACKAGED_PRODUCT_FILTER_HAS_SPRINGBOARD_EXECUTABLE_OVERRIDE=NO' "$REPORT"
+          grep -Fq 'PHOTO_ROOT_CAUSE=UNRESOLVED_PENDING_DEVICE_DIAGNOSTIC' "$REPORT"
           grep -Fq 'ARM64=PASS' "$REPORT"
           grep -Fq 'MINIMUM_IOS_15=PASS' "$REPORT"
           grep -Fq 'ROOTHIDE_PACKAGE=PASS' "$REPORT"
           grep -Fq 'VALID_CODE_SIGNATURE=PASS' "$REPORT"
           grep -Fq 'PHOTO_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' "$REPORT"
           grep -Fq 'STILL_RUNTIME_DIAGNOSTIC_CAPABILITIES=PASS' "$REPORT"
+          grep -Fq 'VCAM_ON_NO_MEDIA_USES_BLACK=PASS' "$REPORT"
           grep -Fq 'STILL_GEOMETRY_RACE_STATUS=UNRESOLVED' "$REPORT"
           grep -Fq 'FLASH_STILL_CAPTURE_DOES_NOT_EXPOSE_ORIGINAL=UNRESOLVED' "$REPORT"
+          grep -Fq 'STILL_CAPTURE_REMEDIATION=INCOMPLETE_EVIDENCE' "$REPORT"
           grep -Fq 'MAIN_UNCHANGED=PASS' "$REPORT"
           grep -Fq 'READ_ONLY_REPOS_UNCHANGED=PASS' "$REPORT"
           grep -Fq 'DEVICE_ACTION=NO' "$REPORT"
@@ -329,10 +401,10 @@ jobs:
       - name: Upload diagnostic remediation package and evidence
         uses: actions/upload-artifact@v4
         with:
-          name: vcampro-activation-parity-device-remediation-001
+          name: vcampro-activation-parity-device-remediation-002
           path: |
-            build/activation-parity-device-remediation-001/final/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-001.deb
-            build/activation-parity-device-remediation-001/final/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-001.deb.sha256
+            build/activation-parity-device-remediation-001/final/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-002.deb
+            build/activation-parity-device-remediation-001/final/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-002.deb.sha256
             build/activation-parity-device-remediation-001/evidence/**
             build/activation-remediation-tests/*.txt
             build/regressions/*.txt

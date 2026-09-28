@@ -25,6 +25,7 @@ printf '%s\n' "$changed" | while IFS= read -r item; do
         src/media_engine/ProducerWakeupDriver.h|\
         src/media_engine/ProducerWakeupDriver.mm|\
         tests/product/reference_camera_hook_output_ownership_tests.mm|\
+        docs/CANONICAL_PROJECT_STATE.md|\
         .github/workflows/activation-parity-device-remediation-001-ci.yml)
             ;;
         *)
@@ -52,7 +53,7 @@ for required in \
     "$SCOPE/ActivationParityDeviceRemediationProof.mm" \
     "$SCOPE/ActivationParityDeviceRemediationProofState.h" \
     "$SCOPE/ActivationParityDeviceRemediationWitness.mm" \
-    "$SCOPE/VCAMPro.ActivationParityDeviceRemediation.plist" \
+    "product/VCAMPro.plist" \
     "$SCOPE/VCAMProActivationParityDeviceRemediationWitness.plist"; do
     test -s "$required"
 done
@@ -175,7 +176,7 @@ for token in (
     "LocalVideoReader.mm",
     "CameraConsumerAdapter.cpp",
     "ActivationParityDeviceRemediationProof.mm",
-    "0.1.0+roothide14~activationremed1",
+    "0.1.0+roothide15~activationremed2",
 ):
     if token not in build:
         raise SystemExit(f"Remediation build composition missing: {token}")
@@ -186,18 +187,40 @@ from pathlib import Path
 import plistlib
 
 scope = Path("product/activation_parity_device_remediation_001")
-with (scope / "VCAMPro.ActivationParityDeviceRemediation.plist").open("rb") as f:
+canonical_path = Path("product/VCAMPro.plist")
+with canonical_path.open("rb") as f:
     product = plistlib.load(f)
 with (scope / "VCAMProActivationParityDeviceRemediationWitness.plist").open("rb") as f:
     witness = plistlib.load(f)
 
-if product != {"Filter": {"Executables": ["SpringBoard", "mediaserverd"]}}:
+expected_product = {
+    "Filter": {
+        "Bundles": [
+            "com.apple.mediaserverd",
+            "com.apple.springboard",
+            "com.apple.UIKit",
+        ],
+        "Executables": ["mediaserverd"],
+    }
+}
+if product != expected_product:
     raise SystemExit(product)
 if witness != {"Filter": {"Executables": ["SpringBoard"]}}:
     raise SystemExit(witness)
+
+duplicate = scope / "VCAMPro.ActivationParityDeviceRemediation.plist"
+if duplicate.exists():
+    raise SystemExit("Diagnostic product filter override still exists")
+
+build = (scope / "build_activation_parity_device_remediation_input.sh").read_text()
+canonical_copy = 'cp "$ROOT_DIR/product/VCAMPro.plist" "$TWEAK_DIR/VCAMPro.plist"'
+if canonical_copy not in build:
+    raise SystemExit("Canonical product filter is not the package source")
+if "VCAMPro.ActivationParityDeviceRemediation.plist" in build:
+    raise SystemExit("Diagnostic product filter override still referenced")
 PY
 
-grep -Fq 'Version: 0.1.0+roothide14~activationremed1' "$CONTROL"
+grep -Fq 'Version: 0.1.0+roothide15~activationremed2' "$CONTROL"
 grep -Fq 'Architecture: iphoneos-arm64' "$CONTROL"
 
 test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN"
@@ -222,6 +245,9 @@ printf '%s\n' \
     "NO_UI_CONTROL_SUPPRESSION=PASS" \
     "NO_CALLBACK_FILE_IO=PASS" \
     "NO_CALLBACK_DECODE=PASS" \
+    "VCAMPRO_CANONICAL_FILTER_SHAPE=PASS" \
+    "NO_DIAGNOSTIC_PRODUCT_FILTER_OVERRIDE=PASS" \
+    "PHOTO_ROOT_CAUSE=UNRESOLVED_PENDING_DEVICE_DIAGNOSTIC" \
     "STILL_GEOMETRY_RACE_STATUS=UNRESOLVED" \
     "MAIN_UNCHANGED=PASS" \
     "READ_ONLY_REPOS_UNCHANGED=PASS" \
