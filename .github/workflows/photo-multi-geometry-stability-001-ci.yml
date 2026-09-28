@@ -406,7 +406,10 @@ jobs:
 
           build/photo-multi-geometry-terminal/hook-ownership             | tee build/photo-multi-geometry-terminal/hook-ownership.txt
           grep -Fq 'failures: 0' build/photo-multi-geometry-terminal/hook-ownership.txt
-          grep -Fq 'STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'STILL_SAME_GEOMETRY_VIRTUAL_OWNERSHIP=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'STILL_NO_MEDIA_SAME_GEOMETRY_USES_BLACK=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'STILL_PHOTO_READY_SAME_GEOMETRY_USES_PHOTO=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'SUPPORTED_GEOMETRY_TRANSITION_DOES_NOT_EXPOSE_ORIGINAL=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
           grep -Fq 'FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
           echo "STILL_OWNERSHIP_REGRESSION=PASS" | tee build/photo-multi-geometry-terminal/still-marker.txt
 
