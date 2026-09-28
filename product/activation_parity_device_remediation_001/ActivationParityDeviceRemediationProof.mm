@@ -42,6 +42,8 @@ std::atomic<std::uint32_t> gStillOriginal{0};
 std::atomic<std::uint32_t> gCommitSuccess{0};
 std::atomic<std::uint32_t> gCommitFailure{0};
 std::atomic<std::uint64_t> gStillGeometry{0};
+std::atomic<std::uint64_t> gPreviewGeometry{0};
+std::atomic<std::uint64_t> gStillDetail{0};
 
 int gPrimaryToken = -1;
 int gSelectionToken = -1;
@@ -61,6 +63,10 @@ int gLastDecisionToken = -1;
 int gLastPreparedGeometryToken = -1;
 int gStillCountsToken = -1;
 int gStillGeometryToken = -1;
+int gProducerDetailToken = -1;
+int gProducerCountsToken = -1;
+int gPreviewGeometryToken = -1;
+int gStillDetailToken = -1;
 
 template <typename T>
 void SaturatingIncrement(
@@ -166,6 +172,8 @@ void ResetCounters() noexcept {
     gCommitSuccess.store(0, std::memory_order_release);
     gCommitFailure.store(0, std::memory_order_release);
     gStillGeometry.store(0, std::memory_order_release);
+    gPreviewGeometry.store(0, std::memory_order_release);
+    gStillDetail.store(0, std::memory_order_release);
 }
 
 void ClearTransport() noexcept {
@@ -188,6 +196,10 @@ void ClearTransport() noexcept {
         &gLastPreparedGeometryToken,
         &gStillCountsToken,
         &gStillGeometryToken,
+        &gProducerDetailToken,
+        &gProducerCountsToken,
+        &gPreviewGeometryToken,
+        &gStillDetailToken,
     };
 
     for (int* token : tokens) {
@@ -231,6 +243,10 @@ void ResetActivationParityDeviceRemediationProof() noexcept {
         &gLastPreparedGeometryToken,
         &gStillCountsToken,
         &gStillGeometryToken,
+        &gProducerDetailToken,
+        &gProducerCountsToken,
+        &gPreviewGeometryToken,
+        &gStillDetailToken,
     };
     for (int* token : tokens) {
         CancelToken(token);
@@ -258,6 +274,10 @@ void ResetActivationParityDeviceRemediationProof() noexcept {
         {VCAM_ACTIVATION_PARITY_REMEDIATION_LAST_PREPARED_GEOMETRY_STATE, &gLastPreparedGeometryToken},
         {VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_COUNTS_STATE, &gStillCountsToken},
         {VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_GEOMETRY_STATE, &gStillGeometryToken},
+        {VCAM_ACTIVATION_PARITY_REMEDIATION_PRODUCER_DETAIL_STATE, &gProducerDetailToken},
+        {VCAM_ACTIVATION_PARITY_REMEDIATION_PRODUCER_COUNTS_STATE, &gProducerCountsToken},
+        {VCAM_ACTIVATION_PARITY_REMEDIATION_PREVIEW_GEOMETRY_STATE, &gPreviewGeometryToken},
+        {VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_DETAIL_STATE, &gStillDetailToken},
     };
 
     for (const auto& registration : registrations) {
@@ -399,9 +419,27 @@ void ObserveActivationParityHook(
                 observation.originalGeometry,
                 std::memory_order_release);
         }
+
+        const std::uint64_t previewGeometry =
+            gPreviewGeometry.load(
+                std::memory_order_acquire);
+        gStillDetail.store(
+            vcam_activation_remediation_encode_still_detail(
+                true,
+                previewGeometry != 0 &&
+                    observation.originalGeometry != 0 &&
+                    previewGeometry != observation.originalGeometry,
+                observation.blackFallbackCompatible,
+                observation.preparedFallbackExisted),
+            std::memory_order_release);
     } else {
         SaturatingIncrement(
             gStillAbsent);
+        if (observation.originalGeometry != 0) {
+            gPreviewGeometry.store(
+                observation.originalGeometry,
+                std::memory_order_release);
+        }
     }
 }
 
@@ -633,6 +671,16 @@ void PublishActivationParityPhotoSnapshot(
             gStillOriginal.load(std::memory_order_acquire),
             gCommitSuccess.load(std::memory_order_acquire),
             gCommitFailure.load(std::memory_order_acquire));
+    const uint64_t producerDetail =
+        vcam_activation_remediation_encode_producer_detail(
+            snapshot.producerDriverState,
+            snapshot.producerPumpStatus,
+            snapshot.producerPumpStatusValid,
+            snapshot.geometryChangeCount);
+    const uint64_t producerCounts =
+        vcam_activation_remediation_encode_producer_counts(
+            snapshot.publishedFrameCount,
+            snapshot.photoDecodeCount);
 
     const struct {
         int token;
@@ -655,6 +703,10 @@ void PublishActivationParityPhotoSnapshot(
         {gLastPreparedGeometryToken, snapshot.lastPreparedGeometry},
         {gStillCountsToken, stillCounts},
         {gStillGeometryToken, gStillGeometry.load(std::memory_order_acquire)},
+        {gProducerDetailToken, producerDetail},
+        {gProducerCountsToken, producerCounts},
+        {gPreviewGeometryToken, gPreviewGeometry.load(std::memory_order_acquire)},
+        {gStillDetailToken, gStillDetail.load(std::memory_order_acquire)},
         {gPrimaryToken, primary},
     };
 

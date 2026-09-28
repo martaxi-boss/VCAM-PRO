@@ -22,6 +22,10 @@
 #define VCAM_ACTIVATION_PARITY_REMEDIATION_LAST_PREPARED_GEOMETRY_STATE     "com.vcampro.gate.activation-parity-remediation.001.last-prepared-geometry"
 #define VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_COUNTS_STATE     "com.vcampro.gate.activation-parity-remediation.001.still-counts"
 #define VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_GEOMETRY_STATE     "com.vcampro.gate.activation-parity-remediation.001.still-geometry"
+#define VCAM_ACTIVATION_PARITY_REMEDIATION_PRODUCER_DETAIL_STATE     "com.vcampro.gate.activation-parity-remediation.001.producer-detail"
+#define VCAM_ACTIVATION_PARITY_REMEDIATION_PRODUCER_COUNTS_STATE     "com.vcampro.gate.activation-parity-remediation.001.producer-counts"
+#define VCAM_ACTIVATION_PARITY_REMEDIATION_PREVIEW_GEOMETRY_STATE     "com.vcampro.gate.activation-parity-remediation.001.preview-geometry"
+#define VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_DETAIL_STATE     "com.vcampro.gate.activation-parity-remediation.001.still-detail"
 
 #define VCAM_ACTIVATION_PARITY_REMEDIATION_FRESHNESS_SECONDS 180U
 #define VCAM_ACTIVATION_PARITY_REMEDIATION_FUTURE_SKEW_SECONDS 5U
@@ -222,6 +226,74 @@ vcam_activation_remediation_encode_still_counts(
         ((uint64_t)(original & UINT32_C(0xff)) << 40) |
         ((uint64_t)(commitSuccess & UINT32_C(0xff)) << 48) |
         ((uint64_t)(commitFailure & UINT32_C(0xff)) << 56);
+}
+
+static inline uint64_t
+vcam_activation_remediation_encode_producer_detail(
+    uint8_t driverState,
+    uint8_t pumpStatus,
+    int pumpStatusValid,
+    uint32_t geometryChangeCount)
+{
+    return
+        (uint64_t)(driverState & UINT8_C(0x07)) |
+        ((uint64_t)(pumpStatus & UINT8_C(0x1f)) << 3) |
+        ((uint64_t)(pumpStatusValid ? 1U : 0U) << 8) |
+        ((uint64_t)geometryChangeCount << 16);
+}
+
+static inline uint8_t
+vcam_activation_remediation_driver_state(uint64_t state)
+{ return (uint8_t)(state & UINT64_C(0x07)); }
+
+static inline uint8_t
+vcam_activation_remediation_pump_status(uint64_t state)
+{ return (uint8_t)((state >> 3) & UINT64_C(0x1f)); }
+
+static inline int
+vcam_activation_remediation_pump_status_valid(uint64_t state)
+{ return (state & (UINT64_C(1) << 8)) != 0; }
+
+static inline uint32_t
+vcam_activation_remediation_geometry_change_count(uint64_t state)
+{ return (uint32_t)(state >> 16); }
+
+static inline uint64_t
+vcam_activation_remediation_encode_producer_counts(
+    uint64_t publishedFrameCount,
+    uint64_t photoDecodeCount)
+{
+    return
+        (publishedFrameCount & UINT64_C(0xffffffff)) |
+        ((photoDecodeCount & UINT64_C(0xffffffff)) << 32);
+}
+
+static inline uint32_t
+vcam_activation_remediation_published_count(uint64_t state)
+{ return (uint32_t)(state & UINT64_C(0xffffffff)); }
+
+static inline uint32_t
+vcam_activation_remediation_photo_decode_count(uint64_t state)
+{ return (uint32_t)(state >> 32); }
+
+#define VCAM_ACTIVATION_STILL_SEEN UINT64_C(0x01)
+#define VCAM_ACTIVATION_STILL_GEOMETRY_DIFFERS UINT64_C(0x02)
+#define VCAM_ACTIVATION_STILL_BLACK_COMPATIBLE UINT64_C(0x04)
+#define VCAM_ACTIVATION_STILL_PREPARED_FALLBACK UINT64_C(0x08)
+
+static inline uint64_t
+vcam_activation_remediation_encode_still_detail(
+    int seen,
+    int geometryDiffers,
+    int blackCompatible,
+    int preparedFallback)
+{
+    uint64_t value = 0;
+    if (seen) value |= VCAM_ACTIVATION_STILL_SEEN;
+    if (geometryDiffers) value |= VCAM_ACTIVATION_STILL_GEOMETRY_DIFFERS;
+    if (blackCompatible) value |= VCAM_ACTIVATION_STILL_BLACK_COMPATIBLE;
+    if (preparedFallback) value |= VCAM_ACTIVATION_STILL_PREPARED_FALLBACK;
+    return value;
 }
 
 static inline int

@@ -113,6 +113,36 @@ int main() {
         vcam_activation_remediation_start_result(producer),
         "start result decode");
 
+    const std::uint64_t producerDetail =
+        vcam_activation_remediation_encode_producer_detail(1, 7, true, 9);
+    Check(vcam_activation_remediation_driver_state(producerDetail) == 1,
+          "producer driver state decode");
+    Check(vcam_activation_remediation_pump_status(producerDetail) == 7,
+          "producer pump status decode");
+    Check(vcam_activation_remediation_pump_status_valid(producerDetail),
+          "producer pump valid decode");
+    Check(vcam_activation_remediation_geometry_change_count(producerDetail) == 9,
+          "geometry change count decode");
+
+    const std::uint64_t producerCounts =
+        vcam_activation_remediation_encode_producer_counts(123, 4);
+    Check(vcam_activation_remediation_published_count(producerCounts) == 123,
+          "published count decode");
+    Check(vcam_activation_remediation_photo_decode_count(producerCounts) == 4,
+          "photo decode count decode");
+
+    const std::uint64_t stillDetail =
+        vcam_activation_remediation_encode_still_detail(
+            true, true, false, true);
+    Check((stillDetail & VCAM_ACTIVATION_STILL_SEEN) != 0,
+          "still seen encode");
+    Check((stillDetail & VCAM_ACTIVATION_STILL_GEOMETRY_DIFFERS) != 0,
+          "still geometry difference encode");
+    Check((stillDetail & VCAM_ACTIVATION_STILL_BLACK_COMPATIBLE) == 0,
+          "still black compatibility encode");
+    Check((stillDetail & VCAM_ACTIVATION_STILL_PREPARED_FALLBACK) != 0,
+          "still prepared fallback encode");
+
     const std::uint64_t stale =
         vcam_activation_remediation_encode_primary(
             timestamp,
@@ -167,7 +197,9 @@ int main() {
             << "ACTIVATION_REMEDIATION_FRESHNESS=PASS\n"
             << "ACTIVATION_REMEDIATION_GENERATION_BINDING=PASS\n"
             << "ACTIVATION_REMEDIATION_SESSION_FIELDS=PASS\n"
-            << "ACTIVATION_REMEDIATION_PRODUCER_FIELDS=PASS\n";
+            << "ACTIVATION_REMEDIATION_PRODUCER_FIELDS=PASS\n"
+            << "ACTIVATION_REMEDIATION_PRODUCER_DIAGNOSTICS=PASS\n"
+            << "ACTIVATION_REMEDIATION_STILL_DIAGNOSTICS=PASS\n";
     }
 
     return failures == 0 ? 0 : 1;

@@ -13,7 +13,7 @@
 
 namespace {
 
-int gTokens[17] = {};
+int gTokens[21] = {};
 bool gRegistered = false;
 bool gPresented = false;
 UIView* gBanner = nil;
@@ -36,6 +36,10 @@ enum TokenIndex : int {
     LastPreparedGeometry,
     StillCounts,
     StillGeometry,
+    ProducerDetail,
+    ProducerCounts,
+    PreviewGeometry,
+    StillDetail,
 };
 
 bool IsSpringBoard() noexcept {
@@ -279,13 +283,13 @@ void PresentText(NSString* text) {
 
 void ValidateAndPresent(int primaryToken) {
     uint64_t primary = 0;
-    uint64_t states[17] = {};
+    uint64_t states[21] = {};
 
     if (!ReadToken(primaryToken, &primary)) {
         return;
     }
 
-    for (int i = 0; i < 17; ++i) {
+    for (int i = 0; i < 21; ++i) {
         if (!ReadToken(
                 gTokens[i],
                 &states[i])) {
@@ -310,6 +314,9 @@ void ValidateAndPresent(int primaryToken) {
     const uint64_t failCounts = states[FailCounts];
     const uint64_t lastDecision = states[LastDecision];
     const uint64_t stillCounts = states[StillCounts];
+    const uint64_t producerDetail = states[ProducerDetail];
+    const uint64_t producerCounts = states[ProducerCounts];
+    const uint64_t stillDetail = states[StillDetail];
 
     const uint32_t callbacks =
         (uint32_t)(decisionCounts & UINT64_C(0xffff));
@@ -369,6 +376,7 @@ void ValidateAndPresent(int primaryToken) {
              "session-exists=%@ selected-valid=%@ selected-photo=%@ path-match=%@\n"
              "playback-intent=%@ playback-state=%@ producer-healthy=%@\n"
              "reader-state=%@ reader-error=%u frame-sequence=%llu ready-queue=%u\n"
+             "producer-driver=%u pump-valid=%@ pump-result=%u published=%u photo-decodes=%u geometry-changes=%u\n"
              "queue-gen=%llu queue-epoch=%llu adapter-gen=%llu adapter-epoch=%llu\n"
              "callbacks=%u prepared=%u black=%u original=%u\n"
              "fail: reconfig=%u producer=%u empty=%u lease=%u geometry=%u\n"
@@ -376,7 +384,9 @@ void ValidateAndPresent(int primaryToken) {
              "last-prepared-geometry=%@\n"
              "hook-total=%u still-key-present=%u absent=%u\n"
              "still-source: prepared=%u black=%u original=%u\n"
-             "inplace-commit: success=%u failure=%u still-geometry=%@",
+             "preview-geometry=%@ still-geometry=%@ differs=%@\n"
+             "still-black-compatible=%@ prepared-fallback-existed=%@\n"
+             "inplace-commit: success=%u failure=%@",
             StageText(
                 vcam_activation_remediation_primary_stage(primary)),
             vcam_activation_remediation_primary_pid(primary),
@@ -411,6 +421,12 @@ void ValidateAndPresent(int primaryToken) {
             static_cast<unsigned long long>(
                 vcam_activation_remediation_frame_sequence_count(producer)),
             vcam_activation_remediation_ready_count(session),
+            vcam_activation_remediation_driver_state(producerDetail),
+            YesNo(vcam_activation_remediation_pump_status_valid(producerDetail)),
+            vcam_activation_remediation_pump_status(producerDetail),
+            vcam_activation_remediation_published_count(producerCounts),
+            vcam_activation_remediation_photo_decode_count(producerCounts),
+            vcam_activation_remediation_geometry_change_count(producerDetail),
             static_cast<unsigned long long>(states[QueueGeneration]),
             static_cast<unsigned long long>(states[QueueEpoch]),
             static_cast<unsigned long long>(states[AdapterGeneration]),
@@ -433,9 +449,13 @@ void ValidateAndPresent(int primaryToken) {
             stillPrepared,
             stillBlack,
             stillOriginal,
+            GeometryText(states[PreviewGeometry]),
+            GeometryText(states[StillGeometry]),
+            YesNo((stillDetail & VCAM_ACTIVATION_STILL_GEOMETRY_DIFFERS) != 0),
+            YesNo((stillDetail & VCAM_ACTIVATION_STILL_BLACK_COMPATIBLE) != 0),
+            YesNo((stillDetail & VCAM_ACTIVATION_STILL_PREPARED_FALLBACK) != 0),
             commitSuccess,
-            commitFailure,
-            GeometryText(states[StillGeometry])];
+            commitFailure];
 
     PresentText(text);
 }
@@ -450,7 +470,7 @@ bool RegisterToken(
 }
 
 void RegisterWitness() {
-    const char* names[17] = {
+    const char* names[21] = {
         VCAM_ACTIVATION_PARITY_REMEDIATION_SELECTION_STATE,
         VCAM_ACTIVATION_PARITY_REMEDIATION_PATH_HASH_STATE,
         VCAM_ACTIVATION_PARITY_REMEDIATION_CONTROL_STATE,
@@ -468,9 +488,13 @@ void RegisterWitness() {
         VCAM_ACTIVATION_PARITY_REMEDIATION_LAST_PREPARED_GEOMETRY_STATE,
         VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_COUNTS_STATE,
         VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_GEOMETRY_STATE,
+        VCAM_ACTIVATION_PARITY_REMEDIATION_PRODUCER_DETAIL_STATE,
+        VCAM_ACTIVATION_PARITY_REMEDIATION_PRODUCER_COUNTS_STATE,
+        VCAM_ACTIVATION_PARITY_REMEDIATION_PREVIEW_GEOMETRY_STATE,
+        VCAM_ACTIVATION_PARITY_REMEDIATION_STILL_DETAIL_STATE,
     };
 
-    for (int i = 0; i < 17; ++i) {
+    for (int i = 0; i < 21; ++i) {
         if (!RegisterToken(
                 names[i],
                 &gTokens[i])) {
