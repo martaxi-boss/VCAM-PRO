@@ -14,6 +14,7 @@ namespace vcam::product {
 struct MediaserverdRuntimeTestSnapshot {
     bool enabled = false;
     bool photoSelected = false;
+    bool videoSelected = false;
     bool hasMedia = false;
     std::uint64_t selectionGeneration = 0;
     std::uint64_t controlRefreshCount = 0;
@@ -24,6 +25,7 @@ struct MediaserverdRuntimeTestSnapshot {
     std::uint64_t queueEpoch = 0;
     std::uint64_t publishedFrameCount = 0;
     std::uint64_t photoDecodeCount = 0;
+    std::uint64_t loopIteration = 0;
 };
 #endif
 
