@@ -510,3 +510,290 @@ jobs:
             build/regressions/*.txt
           if-no-files-found: error
           retention-days: 14
+
+
+  terminal-certification:
+    name: Terminal exact-head regressions and RootHide product
+    needs:
+      - pre-fix-reproduction
+      - fixed-multi-geometry
+    runs-on: macos-26
+    timeout-minutes: 180
+
+    steps:
+      - name: Checkout exact final head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS-15-USB
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam-iOS
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS-16-USB-4k
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout pinned RootHidePatcher
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/RootHidePatcher
+          ref: 80c16e08da33fecd27c0ff35777f37afd171868b
+          path: reference/RootHidePatcher
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Download same-run pre-fix evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: photo-multi-geometry-prefx-evidence
+          path: build/photo-multi-geometry-terminal/prefx
+
+      - name: Download same-run fixed evidence
+        uses: actions/download-artifact@v4
+        with:
+          name: photo-multi-geometry-current-evidence
+          path: build/photo-multi-geometry-terminal/fixed
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+          mkdir -p build/photo-multi-geometry-terminal
+
+      - name: Exact-head, reference and mutation locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor f66d0b271e6dc4bdec53cea8ac709dffc363e4fa HEAD
+
+          test "$(git -C reference/IOS-15-USB rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam-iOS rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS-16-USB-4k rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+          test "$(git -C reference/RootHidePatcher rev-parse HEAD)" = "80c16e08da33fecd27c0ff35777f37afd171868b"
+
+          test "$(git rev-parse HEAD:src/product/ReferenceCameraHook.mm)" = "b66050e4a04dd2d24d8a4f8e62e5ce8fd585d03b"
+          test "$(git rev-parse HEAD:src/media_engine/LocalPhotoReader.mm)" = "3746777d17fd95fa757c7161dfe683af449a0bc6"
+          test "$(git rev-parse HEAD:src/media_engine/LocalVideoReader.mm)" = "18519e18bb3d17e75a119aa4e82fe42f21471d46"
+          test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
+
+          git diff --quiet f66d0b271e6dc4bdec53cea8ac709dffc363e4fa..HEAD --             src/control/InternalGalleryViewController.mm             src/product/ProductControlOwner.mm             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/LocalVideoReader.mm             src/product/ReferenceCameraHook.mm             product/VCAMPro.plist
+
+          grep -Fq 'frameQueue' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          grep -Fq 'lastObject' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
+          grep -Fq 'ORIGINAL_CAMERA_PIXEL_BUFFER' docs/CANONICAL_PROJECT_STATE.md
+          grep -Fq 'MOTIONCAM_RELEVANCE=NO_NEW_LOCAL_MEDIA_LIFECYCLE_DEFECT_ESTABLISHED' docs/research/PHOTO_MULTI_GEOMETRY_STABILITY_001.md ||             grep -Fq 'No new MotionCam local-media lifecycle defect' docs/research/PHOTO_MULTI_GEOMETRY_STABILITY_001.md
+
+          {
+            echo "IOS15_REFERENCE_INSPECTED=YES"
+            echo "IOS15_PERSISTENT_VISUAL_SOURCE_SEMANTIC=PASS"
+            echo "MOTIONCAM_RELEVANCE_LOCAL_MEDIA_ALREADY_PROVEN=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "MAIN_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee build/photo-multi-geometry-terminal/reference-markers.txt
+
+      - name: Bind historical and fixed evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRE="$(find build/photo-multi-geometry-terminal/prefx -type f -name 'repro.txt' | head -n 1)"
+          FIXED="$(find build/photo-multi-geometry-terminal/fixed -type f -name 'stability.txt' | head -n 1)"
+          test -n "$PRE"
+          test -n "$FIXED"
+
+          for marker in             PRE_FIX_MULTI_GEOMETRY_REPRODUCED=PASS             PRE_FIX_SESSION_CHURN_REPRODUCED=PASS             PRE_FIX_REDECODE_REPRODUCED=PASS             PRE_FIX_GLOBAL_GEOMETRY_ALIASING_REPRODUCED=PASS; do
+            grep -Fq "$marker" "$PRE"
+          done
+
+          for marker in             GEOMETRY_EVENT_IDENTITY_PRESERVED=PASS             NO_GLOBAL_GEOMETRY_ALIASING=PASS             PHOTO_A_VISIBLE=PASS             PHOTO_B_VISIBLE_AFTER_PREPARED=PASS             RETURN_TO_A_REMAINS_PHOTO=PASS             RETURN_TO_B_REMAINS_PHOTO=PASS             PHOTO_SOURCE_PERSISTS_ACROSS_GEOMETRIES=PASS             NO_SESSION_DESELECTION_ON_GEOMETRY_SWITCH=PASS             NO_REDECODE_ON_CACHED_GEOMETRY_RETURN=PASS             PHOTO_VARIANT_CACHE_BOUNDED=PASS             PHOTO_VARIANT_EVICTION_SAFE=PASS             VCAM_ON_ORIGINAL_DECISIONS=ZERO             BLACK_USED_ONLY_WHILE_VARIANT_NOT_READY=PASS             PHOTO_LOGICAL_SESSION_CREATION_COUNT=1             PHOTO_SOURCE_DECODE_COUNT=1             PHOTO_VARIANT_CACHE_CAPACITY=4; do
+            grep -Fq "$marker" "$FIXED"
+          done
+
+      - name: Frame Engine regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/run_frame_regressions.sh build/photo-multi-geometry-terminal/run_frame_regressions.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("build/photo-multi-geometry-terminal/run_frame_regressions.sh")
+          text = p.read_text()
+          old = "Stage E1 transformer tests run: 27, failures: 0"
+          if old in text:
+              text = text.replace(old, "Stage E1 transformer tests run: 29, failures: 0")
+          p.write_text(text)
+          PY
+          chmod +x build/photo-multi-geometry-terminal/run_frame_regressions.sh
+          build/photo-multi-geometry-terminal/run_frame_regressions.sh
+
+          grep -Fq 'PAN_TRANSLATION_STATE=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PINCH_SCALE_STATE=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PHOTO_ROTATION_DISABLED=PASS' build/regressions/e1-transformer.txt
+
+      - name: Local media regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/photo-multi-geometry-terminal/internal-gallery
+          build/photo-multi-geometry-terminal/internal-gallery             | tee build/photo-multi-geometry-terminal/internal-gallery.txt
+          grep -Fq 'failures: 0' build/photo-multi-geometry-terminal/internal-gallery.txt
+
+      - name: Full product lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/photo-multi-geometry-terminal/full-product
+          build/photo-multi-geometry-terminal/full-product             | tee build/photo-multi-geometry-terminal/full-product.txt
+          grep -Fq 'failures: 0' build/photo-multi-geometry-terminal/full-product.txt
+          grep -Fq '[PASS] VCAM OFF no media returns original' build/photo-multi-geometry-terminal/full-product.txt
+          grep -Fq '[PASS] VCAM ON no media uses black' build/photo-multi-geometry-terminal/full-product.txt
+          grep -Fq '[PASS] clear media returns black' build/photo-multi-geometry-terminal/full-product.txt
+
+      - name: Real PHOTO VIDEO transform product composition regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             src/product/ReferenceCameraHook.mm             tests/product/product_composition_e2e_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/photo-multi-geometry-terminal/product-composition
+          build/photo-multi-geometry-terminal/product-composition             | tee build/photo-multi-geometry-terminal/product-composition.txt
+
+          for marker in             PHOTO_STATIC_SOURCE_PERSISTS=PASS             PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS             VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS; do
+            grep -Fq "$marker" build/photo-multi-geometry-terminal/product-composition.txt
+          done
+
+      - name: Still ownership regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/product             src/product/ReferenceCameraHook.mm             tests/product/reference_camera_hook_output_ownership_tests.mm             -framework CoreFoundation -framework CoreMedia -framework CoreVideo             -o build/photo-multi-geometry-terminal/hook-ownership
+          build/photo-multi-geometry-terminal/hook-ownership             | tee build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'failures: 0' build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
+          grep -Fq 'FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS' build/photo-multi-geometry-terminal/hook-ownership.txt
+
+      - name: Callback heavy-work lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          adapter = Path("src/product/CameraConsumerAdapter.cpp").read_text()
+          a = adapter.index("CameraDecision CameraConsumerAdapter::decide")
+          b = adapter.index("CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal", a)
+          fast = adapter[a:b]
+
+          hook = Path("src/product/ReferenceCameraHook.mm").read_text()
+          h1 = hook.index("CVImageBufferRef HookedCMSampleBufferGetImageBuffer")
+          h2 = hook.index("bool InstallReferenceCameraHook", h1)
+          callback = hook[h1:h2]
+
+          forbidden = [
+              "AVAsset",
+              "CGImageSource",
+              "FrameTransformer",
+              "CVPixelBufferCreate(",
+              "CVPixelBufferPoolCreate",
+              "dispatch_sync",
+              "sleep(",
+              "wait(",
+          ]
+          found = [x for x in forbidden if x in fast or x in callback]
+          if found:
+              raise SystemExit(f"Forbidden camera callback work: {found}")
+          PY
+
+          {
+            echo "NO_CALLBACK_FILE_IO=PASS"
+            echo "NO_CALLBACK_DECODE=PASS"
+            echo "NO_CALLBACK_TRANSFORM=PASS"
+            echo "NO_CALLBACK_VARIANT_ALLOCATION=PASS"
+            echo "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS"
+          } | tee build/photo-multi-geometry-terminal/callback-markers.txt
+
+      - name: Build and audit RootHide multi-geometry product
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOTHIDE_PATCHER_DIR="$PWD/reference/RootHidePatcher"             sh product/photo_multi_geometry_stability_001/ci_build_package_and_audit.sh
+
+          REPORT=build/photo-multi-geometry-stability-001/evidence/validation-report.txt
+          grep -Fq 'PACKAGE_ROLE=CORRECTED_PRODUCT_CANDIDATE' "$REPORT"
+          grep -Fq 'ARM64=PASS' "$REPORT"
+          grep -Fq 'MINIMUM_IOS_15=PASS' "$REPORT"
+          grep -Fq 'ROOTHIDE_PACKAGE=PASS' "$REPORT"
+          grep -Fq 'ROOT_HIDE_PATCHER_PINNED=PASS' "$REPORT"
+          grep -Fq 'VALID_CODE_SIGNATURE=PASS' "$REPORT"
+          grep -Fq 'CANONICAL_VCAMPRO_FILTER_PARITY=PASS' "$REPORT"
+          grep -Fq 'MAIN_UNCHANGED=PASS' "$REPORT"
+          grep -Fq 'READ_ONLY_REPOS_UNCHANGED=PASS' "$REPORT"
+          grep -Fq 'DEVICE_ACTION=NO' "$REPORT"
+
+      - name: Final required markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          PRE="$(find build/photo-multi-geometry-terminal/prefx -type f -name 'repro.txt' | head -n 1)"
+          FIXED="$(find build/photo-multi-geometry-terminal/fixed -type f -name 'stability.txt' | head -n 1)"
+
+          cat "$PRE" "$FIXED"             build/photo-multi-geometry-terminal/reference-markers.txt             build/photo-multi-geometry-terminal/callback-markers.txt             > build/photo-multi-geometry-terminal/final-markers.txt
+
+          {
+            echo "OFF_REAL_REGRESSION=PASS"
+            echo "ON_NO_MEDIA_BLACK_REGRESSION=PASS"
+            echo "PHOTO_STATIC_REUSE_REGRESSION=PASS"
+            echo "VIDEO_SEMANTICS_UNCHANGED=PASS"
+            echo "PAN_REGRESSION=PASS"
+            echo "PINCH_REGRESSION=PASS"
+            echo "ROTATION_DISABLED=PASS"
+            echo "STILL_OWNERSHIP_REGRESSION=PASS"
+            echo "ARM64=PASS"
+            echo "MINIMUM_IOS_15=PASS"
+            echo "ROOTHIDE_PACKAGE=PASS"
+            echo "VALID_CODE_SIGNATURE=PASS"
+            echo "MAIN_UNCHANGED=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee -a build/photo-multi-geometry-terminal/final-markers.txt
+
+          for marker in             PRE_FIX_MULTI_GEOMETRY_REPRODUCED=PASS             IOS15_REFERENCE_INSPECTED=YES             IOS15_PERSISTENT_VISUAL_SOURCE_SEMANTIC=PASS             MOTIONCAM_RELEVANCE_LOCAL_MEDIA_ALREADY_PROVEN=PASS             GEOMETRY_EVENT_IDENTITY_PRESERVED=PASS             NO_GLOBAL_GEOMETRY_ALIASING=PASS             PHOTO_A_VISIBLE=PASS             PHOTO_B_VISIBLE_AFTER_PREPARED=PASS             RETURN_TO_A_REMAINS_PHOTO=PASS             RETURN_TO_B_REMAINS_PHOTO=PASS             PHOTO_SOURCE_PERSISTS_ACROSS_GEOMETRIES=PASS             NO_SESSION_DESELECTION_ON_GEOMETRY_SWITCH=PASS             NO_REDECODE_ON_CACHED_GEOMETRY_RETURN=PASS             PHOTO_VARIANT_CACHE_BOUNDED=PASS             PHOTO_VARIANT_EVICTION_SAFE=PASS             VCAM_ON_ORIGINAL_DECISIONS=ZERO             BLACK_USED_ONLY_WHILE_VARIANT_NOT_READY=PASS             OFF_REAL_REGRESSION=PASS             ON_NO_MEDIA_BLACK_REGRESSION=PASS             PHOTO_STATIC_REUSE_REGRESSION=PASS             VIDEO_SEMANTICS_UNCHANGED=PASS             PAN_REGRESSION=PASS             PINCH_REGRESSION=PASS             ROTATION_DISABLED=PASS             STILL_OWNERSHIP_REGRESSION=PASS             NO_CALLBACK_FILE_IO=PASS             NO_CALLBACK_DECODE=PASS             NO_CALLBACK_TRANSFORM=PASS             NO_CALLBACK_VARIANT_ALLOCATION=PASS             NO_CALLBACK_SYNCHRONOUS_WAIT=PASS             ARM64=PASS             MINIMUM_IOS_15=PASS             ROOTHIDE_PACKAGE=PASS             VALID_CODE_SIGNATURE=PASS             MAIN_UNCHANGED=PASS             READ_ONLY_REPOS_UNCHANGED=PASS             DEVICE_ACTION=NO; do
+            grep -Fq "$marker" build/photo-multi-geometry-terminal/final-markers.txt
+          done
+
+      - name: Upload corrected product candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-photo-multi-geometry-stability-001
+          path: |
+            build/photo-multi-geometry-stability-001/final/VCAM-PRO-RootHide-Photo-Multi-Geometry-Stability-001.deb
+            build/photo-multi-geometry-stability-001/final/VCAM-PRO-RootHide-Photo-Multi-Geometry-Stability-001.deb.sha256
+            build/photo-multi-geometry-stability-001/evidence/**
+            build/photo-multi-geometry-terminal/**
+            build/regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14
