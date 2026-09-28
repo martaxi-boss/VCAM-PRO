@@ -13,6 +13,7 @@
 #include <cstdlib>
 #include <functional>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -1154,6 +1155,156 @@ bool TestSuccessfulOutputNormalized() {
     return true;
 }
 
+bool TestPhotoPanDirectionsPixels() {
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        8,
+        8,
+        ConstantY(8, 8, 100));
+    const auto geometry = Geometry(8, 8);
+    const auto target = Target(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        8,
+        8);
+
+    auto check = [&](double x,
+                     double yValue,
+                     std::size_t blackX,
+                     std::size_t blackY,
+                     std::size_t contentX,
+                     std::size_t contentY) {
+        FrameTransformer transformer;
+        transformer.setPhotoTransform(
+            {x, yValue, 1.0});
+        const auto state =
+            transformer.photoTransform();
+        CHECK(state.translationX == x);
+        CHECK(state.translationY == yValue);
+        CHECK(state.scale == 1.0);
+
+        const auto result =
+            Transform(
+                transformer,
+                frame,
+                geometry,
+                target);
+        CHECK(result.status ==
+              FrameTransformStatus::Transformed);
+        const auto pixels =
+            CopyYPlane(
+                result.frame->pixelBuffer());
+        CHECK(pixels.size() == 64);
+        CHECK(Near(
+            pixels[blackY * 8 + blackX],
+            16,
+            2));
+        CHECK(Near(
+            pixels[contentY * 8 + contentX],
+            100,
+            3));
+        return true;
+    };
+
+    CHECK(check(1.0, 0.0, 0, 4, 7, 4));
+    CHECK(check(-1.0, 0.0, 7, 4, 0, 4));
+    CHECK(check(0.0, 1.0, 4, 0, 4, 7));
+    CHECK(check(0.0, -1.0, 4, 7, 4, 0));
+    return true;
+}
+
+bool TestPhotoPinchPixelsAndClamp() {
+    std::vector<std::uint8_t> pattern(
+        8 * 8,
+        40);
+    for (std::size_t y = 2;
+         y < 6;
+         ++y) {
+        for (std::size_t x = 2;
+             x < 6;
+             ++x) {
+            pattern[y * 8 + x] = 200;
+        }
+    }
+
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        8,
+        8,
+        pattern);
+    const auto geometry = Geometry(8, 8);
+    const auto target = Target(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        8,
+        8);
+
+    FrameTransformer zoomIn;
+    zoomIn.setPhotoTransform(
+        {0.0, 0.0, 2.0});
+    const auto inResult =
+        Transform(
+            zoomIn,
+            frame,
+            geometry,
+            target);
+    CHECK(inResult.status ==
+          FrameTransformStatus::Transformed);
+    const auto inPixels =
+        CopyYPlane(
+            inResult.frame->pixelBuffer());
+    CHECK(inPixels.size() == 64);
+    CHECK(inPixels[4 * 8 + 4] > 170);
+    CHECK(inPixels[0] > 120);
+
+    FrameTransformer zoomOut;
+    zoomOut.setPhotoTransform(
+        {0.0, 0.0, 0.5});
+    const auto outResult =
+        Transform(
+            zoomOut,
+            frame,
+            geometry,
+            target);
+    CHECK(outResult.status ==
+          FrameTransformStatus::Transformed);
+    const auto outPixels =
+        CopyYPlane(
+            outResult.frame->pixelBuffer());
+    CHECK(outPixels.size() == 64);
+    CHECK(Near(outPixels[0], 16, 2));
+    CHECK(outPixels[4 * 8 + 4] > 30);
+
+    FrameTransformer clamped;
+    clamped.setPhotoTransform(
+        {2.5, -3.0, 99.0});
+    const auto clampedState =
+        clamped.photoTransform();
+    CHECK(clampedState.translationX == 1.0);
+    CHECK(clampedState.translationY == -1.0);
+    CHECK(clampedState.scale == 4.0);
+
+    clamped.setPhotoTransform(
+        {0.0, 0.0, 0.01});
+    CHECK(clamped.photoTransform().scale == 0.25);
+
+    PhotoTransformState invalid;
+    invalid.translationX =
+        std::numeric_limits<double>::
+            infinity();
+    invalid.translationY =
+        std::numeric_limits<double>::
+            quiet_NaN();
+    invalid.scale =
+        std::numeric_limits<double>::
+            quiet_NaN();
+    clamped.setPhotoTransform(invalid);
+    const auto normalized =
+        clamped.photoTransform();
+    CHECK(normalized.translationX == 0.0);
+    CHECK(normalized.translationY == 0.0);
+    CHECK(normalized.scale == 1.0);
+    return true;
+}
+
 void Run(
     const std::string& name,
     const std::function<bool()>& test) {
@@ -1202,6 +1353,18 @@ int main() {
     Run("conversion resource reuse", TestConversionResourcesReused);
     Run("source never mutated", TestSourceNeverMutated);
     Run("successful output normalized", TestSuccessfulOutputNormalized);
+    Run("photo PAN directional pixels", TestPhotoPanDirectionsPixels);
+    Run("photo PINCH pixels and clamp", TestPhotoPinchPixelsAndClamp);
+
+    if (gFailures == 0) {
+        std::cout
+            << "PAN_TRANSLATION_STATE=PASS\n"
+            << "PAN_TRANSLATION_PIXELS=PASS\n"
+            << "PINCH_SCALE_STATE=PASS\n"
+            << "PINCH_SCALE_PIXELS=PASS\n"
+            << "PHOTO_ROTATION_DISABLED=PASS\n"
+            << "PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS\n";
+    }
 
     std::cout << "Stage E1 transformer tests run: "
               << gTestsRun

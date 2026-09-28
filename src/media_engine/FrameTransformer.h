@@ -27,8 +27,18 @@ struct FrameTransformResult {
     std::optional<frame_engine::PreparedFrame> frame;
 };
 
+struct PhotoTransformState {
+    double translationX = 0.0;
+    double translationY = 0.0;
+    double scale = 1.0;
+};
+
+PhotoTransformState NormalizePhotoTransformState(
+    PhotoTransformState transform) noexcept;
+
 struct FrameTransformerStats {
     std::uint64_t outputPoolBuilds = 0;
+    std::uint64_t photoTransformPoolBuilds = 0;
     std::uint64_t rotationPoolBuilds = 0;
     std::uint64_t conversionInputPoolBuilds = 0;
     std::uint64_t scaleScratchBuilds = 0;
@@ -45,6 +55,11 @@ public:
     FrameTransformer& operator=(const FrameTransformer&) = delete;
     FrameTransformer(FrameTransformer&&) = delete;
     FrameTransformer& operator=(FrameTransformer&&) = delete;
+
+    void setPhotoTransform(
+        const PhotoTransformState& transform) noexcept;
+    PhotoTransformState photoTransform() const noexcept;
+    bool hasNonDefaultPhotoTransform() const noexcept;
 
     FrameTransformResult transform(
         const frame_engine::PreparedFrame& source,

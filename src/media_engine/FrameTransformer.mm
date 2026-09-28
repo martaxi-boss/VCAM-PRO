@@ -9,6 +9,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 #include <new>
 #include <numeric>
 #include <utility>
@@ -70,6 +71,251 @@ struct CropRect {
     std::size_t width = 0;
     std::size_t height = 0;
 };
+
+struct PhotoTransformRegions {
+    CropRect source{};
+    CropRect destination{};
+};
+
+bool IsDefaultPhotoTransform(
+    const PhotoTransformState& transform) noexcept {
+    return
+        std::fabs(transform.translationX) <=
+            kTransformTolerance &&
+        std::fabs(transform.translationY) <=
+            kTransformTolerance &&
+        std::fabs(transform.scale - 1.0) <=
+            kTransformTolerance;
+}
+
+std::size_t EvenExtent(
+    double requested,
+    std::size_t maximum) noexcept {
+    if (maximum < 2) {
+        return 0;
+    }
+
+    std::size_t value =
+        static_cast<std::size_t>(
+            std::llround(requested));
+    value = std::max<std::size_t>(
+        2,
+        std::min(maximum, value));
+    value -= value % 2;
+    return value == 0 ? 2 : value;
+}
+
+long long EvenOffset(long long value) noexcept {
+    if ((value % 2) != 0) {
+        value += value > 0 ? -1 : 1;
+    }
+    return value;
+}
+
+bool ComputePhotoTransformRegions(
+    std::size_t width,
+    std::size_t height,
+    const PhotoTransformState& requested,
+    PhotoTransformRegions* regions) noexcept {
+    if (regions == nullptr ||
+        width < 2 ||
+        height < 2 ||
+        (width % 2) != 0 ||
+        (height % 2) != 0) {
+        return false;
+    }
+
+    const PhotoTransformState transform =
+        NormalizePhotoTransformState(
+            requested);
+
+    PhotoTransformRegions result;
+    result.source = {0, 0, width, height};
+    result.destination = {0, 0, width, height};
+
+    if (transform.scale >
+        1.0 + kTransformTolerance) {
+        const std::size_t cropWidth =
+            EvenExtent(
+                static_cast<double>(width) /
+                    transform.scale,
+                width);
+        const std::size_t cropHeight =
+            EvenExtent(
+                static_cast<double>(height) /
+                    transform.scale,
+                height);
+        if (cropWidth == 0 ||
+            cropHeight == 0) {
+            return false;
+        }
+
+        const std::size_t maxX =
+            width - cropWidth;
+        const std::size_t maxY =
+            height - cropHeight;
+
+        const long long shiftX =
+            EvenOffset(
+                static_cast<long long>(
+                    std::llround(
+                        transform.translationX *
+                        static_cast<double>(maxX) /
+                        2.0)));
+        const long long shiftY =
+            EvenOffset(
+                static_cast<long long>(
+                    std::llround(
+                        transform.translationY *
+                        static_cast<double>(maxY) /
+                        2.0)));
+
+        long long sourceX =
+            static_cast<long long>(maxX / 2) -
+            shiftX;
+        long long sourceY =
+            static_cast<long long>(maxY / 2) -
+            shiftY;
+
+        sourceX = std::max<long long>(
+            0,
+            std::min<long long>(
+                static_cast<long long>(maxX),
+                sourceX));
+        sourceY = std::max<long long>(
+            0,
+            std::min<long long>(
+                static_cast<long long>(maxY),
+                sourceY));
+
+        result.source = {
+            static_cast<std::size_t>(sourceX) &
+                ~std::size_t{1},
+            static_cast<std::size_t>(sourceY) &
+                ~std::size_t{1},
+            cropWidth,
+            cropHeight,
+        };
+    } else if (
+        transform.scale <
+        1.0 - kTransformTolerance) {
+        const std::size_t destinationWidth =
+            EvenExtent(
+                static_cast<double>(width) *
+                    transform.scale,
+                width);
+        const std::size_t destinationHeight =
+            EvenExtent(
+                static_cast<double>(height) *
+                    transform.scale,
+                height);
+        if (destinationWidth == 0 ||
+            destinationHeight == 0) {
+            return false;
+        }
+
+        const std::size_t maxX =
+            width - destinationWidth;
+        const std::size_t maxY =
+            height - destinationHeight;
+
+        long long destinationX =
+            static_cast<long long>(maxX / 2) +
+            EvenOffset(
+                static_cast<long long>(
+                    std::llround(
+                        transform.translationX *
+                        static_cast<double>(maxX) /
+                        2.0)));
+        long long destinationY =
+            static_cast<long long>(maxY / 2) +
+            EvenOffset(
+                static_cast<long long>(
+                    std::llround(
+                        transform.translationY *
+                        static_cast<double>(maxY) /
+                        2.0)));
+
+        destinationX = std::max<long long>(
+            0,
+            std::min<long long>(
+                static_cast<long long>(maxX),
+                destinationX));
+        destinationY = std::max<long long>(
+            0,
+            std::min<long long>(
+                static_cast<long long>(maxY),
+                destinationY));
+
+        result.destination = {
+            static_cast<std::size_t>(destinationX) &
+                ~std::size_t{1},
+            static_cast<std::size_t>(destinationY) &
+                ~std::size_t{1},
+            destinationWidth,
+            destinationHeight,
+        };
+    } else if (
+        std::fabs(transform.translationX) >
+            kTransformTolerance ||
+        std::fabs(transform.translationY) >
+            kTransformTolerance) {
+        const long long maxPanX =
+            static_cast<long long>(
+                (width / 4) &
+                ~std::size_t{1});
+        const long long maxPanY =
+            static_cast<long long>(
+                (height / 4) &
+                ~std::size_t{1});
+
+        const long long dx =
+            EvenOffset(
+                static_cast<long long>(
+                    std::llround(
+                        transform.translationX *
+                        static_cast<double>(maxPanX))));
+        const long long dy =
+            EvenOffset(
+                static_cast<long long>(
+                    std::llround(
+                        transform.translationY *
+                        static_cast<double>(maxPanY))));
+
+        const std::size_t absX =
+            static_cast<std::size_t>(
+                dx < 0 ? -dx : dx);
+        const std::size_t absY =
+            static_cast<std::size_t>(
+                dy < 0 ? -dy : dy);
+        const std::size_t visibleWidth =
+            width - absX;
+        const std::size_t visibleHeight =
+            height - absY;
+        if (visibleWidth < 2 ||
+            visibleHeight < 2) {
+            return false;
+        }
+
+        result.source = {
+            dx < 0 ? absX : 0,
+            dy < 0 ? absY : 0,
+            visibleWidth &
+                ~std::size_t{1},
+            visibleHeight &
+                ~std::size_t{1},
+        };
+        result.destination = {
+            dx > 0 ? absX : 0,
+            dy > 0 ? absY : 0,
+            result.source.width,
+            result.source.height,
+        };
+    }
+
+    *regions = result;
+    return true;
+}
 
 enum class MatrixKind : std::uint8_t {
     None = 0,
@@ -507,11 +753,43 @@ void ApplyPropagatingMetadata(
 
 }  // namespace
 
+PhotoTransformState NormalizePhotoTransformState(
+    PhotoTransformState transform) noexcept {
+    if (!std::isfinite(transform.translationX)) {
+        transform.translationX = 0.0;
+    }
+    if (!std::isfinite(transform.translationY)) {
+        transform.translationY = 0.0;
+    }
+    if (!std::isfinite(transform.scale) ||
+        transform.scale <= 0.0) {
+        transform.scale = 1.0;
+    }
+
+    transform.translationX =
+        std::clamp(
+            transform.translationX,
+            -1.0,
+            1.0);
+    transform.translationY =
+        std::clamp(
+            transform.translationY,
+            -1.0,
+            1.0);
+    transform.scale =
+        std::clamp(
+            transform.scale,
+            0.25,
+            4.0);
+    return transform;
+}
+
 struct FrameTransformer::Impl {
     ~Impl() {
         releasePool(outputPool);
         releasePool(rotationPool);
         releasePool(conversionInputPool);
+        releasePool(photoTransformPool);
     }
 
     static void releasePool(CVPixelBufferPoolRef& pool) noexcept {
@@ -792,6 +1070,205 @@ struct FrameTransformer::Impl {
                cbCrStatus == kvImageNoError;
     }
 
+    bool applyPhotoTransformNV12(
+        CVPixelBufferRef source,
+        CVPixelBufferRef destination,
+        const PhotoTransformState& transform) {
+        if (source == nullptr ||
+            destination == nullptr ||
+            CVPixelBufferGetPlaneCount(source) != 2 ||
+            CVPixelBufferGetPlaneCount(destination) != 2 ||
+            CVPixelBufferGetWidth(source) !=
+                CVPixelBufferGetWidth(destination) ||
+            CVPixelBufferGetHeight(source) !=
+                CVPixelBufferGetHeight(destination) ||
+            CVPixelBufferGetPixelFormatType(source) !=
+                CVPixelBufferGetPixelFormatType(destination)) {
+            return false;
+        }
+
+        const std::size_t width =
+            CVPixelBufferGetWidth(source);
+        const std::size_t height =
+            CVPixelBufferGetHeight(source);
+
+        PhotoTransformRegions regions;
+        if (!ComputePhotoTransformRegions(
+                width,
+                height,
+                transform,
+                &regions)) {
+            return false;
+        }
+
+        PixelBufferLock sourceLock(
+            source,
+            kCVPixelBufferLock_ReadOnly);
+        PixelBufferLock destinationLock(
+            destination,
+            0);
+        if (!sourceLock.locked() ||
+            !destinationLock.locked()) {
+            return false;
+        }
+
+        const OSType format =
+            CVPixelBufferGetPixelFormatType(
+                destination);
+        const std::uint8_t blackY =
+            format ==
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+                ? 16
+                : 0;
+
+        for (std::size_t plane = 0;
+             plane < 2;
+             ++plane) {
+            auto* base =
+                static_cast<std::uint8_t*>(
+                    CVPixelBufferGetBaseAddressOfPlane(
+                        destination,
+                        plane));
+            const std::size_t stride =
+                CVPixelBufferGetBytesPerRowOfPlane(
+                    destination,
+                    plane);
+            const std::size_t rows =
+                CVPixelBufferGetHeightOfPlane(
+                    destination,
+                    plane);
+            if (base == nullptr ||
+                stride == 0 ||
+                rows == 0) {
+                return false;
+            }
+            std::memset(
+                base,
+                plane == 0 ? blackY : 128,
+                stride * rows);
+        }
+
+        auto* sourceYBase =
+            static_cast<std::uint8_t*>(
+                CVPixelBufferGetBaseAddressOfPlane(
+                    source,
+                    0));
+        auto* sourceCbCrBase =
+            static_cast<std::uint8_t*>(
+                CVPixelBufferGetBaseAddressOfPlane(
+                    source,
+                    1));
+        auto* destinationYBase =
+            static_cast<std::uint8_t*>(
+                CVPixelBufferGetBaseAddressOfPlane(
+                    destination,
+                    0));
+        auto* destinationCbCrBase =
+            static_cast<std::uint8_t*>(
+                CVPixelBufferGetBaseAddressOfPlane(
+                    destination,
+                    1));
+
+        if (sourceYBase == nullptr ||
+            sourceCbCrBase == nullptr ||
+            destinationYBase == nullptr ||
+            destinationCbCrBase == nullptr) {
+            return false;
+        }
+
+        const std::size_t sourceYStride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                source,
+                0);
+        const std::size_t sourceCbCrStride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                source,
+                1);
+        const std::size_t destinationYStride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                destination,
+                0);
+        const std::size_t destinationCbCrStride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                destination,
+                1);
+
+        vImage_Buffer sourceY{
+            sourceYBase +
+                regions.source.y *
+                    sourceYStride +
+                regions.source.x,
+            regions.source.height,
+            regions.source.width,
+            sourceYStride,
+        };
+        vImage_Buffer sourceCbCr{
+            sourceCbCrBase +
+                (regions.source.y / 2) *
+                    sourceCbCrStride +
+                regions.source.x,
+            regions.source.height / 2,
+            regions.source.width / 2,
+            sourceCbCrStride,
+        };
+        vImage_Buffer destinationY{
+            destinationYBase +
+                regions.destination.y *
+                    destinationYStride +
+                regions.destination.x,
+            regions.destination.height,
+            regions.destination.width,
+            destinationYStride,
+        };
+        vImage_Buffer destinationCbCr{
+            destinationCbCrBase +
+                (regions.destination.y / 2) *
+                    destinationCbCrStride +
+                regions.destination.x,
+            regions.destination.height / 2,
+            regions.destination.width / 2,
+            destinationCbCrStride,
+        };
+
+        const ScaleKey requested{
+            regions.source.width,
+            regions.source.height,
+            regions.destination.width,
+            regions.destination.height,
+        };
+
+        if (!ensureScaleScratch(
+                requested,
+                sourceY,
+                destinationY,
+                sourceCbCr,
+                destinationCbCr)) {
+            return false;
+        }
+
+        const vImage_Flags flags =
+            kvImageHighQualityResampling;
+        const vImage_Error yStatus =
+            vImageScale_Planar8(
+                &sourceY,
+                &destinationY,
+                yScaleScratch.empty()
+                    ? nullptr
+                    : yScaleScratch.data(),
+                flags);
+        const vImage_Error cbCrStatus =
+            vImageScale_CbCr8(
+                &sourceCbCr,
+                &destinationCbCr,
+                cbCrScaleScratch.empty()
+                    ? nullptr
+                    : cbCrScaleScratch.data(),
+                flags);
+
+        return yStatus == kvImageNoError &&
+               cbCrStatus == kvImageNoError;
+    }
+
     bool ensureConversionDescriptors(
         OSType sourceFormat,
         OSType targetFormat,
@@ -996,6 +1473,12 @@ struct FrameTransformer::Impl {
     CVPixelBufferPoolRef conversionInputPool = nullptr;
     PoolKey conversionInputPoolKey{};
 
+    CVPixelBufferPoolRef photoTransformPool = nullptr;
+    PoolKey photoTransformPoolKey{};
+
+    mutable std::mutex photoTransformMutex;
+    PhotoTransformState photoTransform{};
+
     ScaleKey scaleKey{};
     std::vector<std::uint8_t> yScaleScratch;
     std::vector<std::uint8_t> cbCrScaleScratch;
@@ -1014,6 +1497,28 @@ FrameTransformer::FrameTransformer()
     : impl_(std::make_unique<Impl>()) {}
 
 FrameTransformer::~FrameTransformer() = default;
+
+void FrameTransformer::setPhotoTransform(
+    const PhotoTransformState& transform) noexcept {
+    std::lock_guard<std::mutex> lock(
+        impl_->photoTransformMutex);
+    impl_->photoTransform =
+        NormalizePhotoTransformState(
+            transform);
+}
+
+PhotoTransformState
+FrameTransformer::photoTransform() const noexcept {
+    std::lock_guard<std::mutex> lock(
+        impl_->photoTransformMutex);
+    return impl_->photoTransform;
+}
+
+bool FrameTransformer::
+hasNonDefaultPhotoTransform() const noexcept {
+    return !IsDefaultPhotoTransform(
+        photoTransform());
+}
 
 FrameTransformResult FrameTransformer::transform(
     const PreparedFrame& source,
@@ -1196,10 +1701,48 @@ FrameTransformResult FrameTransformer::transformImpl(
         }
     }
 
-    ApplyPropagatingMetadata(output.get(), source);
+    CVPixelBufferRef finalOutput =
+        output.get();
+    PixelBufferHolder photoTransformed;
+
+    const PhotoTransformState
+        activePhotoTransform =
+            photoTransform();
+    if (!IsDefaultPhotoTransform(
+            activePhotoTransform)) {
+        const PoolKey photoKey{
+            target.width,
+            target.height,
+            target.pixelFormat,
+        };
+
+        if (!impl_->ensurePool(
+                photoKey,
+                &impl_->photoTransformPool,
+                &impl_->photoTransformPoolKey,
+                &impl_->stats.photoTransformPoolBuilds) ||
+            !AcquirePixelBuffer(
+                impl_->photoTransformPool,
+                &photoTransformed) ||
+            !impl_->applyPhotoTransformNV12(
+                output.get(),
+                photoTransformed.get(),
+                activePhotoTransform)) {
+            result.status =
+                FrameTransformStatus::TransformFailure;
+            return result;
+        }
+
+        finalOutput =
+            photoTransformed.get();
+    }
+
+    ApplyPropagatingMetadata(
+        finalOutput,
+        source);
 
     PreparedFrame transformed(
-        output.get(),
+        finalOutput,
         source.identity(),
         source.timing(),
         OrientationState::Normalized,
