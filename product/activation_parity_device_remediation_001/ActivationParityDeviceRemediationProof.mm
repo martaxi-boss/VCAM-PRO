@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cstdint>
+#include <limits>
 
 namespace vcam::product::proof {
 
