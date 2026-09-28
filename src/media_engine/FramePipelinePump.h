@@ -114,6 +114,8 @@ public:
         frame_engine::MonotonicHostTimeNs nowHostTimeNs);
 
     const NormalizationTarget& target() const noexcept;
+    void setTarget(
+        const NormalizationTarget& target) noexcept;
 
     void setForceTransform(bool enabled) noexcept {
         forceTransform_ = enabled;
