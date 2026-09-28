@@ -3523,7 +3523,7 @@ drainControlQueueForTesting() {
 
 MediaserverdRuntimeTestSnapshot
 MediaserverdRuntime::snapshotForTesting() {
-    MediaserverdRuntimeTestSnapshot result;
+    __block MediaserverdRuntimeTestSnapshot result;
     if (!impl_) {
         return result;
     }
