@@ -3584,6 +3584,9 @@ MediaserverdRuntime::snapshotForTesting() {
         result.photoSelected =
             control.mediaKind ==
                 ProductMediaKind::Photo;
+        result.videoSelected =
+            control.mediaKind ==
+                ProductMediaKind::Video;
         result.hasMedia = control.hasMedia();
         result.selectionGeneration =
             control.selectionGeneration;
@@ -3601,6 +3604,9 @@ MediaserverdRuntime::snapshotForTesting() {
             result.photoSelected =
                 control.mediaKind ==
                     ProductMediaKind::Photo;
+            result.videoSelected =
+                control.mediaKind ==
+                    ProductMediaKind::Video;
             result.hasMedia =
                 control.hasMedia();
             result.selectionGeneration =
@@ -3628,6 +3634,9 @@ MediaserverdRuntime::snapshotForTesting() {
                 result.photoDecodeCount =
                     impl_->session_->
                         photoDecodeCount();
+                result.loopIteration =
+                    impl_->session_->state().
+                        loopIteration();
             }
         });
 
