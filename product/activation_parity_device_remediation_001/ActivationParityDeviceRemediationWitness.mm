@@ -386,7 +386,7 @@ void ValidateAndPresent(int primaryToken) {
              "still-source: prepared=%u black=%u original=%u\n"
              "preview-geometry=%@ still-geometry=%@ differs=%@\n"
              "still-black-compatible=%@ prepared-fallback-existed=%@\n"
-             "inplace-commit: success=%u failure=%@",
+             "inplace-commit: success=%u failure=%u",
             StageText(
                 vcam_activation_remediation_primary_stage(primary)),
             vcam_activation_remediation_primary_pid(primary),
