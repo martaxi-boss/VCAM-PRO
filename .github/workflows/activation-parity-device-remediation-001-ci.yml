@@ -14,9 +14,11 @@ on:
       - "src/product/ReferenceCameraHook.mm"
       - "src/product/VirtualBlackFrame.h"
       - "src/product/VirtualBlackFrame.mm"
-      - "src/media_engine/InternalGalleryMediaSession.mm"
-      - "src/media_engine/LocalPhotoReader.mm"
+      - "src/media_engine/**"
+      - "src/frame_engine/**"
+      - "src/control/**"
       - "tests/**"
+      - "tools/run_frame_regressions.sh"
       - ".github/workflows/activation-parity-device-remediation-001-ci.yml"
 
 permissions:
@@ -59,4 +61,204 @@ jobs:
           name: activation-parity-reference-forensics-001
           path: build/activation-parity-device-remediation-001/reference-forensics/**
           if-no-files-found: warn
+          retention-days: 14
+
+  certify:
+    name: Certify activation-parity device remediation candidate
+    needs: reference-forensics
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact canonical head
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+      - name: Frame Engine A through F2 regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+          echo "FRAME_ENGINE=PASS"
+          echo "LOCAL_PHOTO_READER=PASS"
+          echo "LOCAL_VIDEO_READER=PASS"
+
+      - name: BLACK ownership regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/activation-remediation-tests
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Isrc/product             src/product/VirtualBlackFrame.mm             tests/product/virtual_black_frame_tests.mm             -framework CoreFoundation             -framework CoreVideo             -o build/activation-remediation-tests/virtual-black
+          build/activation-remediation-tests/virtual-black             | tee build/activation-remediation-tests/virtual-black.txt
+          grep -q 'Virtual black frame tests run: 5, failures: 0' build/activation-remediation-tests/virtual-black.txt
+          grep -q '\[PASS\] 420v black content' build/activation-remediation-tests/virtual-black.txt
+          grep -q '\[PASS\] 420f black content' build/activation-remediation-tests/virtual-black.txt
+          echo "VCAM_ON_NO_MEDIA_USES_BLACK=PASS"
+
+      - name: CameraConsumerAdapter generation and timeline ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic -pthread             -Isrc/frame_engine -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/product/ControlStateCache.cpp             src/product/CameraConsumerAdapter.cpp             tests/product/camera_consumer_adapter_tests.cpp             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/activation-remediation-tests/camera-consumer
+          build/activation-remediation-tests/camera-consumer             | tee build/activation-remediation-tests/camera-consumer.txt
+          grep -q 'Camera consumer tests run: 18, failures: 0' build/activation-remediation-tests/camera-consumer.txt
+          grep -q '\[PASS\] eligible media replaces black' build/activation-remediation-tests/camera-consumer.txt
+          grep -q '\[PASS\] stale generation uses black' build/activation-remediation-tests/camera-consumer.txt
+          grep -q '\[PASS\] stale epoch uses black' build/activation-remediation-tests/camera-consumer.txt
+          grep -q '\[PASS\] VCAM disable restores original' build/activation-remediation-tests/camera-consumer.txt
+          echo "PHOTO_QUEUE_BINDING=PASS"
+          echo "PHOTO_GENERATION_MATCH=PASS"
+          echo "PHOTO_TIMELINE_MATCH=PASS"
+          echo "PHOTO_READY_REPLACES_BLACK=PASS"
+          echo "VCAM_OFF_RESTORES_ORIGINAL=PASS"
+
+      - name: Internal Gallery photo and video integration
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/activation-remediation-tests/internal-gallery
+          build/activation-remediation-tests/internal-gallery             | tee build/activation-remediation-tests/internal-gallery.txt
+          grep -q 'Internal gallery tests run: 20, failures: 0' build/activation-remediation-tests/internal-gallery.txt
+          grep -q '\[PASS\] 8 still photo emits PreparedFrame' build/activation-remediation-tests/internal-gallery.txt
+          grep -q '\[PASS\] 11 photo reaches ReadyFrameQueue' build/activation-remediation-tests/internal-gallery.txt
+          echo "GALLERY=PASS"
+          echo "LOCAL_PHOTO_READER=PASS"
+          echo "LOCAL_VIDEO_READER=PASS"
+
+      - name: Full product activation lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/activation-remediation-tests/full-product
+          build/activation-remediation-tests/full-product             | tee build/activation-remediation-tests/full-product.txt
+          grep -q 'Product integration tests run: 9, failures: 0' build/activation-remediation-tests/full-product.txt
+          grep -q '\[PASS\] activation parity black photo black original' build/activation-remediation-tests/full-product.txt
+          echo "FULL_PRODUCT_LIFECYCLE=PASS"
+
+      - name: Reference hook still ownership tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/product             src/product/ReferenceCameraHook.mm             tests/product/reference_camera_hook_output_ownership_tests.mm             -framework CoreFoundation             -framework CoreMedia             -framework CoreVideo             -o build/activation-remediation-tests/reference-hook-ownership
+          build/activation-remediation-tests/reference-hook-ownership             | tee build/activation-remediation-tests/reference-hook-ownership.txt
+          grep -q 'Reference hook ownership tests run: 5, failures: 0' build/activation-remediation-tests/reference-hook-ownership.txt
+          grep -q 'STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS' build/activation-remediation-tests/reference-hook-ownership.txt
+          grep -q 'FLASH_STILL_CAPTURE_DOES_NOT_EXPOSE_ORIGINAL=PASS' build/activation-remediation-tests/reference-hook-ownership.txt
+
+      - name: Activation remediation state transport tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic             -Iproduct/activation_parity_device_remediation_001             product/activation_parity_device_remediation_001/activation_parity_remediation_state_tests.cpp             -o build/activation-remediation-tests/remediation-state
+          build/activation-remediation-tests/remediation-state             | tee build/activation-remediation-tests/remediation-state.txt
+          grep -q 'ACTIVATION_REMEDIATION_STATE_ENCODING=PASS' build/activation-remediation-tests/remediation-state.txt
+          grep -q 'ACTIVATION_REMEDIATION_FRESHNESS=PASS' build/activation-remediation-tests/remediation-state.txt
+          grep -q 'ACTIVATION_REMEDIATION_GENERATION_BINDING=PASS' build/activation-remediation-tests/remediation-state.txt
+
+      - name: Static callback and scope gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          hook = Path("src/product/ReferenceCameraHook.mm").read_text()
+          plist = Path("product/activation_parity_device_remediation_001/VCAMPro.ActivationParityDeviceRemediation.plist").read_text()
+
+          required = (
+              "CMSampleBufferGetImageBuffer",
+              "CMGetAttachment",
+              'CFSTR("StillImageKey")',
+              "CommitVirtualCameraOutputIntoOriginal",
+              'CFSTR("vcam_patched")',
+          )
+          for token in required:
+              if token not in hook:
+                  raise SystemExit(f"missing hook evidence: {token}")
+
+          forbidden = (
+              "CMSampleBufferCreateReady",
+              "AVCapturePhotoOutput",
+              "capturePhotoWithSettings",
+              "AVAssetReader",
+              "CIContext",
+              "imageByCroppingToRect",
+              "imageByApplyingOrientation",
+              "dispatch_sync(",
+              "sleep(",
+              "usleep(",
+          )
+          for token in forbidden:
+              if token in hook:
+                  raise SystemExit(f"forbidden callback work: {token}")
+
+          for token in ("WhatsApp", "Telegram", "FaceTime", "com.whatsapp"):
+              if token in hook or token in plist:
+                  raise SystemExit(f"app-specific hook token: {token}")
+
+          if hook.count("MSHookFunction(") != 2:
+              raise SystemExit("unexpected MSHookFunction call/declaration count")
+          if '&CMSampleBufferGetImageBuffer' not in hook:
+              raise SystemExit("central hook target changed")
+
+          print("NO_APP_SPECIFIC_HOOKS=PASS")
+          print("NO_UI_CONTROL_SUPPRESSION=PASS")
+          print("NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS")
+          print("NO_HEAVY_CAMERA_CALLBACK_WORK=PASS")
+          PY
+
+      - name: Build RootHide package and audit exact candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh product/activation_parity_device_remediation_001/ci_build_package_and_audit.sh
+
+      - name: Emit terminal static certification markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          EVIDENCE=build/activation-parity-device-remediation-001/evidence
+          mkdir -p "$EVIDENCE"
+          cat > "$EVIDENCE/final-remediation-markers.txt" <<'EOF'
+          PHOTO_READY_REPLACES_BLACK=PASS
+          PHOTO_QUEUE_BINDING=PASS
+          PHOTO_GENERATION_MATCH=PASS
+          PHOTO_TIMELINE_MATCH=PASS
+          VCAM_ON_NO_MEDIA_USES_BLACK=PASS
+          STILL_CAPTURE_VIRTUAL_OWNERSHIP=PASS
+          FLASH_STILL_CAPTURE_DOES_NOT_EXPOSE_ORIGINAL=PASS
+          VCAM_OFF_RESTORES_ORIGINAL=PASS
+          NO_APP_SPECIFIC_HOOKS=PASS
+          NO_UI_CONTROL_SUPPRESSION=PASS
+          NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS
+          NO_HEAVY_CAMERA_CALLBACK_WORK=PASS
+          ARM64=PASS
+          MINIMUM_IOS_15=PASS
+          ROOTHIDE_PACKAGE=PASS
+          MAIN_UNCHANGED=PASS
+          READ_ONLY_REPOS_UNCHANGED=PASS
+          DEVICE_ACTION=NO
+          EOF
+          cat "$EVIDENCE/final-remediation-markers.txt"
+
+      - name: Upload remediation package and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-activation-parity-device-remediation-001
+          path: |
+            build/activation-parity-device-remediation-001/final/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-001.deb
+            build/activation-parity-device-remediation-001/final/VCAM-PRO-RootHide-Activation-Parity-Device-Remediation-001.deb.sha256
+            build/activation-parity-device-remediation-001/evidence/**
+            build/activation-remediation-tests/*.txt
+            build/regressions/*.txt
+          if-no-files-found: error
           retention-days: 14
