@@ -67,6 +67,8 @@ public:
     bool pause();
     bool resume();
     bool setVideoLoopEnabled(bool enabled);
+    bool setPhotoTransform(
+        const PhotoTransformState& transform);
     void clearMedia();
 
     const SelectedMediaRecord&
