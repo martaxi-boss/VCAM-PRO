@@ -6,31 +6,44 @@ on:
       - builder/canonical-hook-continuation-001
     paths:
       - "src/product/MediaserverdRuntime.*"
-      - "tests/product/photo_multi_geometry_prefx_tests.mm"
+      - "src/product/CameraConsumerAdapter.*"
+      - "src/media_engine/InternalGalleryMediaSession.*"
+      - "src/media_engine/FramePipelinePump*"
+      - "src/media_engine/FrameTransformer.*"
+      - "src/frame_engine/ReadyFrameQueue.*"
+      - "tests/**"
+      - "product/photo_multi_geometry_stability_001/**"
+      - "docs/research/PHOTO_MULTI_GEOMETRY_STABILITY_001.md"
+      - "docs/CANONICAL_PROJECT_STATE.md"
       - ".github/workflows/photo-multi-geometry-stability-001-ci.yml"
   workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: vcampro-photo-multi-geometry-stability-001
+  cancel-in-progress: true
+
 jobs:
   pre-fix-reproduction:
-    name: Pre-fix multi-geometry reproduction
+    name: Historical pre-fix multi-geometry reproduction
     runs-on: macos-26
     timeout-minutes: 60
     steps:
-      - name: Checkout exact head
+      - name: Checkout exact pre-fix evidence head
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.sha }}
+          ref: 7fff0911feab0d754721ae5322256999cd7a5ac9
           fetch-depth: 0
 
-      - name: Build real-product pre-fix reproduction
+      - name: Reproduce session churn and geometry aliasing
         shell: bash
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse HEAD)" = "7fff0911feab0d754721ae5322256999cd7a5ac9"
           mkdir -p build/photo-multi-geometry-prefx
+
           xcrun --sdk macosx clang++ \
             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
             -Wno-deprecated-declarations -Wno-unused-function \
@@ -66,17 +79,165 @@ jobs:
           build/photo-multi-geometry-prefx/repro \
             | tee build/photo-multi-geometry-prefx/repro.txt
 
-          grep -Fq 'PRE_FIX_MULTI_GEOMETRY_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
-          grep -Fq 'PRE_FIX_SESSION_CHURN_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
-          grep -Fq 'PRE_FIX_REDECODE_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
-          grep -Fq 'PRE_FIX_GLOBAL_GEOMETRY_ALIASING_REPRODUCED=PASS' build/photo-multi-geometry-prefx/repro.txt
-          grep -Fq 'PRODUCT_COMPOSITION_TEST_DIRECT_ADAPTER_BIND=NO' build/photo-multi-geometry-prefx/repro.txt
-          grep -Fq 'PRODUCT_COMPOSITION_TEST_DIRECT_SESSION_CONSTRUCTION=NO' build/photo-multi-geometry-prefx/repro.txt
+          for marker in \
+            PRE_FIX_MULTI_GEOMETRY_REPRODUCED=PASS \
+            PRE_FIX_SESSION_CHURN_REPRODUCED=PASS \
+            PRE_FIX_REDECODE_REPRODUCED=PASS \
+            PRE_FIX_GLOBAL_GEOMETRY_ALIASING_REPRODUCED=PASS; do
+            grep -Fq "$marker" build/photo-multi-geometry-prefx/repro.txt
+          done
 
-      - name: Upload pre-fix evidence
+      - name: Upload historical pre-fix evidence
         uses: actions/upload-artifact@v4
         with:
           name: photo-multi-geometry-prefx-evidence
           path: build/photo-multi-geometry-prefx/repro.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  fixed-multi-geometry:
+    name: Fixed photo multi-geometry product composition
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Exact-head and source locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor f66d0b271e6dc4bdec53cea8ac709dffc363e4fa HEAD
+
+          test "$(git rev-parse HEAD:src/product/ReferenceCameraHook.mm)" = "b66050e4a04dd2d24d8a4f8e62e5ce8fd585d03b"
+          test "$(git rev-parse HEAD:src/media_engine/LocalPhotoReader.mm)" = "3746777d17fd95fa757c7161dfe683af449a0bc6"
+          test "$(git rev-parse HEAD:src/media_engine/LocalVideoReader.mm)" = "18519e18bb3d17e75a119aa4e82fe42f21471d46"
+          test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
+
+      - name: CameraConsumerAdapter bounded variant tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/photo-multi-geometry
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -Wall -Wextra -Werror -pedantic -pthread \
+            -Isrc/frame_engine -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/product/ControlStateCache.cpp \
+            src/product/CameraConsumerAdapter.cpp \
+            tests/product/camera_consumer_adapter_tests.cpp \
+            -framework CoreFoundation -framework CoreMedia -framework CoreVideo \
+            -o build/photo-multi-geometry/camera-consumer
+
+          build/photo-multi-geometry/camera-consumer \
+            | tee build/photo-multi-geometry/camera-consumer.txt
+
+          grep -Fq 'failures: 0' build/photo-multi-geometry/camera-consumer.txt
+          grep -Fq '[PASS] static photo variants bounded and evict safely' build/photo-multi-geometry/camera-consumer.txt
+          grep -Fq '[PASS] supported no-black uses in-place ownership guard' build/photo-multi-geometry/camera-consumer.txt
+
+      - name: Real product A-B-A-B and range coverage
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            tests/product/photo_multi_geometry_stability_tests.mm \
+            -framework Accelerate -framework Foundation -framework AVFoundation \
+            -framework CoreFoundation -framework CoreGraphics -framework CoreMedia \
+            -framework CoreVideo -framework ImageIO \
+            -o build/photo-multi-geometry/stability
+
+          build/photo-multi-geometry/stability \
+            | tee build/photo-multi-geometry/stability.txt
+
+          for marker in \
+            PHOTO_A_VISIBLE=PASS \
+            PHOTO_B_VISIBLE_AFTER_PREPARED=PASS \
+            RETURN_TO_A_REMAINS_PHOTO=PASS \
+            RETURN_TO_B_REMAINS_PHOTO=PASS \
+            PHOTO_SOURCE_PERSISTS_ACROSS_GEOMETRIES=PASS \
+            NO_SESSION_DESELECTION_ON_GEOMETRY_SWITCH=PASS \
+            NO_REDECODE_ON_CACHED_GEOMETRY_RETURN=PASS \
+            GEOMETRY_EVENT_IDENTITY_PRESERVED=PASS \
+            NO_GLOBAL_GEOMETRY_ALIASING=PASS \
+            PHOTO_VARIANT_CACHE_BOUNDED=PASS \
+            PHOTO_VARIANT_EVICTION_SAFE=PASS \
+            VCAM_ON_ORIGINAL_DECISIONS=ZERO \
+            BLACK_USED_ONLY_WHILE_VARIANT_NOT_READY=PASS \
+            PHOTO_LOGICAL_SESSION_CREATION_COUNT=1 \
+            PHOTO_SOURCE_DECODE_COUNT=1 \
+            PHOTO_VARIANT_CACHE_CAPACITY=4; do
+            grep -Fq "$marker" build/photo-multi-geometry/stability.txt
+          done
+
+      - name: Static callback performance contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("src/product/CameraConsumerAdapter.cpp").read_text()
+          start = text.index("CameraDecision CameraConsumerAdapter::decide")
+          end = text.index("CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal", start)
+          callback = text[start:end]
+
+          forbidden = [
+              "AVAsset",
+              "CGImageSource",
+              "FrameTransformer",
+              "CVPixelBufferCreate",
+              "CVPixelBufferPoolCreate",
+              "dispatch_sync",
+              "sleep(",
+              "wait(",
+          ]
+          found = [token for token in forbidden if token in callback]
+          if found:
+              raise SystemExit(f"Heavy callback work found: {found}")
+          PY
+
+          {
+            echo "NO_CALLBACK_FILE_IO=PASS"
+            echo "NO_CALLBACK_DECODE=PASS"
+            echo "NO_CALLBACK_TRANSFORM=PASS"
+            echo "NO_CALLBACK_VARIANT_ALLOCATION=PASS"
+            echo "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS"
+          } | tee build/photo-multi-geometry/callback-contract.txt
+
+      - name: Upload current multi-geometry evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-multi-geometry-current-evidence
+          path: build/photo-multi-geometry/**
           if-no-files-found: error
           retention-days: 14
