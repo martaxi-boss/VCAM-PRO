@@ -382,9 +382,8 @@ struct MediaserverdRuntime::Impl {
         dispatch_async(
             controlQueue_,
             ^{
-                this->prepareBlackFallbackForObservedGeometry();
-                this->applyCachedState(
-                    true);
+                this->handleGeometryRequest(
+                    key);
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
                 this->evaluateLocalPhotoDiagnostic(
                     false);
@@ -986,11 +985,8 @@ struct MediaserverdRuntime::Impl {
 #endif
     }
 
-    void prepareBlackFallbackForObservedGeometry() {
-        const std::uint64_t geometry =
-            observedGeometry_.load(
-                std::memory_order_acquire);
-
+    void prepareBlackFallbackForGeometry(
+        std::uint64_t geometry) {
         std::size_t width = 0;
         std::size_t height = 0;
         OSType pixelFormat = 0;
@@ -1022,8 +1018,129 @@ struct MediaserverdRuntime::Impl {
         }
     }
 
+    void prepareBlackFallbackForObservedGeometry() {
+        prepareBlackFallbackForGeometry(
+            observedGeometry_.load(
+                std::memory_order_acquire));
+    }
+
+    bool preparePhotoVariantForGeometry(
+        const ProductControlSnapshot& snapshot,
+        std::uint64_t geometry) {
+        if (session_ == nullptr ||
+            snapshot.mediaKind !=
+                ProductMediaKind::Photo ||
+            !snapshot.hasMedia() ||
+            !SameMediaIdentity(
+                snapshot,
+                applied_)) {
+            return false;
+        }
+
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+        DecodeGeometryKey(
+            geometry,
+            &width,
+            &height,
+            &pixelFormat);
+
+        if (width == 0 ||
+            height == 0 ||
+            !SupportedCameraFormat(
+                pixelFormat)) {
+            return false;
+        }
+
+        const std::uint64_t generation =
+            session_->state().
+                mediaGeneration();
+        const std::uint64_t epoch =
+            session_->state().
+                timelineEpoch();
+        const std::uint64_t revision =
+            snapshot.photoTransform.revision;
+
+        if (adapter_.hasReusablePhotoVariant(
+                width,
+                height,
+                pixelFormat,
+                generation,
+                epoch,
+                revision)) {
+            return true;
+        }
+
+        media_engine::NormalizationTarget target;
+        target.width = width;
+        target.height = height;
+        target.pixelFormat =
+            pixelFormat;
+        target.orientation =
+            media_engine::
+                OrientationRequirement::
+                    UprightIdentityTransform;
+        target.colorMetadata =
+            media_engine::
+                ColorMetadataPolicy::
+                    PreserveSource;
+
+        if (session_->hasQueuedPhotoVariant(
+                target)) {
+            return true;
+        }
+
+        return session_->preparePhotoVariant(
+            target);
+    }
+
+    void handleGeometryRequest(
+        std::uint64_t geometry) {
+#if defined(VCAM_TESTING)
+        if (testAppliedGeometryHistoryCount_ <
+            testAppliedGeometryHistory_.size()) {
+            testAppliedGeometryHistory_[
+                testAppliedGeometryHistoryCount_++] =
+                    geometry;
+        }
+#endif
+
+        prepareBlackFallbackForGeometry(
+            geometry);
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+        adapter_.setEnabled(
+            snapshot.enabled);
+
+        if (snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.hasMedia() &&
+            session_ != nullptr &&
+            SameMediaIdentity(
+                snapshot,
+                applied_)) {
+            applyMutableControls(
+                snapshot);
+            applied_ = snapshot;
+
+            if (session_ != nullptr &&
+                preparePhotoVariantForGeometry(
+                    snapshot,
+                    geometry)) {
+                return;
+            }
+        }
+
+        applyCachedState(
+            true,
+            geometry);
+    }
+
     void applyCachedState(
-        bool forceRebuild) {
+        bool forceRebuild,
+        std::uint64_t requestedGeometry = 0) {
         const ProductControlSnapshot snapshot =
             cache_.snapshot();
 
@@ -1038,8 +1155,10 @@ struct MediaserverdRuntime::Impl {
         }
 
         const std::uint64_t geometry =
-            observedGeometry_.load(
-                std::memory_order_acquire);
+            requestedGeometry != 0
+                ? requestedGeometry
+                : observedGeometry_.load(
+                      std::memory_order_acquire);
         if (geometry == 0) {
             adapter_.unbindQueue();
             applied_ = snapshot;
@@ -1073,17 +1192,6 @@ struct MediaserverdRuntime::Impl {
             adapter_.unbindQueue();
             return;
         }
-
-#if defined(VCAM_TESTING)
-        if (snapshot.mediaKind ==
-                ProductMediaKind::Photo &&
-            testAppliedGeometryHistoryCount_ <
-                testAppliedGeometryHistory_.size()) {
-            testAppliedGeometryHistory_[
-                testAppliedGeometryHistoryCount_++] =
-                    geometry;
-        }
-#endif
 
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
         firstPhotoSubDiagnosticTargetGeneration_ =
@@ -1395,7 +1503,11 @@ struct MediaserverdRuntime::Impl {
             queueGeneration,
             queueEpoch,
             producerHealthy,
-            reusableStaticMedia);
+            reusableStaticMedia,
+            reusableStaticMedia
+                ? bindingSnapshot.
+                      photoTransform.revision
+                : 0);
 
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
         const ProductControlSnapshot
