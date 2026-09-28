@@ -93,6 +93,7 @@ public:
     std::optional<FramePipelinePumpStatus> lastPumpStatus() const;
     std::uint64_t publishedFrameCount() const;
     std::uint64_t photoDecodeCount() const noexcept;
+    std::uint64_t photoVariantPreparationCount() const noexcept;
 
 private:
     void stopActiveSourceForReplacement();
@@ -120,6 +121,7 @@ private:
         driver_;
 
     SelectedMediaRecord selected_{};
+    std::uint64_t photoVariantPreparationCount_ = 0;
     std::string statusMessage_ =
         "No media selected.";
 };
