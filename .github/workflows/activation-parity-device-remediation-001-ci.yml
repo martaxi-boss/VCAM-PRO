@@ -257,8 +257,9 @@ jobs:
           set -euo pipefail
           xcrun --sdk macosx clang++ \
             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic \
+            -Wno-deprecated-declarations \
             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1 \
-            -Isrc/product \
+            -Isrc/frame_engine -Isrc/product \
             src/product/ReferenceCameraHook.mm \
             tests/product/reference_camera_hook_output_ownership_tests.mm \
             -framework CoreFoundation -framework CoreMedia -framework CoreVideo \
