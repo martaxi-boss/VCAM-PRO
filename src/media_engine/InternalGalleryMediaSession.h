@@ -16,6 +16,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <string>
 
 namespace vcam::media_engine {
@@ -80,6 +81,10 @@ public:
     state() noexcept;
     frame_engine::ReadyFrameQueue&
     readyQueue() noexcept;
+    ProducerWakeupDriverState producerDriverState() const;
+    std::optional<FramePipelinePumpStatus> lastPumpStatus() const;
+    std::uint64_t publishedFrameCount() const;
+    std::uint64_t photoDecodeCount() const noexcept;
 
 private:
     void stopActiveSourceForReplacement();

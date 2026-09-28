@@ -257,6 +257,34 @@ readyQueue() noexcept {
     return queue_;
 }
 
+ProducerWakeupDriverState InternalGalleryMediaSession::
+producerDriverState() const {
+    return driver_
+        ? driver_->state()
+        : ProducerWakeupDriverState::Stopped;
+}
+
+std::optional<FramePipelinePumpStatus>
+InternalGalleryMediaSession::lastPumpStatus() const {
+    return driver_
+        ? driver_->lastPumpStatus()
+        : std::nullopt;
+}
+
+std::uint64_t InternalGalleryMediaSession::
+publishedFrameCount() const {
+    return driver_
+        ? driver_->publishedFrameCount()
+        : 0;
+}
+
+std::uint64_t InternalGalleryMediaSession::
+photoDecodeCount() const noexcept {
+    return photoReader_
+        ? photoReader_->decodeCount()
+        : 0;
+}
+
 void InternalGalleryMediaSession::
 stopActiveSourceForReplacement() {
     if (driver_) {

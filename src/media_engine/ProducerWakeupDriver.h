@@ -6,6 +6,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 
 namespace vcam::media_engine {
 
@@ -49,6 +50,8 @@ public:
 
     ProducerWakeupDriverState state() const;
     std::uint64_t lifecycleToken() const;
+    std::optional<FramePipelinePumpStatus> lastPumpStatus() const;
+    std::uint64_t publishedFrameCount() const;
 
 private:
     struct Impl;

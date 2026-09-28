@@ -188,6 +188,24 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
         return value;
     }
 
+    std::optional<FramePipelinePumpStatus> lastPumpStatus() const {
+        if (!valid_ || !controller_) return std::nullopt;
+        std::optional<FramePipelinePumpStatus> value;
+        auto operation = [this, &value]() { value = lastPumpStatus_; };
+        if (isOnProducerQueue()) operation();
+        else dispatch_sync(queue_, ^{ operation(); });
+        return value;
+    }
+
+    std::uint64_t publishedFrameCount() const {
+        if (!valid_ || !controller_) return 0;
+        std::uint64_t value = 0;
+        auto operation = [this, &value]() { value = publishedFrameCount_; };
+        if (isOnProducerQueue()) operation();
+        else dispatch_sync(queue_, ^{ operation(); });
+        return value;
+    }
+
     bool armImmediate(
         std::uint64_t lifecycleToken) noexcept override {
         if (!valid_ || timer_ == nullptr) {
@@ -298,9 +316,19 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
         // Exactly one controller event is processed for this timer firing.
         // The controller invokes pumpOnceAtHostTime() at most once and any
         // continuation is scheduled asynchronously through this same source.
-        controller_->handleWakeup(
-            firingToken,
-            nowHostTimeNs);
+        const ProducerWakeupEventResult result =
+            controller_->handleWakeup(
+                firingToken,
+                nowHostTimeNs);
+        if (result.pumpStatus.has_value()) {
+            lastPumpStatus_ = result.pumpStatus;
+            if (*result.pumpStatus ==
+                    FramePipelinePumpStatus::Published &&
+                publishedFrameCount_ !=
+                    std::numeric_limits<std::uint64_t>::max()) {
+                ++publishedFrameCount_;
+            }
+        }
     }
 
     frame_engine::FrameEngineState& state_;
@@ -315,6 +343,8 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
     bool valid_ = false;
     bool timerArmed_ = false;
     std::uint64_t armedLifecycleToken_ = 0;
+    std::optional<FramePipelinePumpStatus> lastPumpStatus_;
+    std::uint64_t publishedFrameCount_ = 0;
 };
 
 ProducerWakeupDriver::ProducerWakeupDriver(
@@ -352,6 +382,15 @@ std::uint64_t ProducerWakeupDriver::lifecycleToken() const {
     return impl_
         ? impl_->lifecycleToken()
         : 0;
+}
+
+std::optional<FramePipelinePumpStatus>
+ProducerWakeupDriver::lastPumpStatus() const {
+    return impl_ ? impl_->lastPumpStatus() : std::nullopt;
+}
+
+std::uint64_t ProducerWakeupDriver::publishedFrameCount() const {
+    return impl_ ? impl_->publishedFrameCount() : 0;
 }
 
 }  // namespace vcam::media_engine
