@@ -1,0 +1,6 @@
+Package: com.vcampro.camera
+Name: VCAM PRO IOS15 Central MotionCam Gallery E2E Convergence
+Version: 0.1.0+roothide16~e2econverge1
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: Corrected VCAM PRO product candidate preserving IOS15 central camera ownership with local iPhone gallery PHOTO/VIDEO, static-photo persistence and producer-side pan/pinch.
