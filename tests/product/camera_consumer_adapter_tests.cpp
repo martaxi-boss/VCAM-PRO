@@ -105,11 +105,14 @@ bool Publish(
     std::uint64_t generation,
     std::uint64_t epoch,
     std::size_t width = 64,
-    std::size_t height = 48) {
+    std::size_t height = 48,
+    OSType format =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
     CVPixelBufferRef buffer =
         MakeBuffer(
             width,
-            height);
+            height,
+            format);
     if (buffer == nullptr) {
         return false;
     }
@@ -632,6 +635,118 @@ bool TestStaticPhotoLeasePersistsAcrossCallbacks() {
     return true;
 }
 
+bool TestStaticPhotoVariantsBoundedAndEvictSafely() {
+    ReadyFrameQueue queue(8);
+
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+    adapter.bindQueue(
+        &queue,
+        11,
+        5,
+        true,
+        true,
+        7);
+
+    struct Geometry {
+        std::size_t width;
+        std::size_t height;
+        OSType format;
+    };
+
+    const Geometry geometries[] = {
+        {64, 48, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange},
+        {80, 60, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange},
+        {64, 48, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange},
+        {80, 60, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange},
+        {96, 72, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange},
+    };
+
+    for (std::size_t index = 0;
+         index < 5;
+         ++index) {
+        CHECK(Publish(
+            queue,
+            index,
+            11,
+            5,
+            geometries[index].width,
+            geometries[index].height,
+            geometries[index].format));
+
+        CVPixelBufferRef original =
+            MakeBuffer(
+                geometries[index].width,
+                geometries[index].height,
+                geometries[index].format);
+        CHECK(original != nullptr);
+
+        const auto decision =
+            adapter.decide(original);
+        CHECK(decision.source ==
+              CameraDecisionSource::PreparedMedia);
+
+        CVPixelBufferRelease(original);
+
+        CHECK(adapter.photoVariantCount() <=
+              CameraConsumerAdapter::
+                  kPhotoVariantCapacity);
+    }
+
+    CHECK(adapter.photoVariantCount() ==
+          CameraConsumerAdapter::
+              kPhotoVariantCapacity);
+
+    CHECK(adapter.hasReusablePhotoVariant(
+        96,
+        72,
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        11,
+        5,
+        7));
+
+    // A recently retained slot must remain usable after deterministic LRU
+    // eviction of the oldest slot.
+    CVPixelBufferRef recent =
+        MakeBuffer(
+            80,
+            60,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    CHECK(recent != nullptr);
+    CHECK(adapter.decide(recent).source ==
+          CameraDecisionSource::PreparedMedia);
+    CVPixelBufferRelease(recent);
+
+    ReadyFrameQueue replacementQueue(2);
+    adapter.bindQueue(
+        &replacementQueue,
+        11,
+        5,
+        false,
+        true,
+        7);
+
+    recent =
+        MakeBuffer(
+            80,
+            60,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    CHECK(recent != nullptr);
+    CHECK(adapter.decide(recent).source ==
+          CameraDecisionSource::PreparedMedia);
+    CVPixelBufferRelease(recent);
+
+    adapter.updateContext(
+        11,
+        5,
+        false,
+        true,
+        8);
+    CHECK(adapter.photoVariantCount() == 0);
+
+    return true;
+}
+
 bool TestPinnedLeaseSurvivesQueueDestruction() {
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
@@ -825,6 +940,8 @@ int main() {
         TestUnsupportedFormatIsExplicit);
     Run("static photo lease persists across callbacks",
         TestStaticPhotoLeasePersistsAcrossCallbacks);
+    Run("static photo variants bounded and evict safely",
+        TestStaticPhotoVariantsBoundedAndEvictSafely);
     Run("pinned lease survives queue destruction",
         TestPinnedLeaseSurvivesQueueDestruction);
     Run("pinned storage remains bounded",
