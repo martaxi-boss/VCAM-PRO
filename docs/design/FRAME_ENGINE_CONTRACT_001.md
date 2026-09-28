@@ -1306,3 +1306,15 @@ The following official Apple documentation was consulted for API semantics and d
 **IOS 15.8.8 RUNTIME: NOT YET PROVEN**
 
 **PUBLIC RELEASE: NO**
+
+## Active-mode supersession — E2E Convergence 001
+
+The original fail-open language above is preserved as historical contract evidence. For current product behavior it is superseded as follows:
+
+- VCAM OFF permits ORIGINAL.
+- VCAM ON with media absent, pending, stale, reconfiguring or temporarily incompatible on a supported 420v/420f path uses BLACK virtual ownership rather than ORIGINAL.
+- VCAM ON with eligible prepared media uses PreparedMedia.
+- First-seen supported geometry uses the bounded in-place BLACK ownership guard until a reusable BLACK/prepared variant is available; it does not perform allocation, decode, scaling, file I/O or synchronous media waits in the camera callback.
+- Unsupported formats are explicitly reported as unsupported and are outside certified active-mode ownership coverage.
+
+ReadyFrameQueue remains consumable for VIDEO progression. PHOTO persistence is implemented explicitly as a generation/epoch-bound reusable latest prepared lease in CameraConsumerAdapter, preserving the historical IOS-15-USB frameQueue/lastObject latest-visual-source behavior without weakening VIDEO queue semantics.
