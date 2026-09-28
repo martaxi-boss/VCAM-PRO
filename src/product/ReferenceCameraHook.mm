@@ -92,6 +92,7 @@ bool IsStillImageSampleBuffer(
     return value == kCFBooleanTrue;
 }
 
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
 std::uint64_t PixelBufferGeometryKey(
     CVPixelBufferRef buffer) noexcept {
     if (buffer == nullptr) {
@@ -116,6 +117,7 @@ std::uint64_t PixelBufferGeometryKey(
         (static_cast<std::uint64_t>(height) << 16U) |
         (static_cast<std::uint64_t>(pixelFormat) << 32U);
 }
+#endif
 
 }  // namespace
 
