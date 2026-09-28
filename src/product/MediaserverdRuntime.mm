@@ -1336,6 +1336,321 @@ struct MediaserverdRuntime::Impl {
 #endif
     }
 
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+    static constexpr std::int64_t
+        kActivationRemediationDiagnosticDelayNs =
+            INT64_C(20000000000);
+
+    static std::uint64_t
+    activationRemediationPathHash(
+        const std::string& path) noexcept {
+        std::uint64_t hash =
+            UINT64_C(1469598103934665603);
+        for (const unsigned char byte : path) {
+            hash ^= byte;
+            hash *=
+                UINT64_C(1099511628211);
+        }
+        return hash;
+    }
+
+    void updateActivationParityRemediationControlSnapshot(
+        const ProductControlSnapshot& snapshot,
+        bool observedByStore) noexcept {
+        const bool activePhoto =
+            snapshot.enabled &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.hasMedia() &&
+            snapshot.selectionGeneration != 0;
+
+        const std::uint64_t generation =
+            activePhoto
+                ? snapshot.selectionGeneration
+                : 0;
+
+        activationRemediationActiveGeneration_.store(
+            generation,
+            std::memory_order_release);
+
+        if (observedByStore) {
+            activationRemediationControlObservedGeneration_.store(
+                generation,
+                std::memory_order_release);
+        }
+
+        proof::BeginActivationParityPhotoGeneration(
+            generation);
+    }
+
+    void beginOrRefreshActivationParityRemediationDiagnostic() {
+        if (controlQueue_ == nullptr) {
+            return;
+        }
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+
+        const bool activePhoto =
+            snapshot.enabled &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.hasMedia() &&
+            snapshot.selectionGeneration != 0;
+
+        if (!activePhoto) {
+            if (activationRemediationActive_) {
+                activationRemediationActive_ = false;
+                ++activationRemediationSerial_;
+            }
+            return;
+        }
+
+        if (activationRemediationActive_ &&
+            activationRemediationGeneration_ ==
+                snapshot.selectionGeneration &&
+            activationRemediationPath_ ==
+                snapshot.mediaPath) {
+            return;
+        }
+
+        activationRemediationActive_ = true;
+        ++activationRemediationSerial_;
+        activationRemediationGeneration_ =
+            snapshot.selectionGeneration;
+        activationRemediationPath_ =
+            snapshot.mediaPath;
+        activationRemediationPathHash_ =
+            activationRemediationPathHash(
+                snapshot.mediaPath);
+        activationRemediationMediaStaged_ =
+            activationRemediationStager_.
+                isExistingOwnedMediaPath(
+                    snapshot.mediaPath);
+
+        activationRemediationTargetGeneration_ = 0;
+        activationRemediationTargetGeometry_ = 0;
+        activationRemediationSelectAttempted_ = false;
+        activationRemediationSelectResult_ = false;
+        activationRemediationStartAttempted_ = false;
+        activationRemediationStartResult_ = false;
+        activationRemediationSessionInstalled_ = false;
+        activationRemediationSessionReplacementCount_ = 0;
+        activationRemediationProducerHealthy_ = false;
+        activationRemediationQueueBound_ = false;
+        activationRemediationQueueGeneration_ = 0;
+        activationRemediationQueueEpoch_ = 0;
+        activationRemediationAdapterGeneration_ = 0;
+        activationRemediationAdapterEpoch_ = 0;
+        activationRemediationGeometryChangeCount_.store(
+            0,
+            std::memory_order_release);
+
+        proof::BeginActivationParityPhotoGeneration(
+            snapshot.selectionGeneration);
+
+        const std::uint64_t serial =
+            activationRemediationSerial_;
+        const std::uint64_t generation =
+            activationRemediationGeneration_;
+
+        dispatch_after(
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                kActivationRemediationDiagnosticDelayNs),
+            controlQueue_,
+            ^{
+                if (!this->activationRemediationActive_ ||
+                    this->activationRemediationSerial_ !=
+                        serial ||
+                    this->activationRemediationGeneration_ !=
+                        generation) {
+                    return;
+                }
+
+                this->publishActivationParityRemediationSnapshot();
+                this->activationRemediationActive_ = false;
+            });
+    }
+
+    proof::ActivationParityPhotoStage
+    activationRemediationBaseStage(
+        const proof::ActivationParityPhotoSnapshot&
+            snapshot) const noexcept {
+        if (!snapshot.controlObserved) {
+            return proof::
+                ActivationParityPhotoStage::
+                    WaitingControl;
+        }
+        if (!snapshot.mediaStaged) {
+            return proof::
+                ActivationParityPhotoStage::
+                    StagingMismatch;
+        }
+        if (snapshot.observedGeometry == 0) {
+            return proof::
+                ActivationParityPhotoStage::
+                    WaitingGeometry;
+        }
+        if (snapshot.selectPhotoAttempted &&
+            !snapshot.selectPhotoResult) {
+            return proof::
+                ActivationParityPhotoStage::
+                    SelectPhotoFailed;
+        }
+        if (snapshot.startAttempted &&
+            !snapshot.startResult) {
+            return proof::
+                ActivationParityPhotoStage::
+                    ProducerStartFailed;
+        }
+        if (!snapshot.sessionExists) {
+            return proof::
+                ActivationParityPhotoStage::
+                    SessionAbsent;
+        }
+        if (!snapshot.producerHealthy) {
+            return proof::
+                ActivationParityPhotoStage::
+                    ProducerUnavailable;
+        }
+        if (snapshot.readyQueueSize == 0) {
+            return proof::
+                ActivationParityPhotoStage::
+                    QueueEmpty;
+        }
+
+        return proof::
+            ActivationParityPhotoStage::
+                WaitingControl;
+    }
+
+    void publishActivationParityRemediationSnapshot() {
+        if (!activationRemediationActive_ ||
+            activationRemediationGeneration_ == 0) {
+            return;
+        }
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+
+        if (snapshot.selectionGeneration !=
+                activationRemediationGeneration_ ||
+            snapshot.mediaPath !=
+                activationRemediationPath_ ||
+            snapshot.mediaKind !=
+                ProductMediaKind::Photo) {
+            return;
+        }
+
+        proof::ActivationParityPhotoSnapshot facts;
+        facts.selectionGeneration =
+            activationRemediationGeneration_;
+        facts.mediaPathHash =
+            activationRemediationPathHash_;
+        facts.enabled =
+            snapshot.enabled;
+        facts.photoSelected =
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo &&
+            snapshot.hasMedia();
+        facts.mediaStaged =
+            activationRemediationMediaStaged_;
+        facts.controlObserved =
+            activationRemediationControlObservedGeneration_.load(
+                std::memory_order_acquire) ==
+            activationRemediationGeneration_;
+
+        facts.observedGeometry =
+            observedGeometry_.load(
+                std::memory_order_acquire);
+        facts.geometryChangeCount =
+            activationRemediationGeometryChangeCount_.load(
+                std::memory_order_acquire);
+        facts.sessionTargetGeometry =
+            activationRemediationTargetGeometry_;
+        facts.targetSelectionGeneration =
+            activationRemediationTargetGeneration_;
+
+        facts.selectPhotoAttempted =
+            activationRemediationSelectAttempted_;
+        facts.selectPhotoResult =
+            activationRemediationSelectResult_;
+        facts.startAttempted =
+            activationRemediationStartAttempted_;
+        facts.startResult =
+            activationRemediationStartResult_;
+        facts.sessionInstalled =
+            activationRemediationSessionInstalled_;
+        facts.sessionReplacementCount =
+            activationRemediationSessionReplacementCount_;
+
+        facts.playbackIntent =
+            static_cast<std::uint8_t>(
+                snapshot.playbackIntent);
+        facts.producerHealthy =
+            activationRemediationProducerHealthy_;
+
+        facts.queueBound =
+            activationRemediationQueueBound_;
+        facts.queueMediaGeneration =
+            activationRemediationQueueGeneration_;
+        facts.queueTimelineEpoch =
+            activationRemediationQueueEpoch_;
+        facts.adapterMediaGeneration =
+            activationRemediationAdapterGeneration_;
+        facts.adapterTimelineEpoch =
+            activationRemediationAdapterEpoch_;
+
+        if (session_ != nullptr) {
+            facts.sessionExists = true;
+
+            const auto& selected =
+                session_->selectedMedia();
+            facts.selectedMediaValid =
+                selected.valid;
+            facts.selectedMediaPhoto =
+                selected.kind ==
+                media_engine::
+                    SelectedMediaKind::Photo;
+            facts.selectedMediaPathMatches =
+                selected.localPath ==
+                activationRemediationPath_;
+
+            facts.playbackState =
+                static_cast<std::uint8_t>(
+                    session_->playbackState());
+
+            const auto readerStatus =
+                session_->state()
+                    .readerStatus();
+            facts.readerState =
+                static_cast<std::uint8_t>(
+                    readerStatus.state);
+            facts.readerError =
+                static_cast<std::uint8_t>(
+                    readerStatus.error);
+
+            facts.frameSequenceCount =
+                session_->state()
+                    .nextSequence();
+
+            facts.readyQueueSize =
+                static_cast<std::uint32_t>(
+                    std::min<std::size_t>(
+                        session_->readyQueue().size(),
+                        UINT32_MAX));
+        }
+
+        facts.stage =
+            activationRemediationBaseStage(
+                facts);
+
+        proof::PublishActivationParityPhotoSnapshot(
+            facts);
+    }
+#endif
+
 #if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
     static constexpr std::uint32_t
         kActivationControlEnabled =
@@ -2989,6 +3304,40 @@ struct MediaserverdRuntime::Impl {
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
     std::atomic<std::uint32_t>
         proofControlState_{0};
+#endif
+
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+    SharedMediaStager activationRemediationStager_;
+
+    std::atomic<std::uint64_t>
+        activationRemediationActiveGeneration_{0};
+    std::atomic<std::uint64_t>
+        activationRemediationControlObservedGeneration_{0};
+    std::atomic<std::uint32_t>
+        activationRemediationGeometryChangeCount_{0};
+
+    bool activationRemediationActive_ = false;
+    std::uint64_t activationRemediationSerial_ = 0;
+    std::uint64_t activationRemediationGeneration_ = 0;
+    std::string activationRemediationPath_;
+    std::uint64_t activationRemediationPathHash_ = 0;
+    bool activationRemediationMediaStaged_ = false;
+
+    std::uint64_t activationRemediationTargetGeneration_ = 0;
+    std::uint64_t activationRemediationTargetGeometry_ = 0;
+    bool activationRemediationSelectAttempted_ = false;
+    bool activationRemediationSelectResult_ = false;
+    bool activationRemediationStartAttempted_ = false;
+    bool activationRemediationStartResult_ = false;
+    bool activationRemediationSessionInstalled_ = false;
+    std::uint32_t activationRemediationSessionReplacementCount_ = 0;
+
+    bool activationRemediationProducerHealthy_ = false;
+    bool activationRemediationQueueBound_ = false;
+    std::uint64_t activationRemediationQueueGeneration_ = 0;
+    std::uint64_t activationRemediationQueueEpoch_ = 0;
+    std::uint64_t activationRemediationAdapterGeneration_ = 0;
+    std::uint64_t activationRemediationAdapterEpoch_ = 0;
 #endif
 
 #if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
