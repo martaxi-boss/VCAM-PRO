@@ -110,17 +110,31 @@ FramePipelinePump::prepareFrame(
         prepared.result.normalizationStatus = normalized.status;
         prepared.result.transformRequirement = normalized.requirement;
 
-        if (normalized.status == NormalizationStatus::TransformRequired) {
+        const bool transformRequiredByNormalizer =
+            normalized.status ==
+                NormalizationStatus::TransformRequired;
+        const bool forcePreparedPhotoTransform =
+            forceTransform_ &&
+            normalized.status ==
+                NormalizationStatus::ReadyPassthrough &&
+            normalized.frame.has_value();
+
+        if (transformRequiredByNormalizer ||
+            forcePreparedPhotoTransform) {
             if (!transformCallback_) {
-                // Stage D1/D2 compatibility path. Historical constructors
-                // intentionally stop before transform work.
                 prepared.result.status =
                     FramePipelinePumpStatus::TransformRequired;
                 return prepared;
             }
 
+            const frame_engine::PreparedFrame&
+                transformSource =
+                    forcePreparedPhotoTransform
+                        ? *normalized.frame
+                        : frame;
+
             FrameTransformResult transformed = transformCallback_(
-                frame,
+                transformSource,
                 geometry,
                 target_,
                 generation,
@@ -157,9 +171,12 @@ FramePipelinePump::prepareFrame(
 
             prepared.result.normalizationStatus =
                 NormalizationStatus::ReadyPassthrough;
-            normalized.status = NormalizationStatus::ReadyPassthrough;
-            normalized.requirement = TransformRequirement::None;
-            normalized.frame.emplace(std::move(*transformed.frame));
+            normalized.status =
+                NormalizationStatus::ReadyPassthrough;
+            normalized.requirement =
+                TransformRequirement::None;
+            normalized.frame.emplace(
+                std::move(*transformed.frame));
         }
 
         if (normalized.status != NormalizationStatus::ReadyPassthrough ||
