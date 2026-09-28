@@ -1050,6 +1050,16 @@ struct MediaserverdRuntime::Impl {
         firstPhotoSubDiagnosticTargetGeometry_ =
             geometry;
 #endif
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        if (activationRemediationActive_ &&
+            activationRemediationGeneration_ ==
+                snapshot.selectionGeneration) {
+            activationRemediationTargetGeneration_ =
+                snapshot.selectionGeneration;
+            activationRemediationTargetGeometry_ =
+                geometry;
+        }
+#endif
 
         media_engine::
             InternalGalleryMediaConfig
@@ -1085,6 +1095,16 @@ struct MediaserverdRuntime::Impl {
                         config);
 
         bool selected = false;
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        if (activationRemediationActive_ &&
+            activationRemediationGeneration_ ==
+                snapshot.selectionGeneration &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+            activationRemediationSelectAttempted_ =
+                true;
+        }
+#endif
         if (snapshot.mediaKind ==
             ProductMediaKind::Video) {
             selected =
@@ -1098,6 +1118,17 @@ struct MediaserverdRuntime::Impl {
                 candidate->selectPhoto(
                     snapshot.mediaPath);
         }
+
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        if (activationRemediationActive_ &&
+            activationRemediationGeneration_ ==
+                snapshot.selectionGeneration &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+            activationRemediationSelectResult_ =
+                selected;
+        }
+#endif
 
         if (!selected) {
             adapter_.unbindQueue();
@@ -1116,8 +1147,28 @@ struct MediaserverdRuntime::Impl {
 
         if (snapshot.playbackIntent ==
             ProductPlaybackIntent::Playing) {
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+            if (activationRemediationActive_ &&
+                activationRemediationGeneration_ ==
+                    snapshot.selectionGeneration &&
+                snapshot.mediaKind ==
+                    ProductMediaKind::Photo) {
+                activationRemediationStartAttempted_ =
+                    true;
+            }
+#endif
             producerHealthy =
                 candidate->start();
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+            if (activationRemediationActive_ &&
+                activationRemediationGeneration_ ==
+                    snapshot.selectionGeneration &&
+                snapshot.mediaKind ==
+                    ProductMediaKind::Photo) {
+                activationRemediationStartResult_ =
+                    producerHealthy;
+            }
+#endif
             if (!producerHealthy) {
                 adapter_.unbindQueue();
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
@@ -1139,6 +1190,20 @@ struct MediaserverdRuntime::Impl {
             std::move(session_);
         session_ =
             std::move(candidate);
+
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        if (activationRemediationActive_ &&
+            activationRemediationGeneration_ ==
+                snapshot.selectionGeneration &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+            activationRemediationSessionInstalled_ =
+                session_ != nullptr;
+            if (old != nullptr) {
+                ++activationRemediationSessionReplacementCount_;
+            }
+        }
+#endif
 
         bindCurrentSession(
             producerHealthy);
@@ -1228,16 +1293,47 @@ struct MediaserverdRuntime::Impl {
 
         if (session_ == nullptr) {
             adapter_.unbindQueue();
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+            activationRemediationQueueBound_ = false;
+#endif
             return;
         }
 
+        const std::uint64_t queueGeneration =
+            session_->state()
+                .mediaGeneration();
+        const std::uint64_t queueEpoch =
+            session_->state()
+                .timelineEpoch();
+
         adapter_.bindQueue(
             &session_->readyQueue(),
-            session_->state()
-                .mediaGeneration(),
-            session_->state()
-                .timelineEpoch(),
+            queueGeneration,
+            queueEpoch,
             producerHealthy);
+
+#if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
+        const ProductControlSnapshot
+            remediationSnapshot =
+                cache_.snapshot();
+        if (activationRemediationActive_ &&
+            activationRemediationGeneration_ ==
+                remediationSnapshot.selectionGeneration &&
+            remediationSnapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+            activationRemediationQueueBound_ = true;
+            activationRemediationQueueGeneration_ =
+                queueGeneration;
+            activationRemediationQueueEpoch_ =
+                queueEpoch;
+            activationRemediationAdapterGeneration_ =
+                queueGeneration;
+            activationRemediationAdapterEpoch_ =
+                queueEpoch;
+            activationRemediationProducerHealthy_ =
+                producerHealthy;
+        }
+#endif
     }
 
 #if defined(VCAM_IOS15_ACTIVATION_PARITY_PROOF)
