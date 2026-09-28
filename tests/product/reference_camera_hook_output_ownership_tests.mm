@@ -292,11 +292,15 @@ bool TestPhotoVirtualOwnershipCommitsIntoOriginal() {
     CHECK(mode ==
           kCVAttachmentMode_ShouldPropagate);
 
-    CHECK(CVBufferGetAttachment(
-              original,
-              kCVImageBufferColorPrimariesKey,
-              nullptr) ==
-          kCVImageBufferColorPrimaries_ITU_R_709_2);
+    CFTypeRef copiedPrimaries =
+        CVBufferGetAttachment(
+            original,
+            kCVImageBufferColorPrimariesKey,
+            nullptr);
+    CHECK(copiedPrimaries != nullptr);
+    CHECK(CFEqual(
+        copiedPrimaries,
+        kCVImageBufferColorPrimaries_ITU_R_709_2));
 
     CVPixelBufferRelease(photo);
     CVPixelBufferRelease(original);
