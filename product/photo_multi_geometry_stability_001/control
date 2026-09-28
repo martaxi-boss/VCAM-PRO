@@ -3,4 +3,4 @@ Name: VCAM PRO Photo Multi Geometry Stability
 Version: 0.1.0+roothide17~multigeom1
 Architecture: iphoneos-arm64
 Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Corrected VCAM PRO product candidate preserving one logical local PHOTO across bounded camera geometry variants with IOS15 central camera ownership.
+Description: Corrected VCAM PRO product candidate preserving one logical local PHOTO across bounded multi-geometry camera destinations while keeping IOS15 central ownership, BLACK safety and VIDEO semantics.

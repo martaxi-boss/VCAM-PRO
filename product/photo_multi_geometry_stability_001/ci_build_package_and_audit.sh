@@ -211,7 +211,6 @@ test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/hea
 {
     echo "TASK_ID=VCAM-PRO-PHOTO-MULTI-GEOMETRY-STABILITY-REMEDIATION-001"
     echo "PACKAGE_ROLE=CORRECTED_PRODUCT_CANDIDATE"
-    echo "PHOTO_MULTI_GEOMETRY_STABILITY_PACKAGE=PASS"
     echo "ARM64=PASS"
     echo "MINIMUM_IOS_15=PASS"
     echo "ROOTHIDE_PACKAGE=PASS"
@@ -224,7 +223,7 @@ test "$(git ls-remote https://github.com/martaxi-boss/IOS-16-USB-4k.git refs/hea
     echo "CANONICAL_VCAMPRO_FILTER_PARITY=PASS"
     echo "MAIN_UNCHANGED=PASS"
     echo "READ_ONLY_REPOS_UNCHANGED=PASS"
-    echo "APPLE_CAMERA_E2E_LOCAL_MEDIA_DEVICE_PROOF=PENDING"
+    echo "PHOTO_MULTI_GEOMETRY_STABILITY_DEVICE_PROOF=PENDING"
     echo "DEVICE_ACTION=NO"
 } | tee "$EVIDENCE/validation-report.txt"
 
