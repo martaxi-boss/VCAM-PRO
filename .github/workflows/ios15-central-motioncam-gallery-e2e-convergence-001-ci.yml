@@ -350,7 +350,7 @@ jobs:
           path = Path("build/e2e-convergence/run_frame_regressions.sh")
           text = path.read_text()
           old = "Stage E1 transformer tests run: 27, failures: 0"
-          new = "Stage E1 transformer tests run: 29, failures: 0"
+          new = "Stage E1 transformer tests run: 32, failures: 0"
           if old not in text:
               raise SystemExit("Unexpected regression script transformer count")
           path.write_text(text.replace(old, new))
