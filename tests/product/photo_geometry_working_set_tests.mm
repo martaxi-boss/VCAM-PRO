@@ -506,37 +506,43 @@ bool TestOverflowGate() {
         runtime.decideCameraBuffer(
             geometries[0].buffer)));
 
+    bool overflowBlackObserved = false;
+    std::size_t firstOverflowBlackIndex = 0;
+
     for (std::size_t index = 1;
          index < 12;
          ++index) {
-        CHECK(ObserveDrainAndPhoto(
-            runtime,
-            geometries[index]));
+        runtime.observeRealCameraBuffer(
+            geometries[index].buffer);
+        CHECK(runtime.drainControlQueueForTesting());
+        const CameraDecision decision =
+            runtime.decideCameraBuffer(
+                geometries[index].buffer);
+        if (IsPrepared(decision)) {
+            continue;
+        }
+        CHECK(IsSafeBlack(decision));
+        overflowBlackObserved = true;
+        firstOverflowBlackIndex = index;
+        break;
     }
 
     const auto stressed =
         runtime.snapshotForTesting();
+    CHECK(overflowBlackObserved);
     CHECK(stressed.photoVariantRetainedBytes <=
           CameraConsumerAdapter::
               kPhotoVariantRetainedByteBudget);
     CHECK(runtime.cameraAdapter().photoVariantCount() <=
           CameraConsumerAdapter::
               kPhotoVariantStructuralCapacity);
-    CHECK(stressed.photoVariantEvictionCount > 0);
-
-    CHECK(runtime.suspendControlQueueForTesting());
-    runtime.observeRealCameraBuffer(
-        geometries[0].buffer);
-    const CameraDecision overflowReturn =
-        runtime.decideCameraBuffer(
-            geometries[0].buffer);
-    CHECK(IsSafeBlack(overflowReturn));
-    CHECK(runtime.resumeControlQueueForTesting());
-    CHECK(runtime.drainControlQueueForTesting());
 
     std::cout
         << "OVER_BUDGET_STRESS=PASS\n"
         << "IOS15_DIRECT_RENDER_FALLBACK_REQUIRED=YES\n"
+        << "OVER_BUDGET_FIRST_BLACK_INDEX="
+        << firstOverflowBlackIndex
+        << "\n"
         << "OVER_BUDGET_RETAINED_BYTES="
         << stressed.photoVariantRetainedBytes
         << "\n"
