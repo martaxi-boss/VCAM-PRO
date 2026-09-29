@@ -609,9 +609,13 @@ bool TestOverflowGate() {
         CHECK(decision.source != CameraDecisionSource::Original);
     }
 
-    const auto whileSuspended = runtime.snapshotForTesting();
-    CHECK(whileSuspended.photoVariantPreparationCount ==
-          preparationsBefore);
+    CHECK(!runtime.cameraAdapter().hasReusablePhotoVariant(
+        geometries[overflowGeometryIndex].width,
+        geometries[overflowGeometryIndex].height,
+        geometries[overflowGeometryIndex].format,
+        stressed.queueGeneration,
+        stressed.queueEpoch,
+        selected.photoTransform.revision));
     CHECK(runtime.cameraAdapter().enabledSupportedOriginalDecisionCount() == 0);
 
     CHECK(runtime.resumeControlQueueForTesting());
