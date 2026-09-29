@@ -154,6 +154,14 @@ bool IsSafeBlack(const CameraDecision& decision) {
              CameraDecisionSource::InPlaceBlackOwnershipGuard);
 }
 
+bool IsDirect(const CameraDecision& decision) {
+    return
+        decision.kind == CameraDecisionKind::Virtual &&
+        decision.source ==
+            CameraDecisionSource::DirectRenderedPhoto &&
+        decision.pixelBuffer != nullptr;
+}
+
 bool WaitForInitialPhoto(
     MediaserverdRuntime& runtime,
     std::uint64_t generation) {
@@ -506,8 +514,7 @@ bool TestOverflowGate() {
         runtime.decideCameraBuffer(
             geometries[0].buffer)));
 
-    bool overflowBlackObserved = false;
-    std::size_t firstOverflowBlackIndex = 0;
+    std::size_t directRenderIndex = 12;
 
     for (std::size_t index = 1;
          index < 12;
@@ -518,36 +525,97 @@ bool TestOverflowGate() {
         const CameraDecision decision =
             runtime.decideCameraBuffer(
                 geometries[index].buffer);
-        if (IsPrepared(decision)) {
-            continue;
+        CHECK(
+            IsPrepared(decision) ||
+            IsDirect(decision));
+        if (IsDirect(decision) &&
+            directRenderIndex == 12) {
+            directRenderIndex = index;
         }
-        CHECK(IsSafeBlack(decision));
-        overflowBlackObserved = true;
-        firstOverflowBlackIndex = index;
-        break;
     }
 
     const auto stressed =
         runtime.snapshotForTesting();
-    CHECK(overflowBlackObserved);
+    CHECK(directRenderIndex < 12);
     CHECK(stressed.photoVariantRetainedBytes <=
           CameraConsumerAdapter::
               kPhotoVariantRetainedByteBudget);
     CHECK(runtime.cameraAdapter().photoVariantCount() <=
           CameraConsumerAdapter::
               kPhotoVariantStructuralCapacity);
+    CHECK(runtime.cameraAdapter().
+              directPhotoRenderCount() > 0);
+    CHECK(runtime.cameraAdapter().
+              directPhotoRenderFailureCount() == 0);
+    CHECK(runtime.cameraAdapter().
+              directPhotoScratchBytes() <=
+          CameraConsumerAdapter::
+              kDirectRenderScratchByteBudget);
+
+    CHECK(runtime.suspendControlQueueForTesting());
+    runtime.observeRealCameraBuffer(
+        geometries[0].buffer);
+    const CameraDecision overflowReturn =
+        runtime.decideCameraBuffer(
+            geometries[0].buffer);
+    CHECK(
+        IsPrepared(overflowReturn) ||
+        IsDirect(overflowReturn));
+    CHECK(!IsSafeBlack(overflowReturn));
+    CHECK(runtime.resumeControlQueueForTesting());
+    CHECK(runtime.drainControlQueueForTesting());
+
+    const auto benchmarkStart =
+        std::chrono::steady_clock::now();
+    for (std::size_t iteration = 0;
+         iteration < 10;
+         ++iteration) {
+        const CameraDecision decision =
+            runtime.decideCameraBuffer(
+                geometries[
+                    directRenderIndex].
+                    buffer);
+        CHECK(
+            IsPrepared(decision) ||
+            IsDirect(decision));
+    }
+    const auto benchmarkEnd =
+        std::chrono::steady_clock::now();
+    const auto benchmarkNs =
+        std::chrono::duration_cast<
+            std::chrono::nanoseconds>(
+                benchmarkEnd -
+                benchmarkStart).
+            count() / 10;
+
+    CHECK(runtime.cameraAdapter().
+              enabledSupportedOriginalDecisionCount() == 0);
 
     std::cout
         << "OVER_BUDGET_STRESS=PASS\n"
         << "IOS15_DIRECT_RENDER_FALLBACK_REQUIRED=YES\n"
-        << "OVER_BUDGET_FIRST_BLACK_INDEX="
-        << firstOverflowBlackIndex
+        << "IOS15_DIRECT_RENDER_FALLBACK_USED=YES\n"
+        << "DIRECT_RENDER_OVERFLOW_CONTINUITY=PASS\n"
+        << "DIRECT_RENDER_HOST_BENCHMARK=PASS\n"
+        << "DIRECT_RENDER_HOST_AVERAGE_NS="
+        << benchmarkNs
+        << "\n"
+        << "OVER_BUDGET_FIRST_DIRECT_INDEX="
+        << directRenderIndex
         << "\n"
         << "OVER_BUDGET_RETAINED_BYTES="
         << stressed.photoVariantRetainedBytes
         << "\n"
         << "OVER_BUDGET_EVICTION_COUNT="
         << stressed.photoVariantEvictionCount
+        << "\n"
+        << "DIRECT_RENDER_COUNT="
+        << runtime.cameraAdapter().
+            directPhotoRenderCount()
+        << "\n"
+        << "DIRECT_RENDER_SCRATCH_BYTES="
+        << runtime.cameraAdapter().
+            directPhotoScratchBytes()
         << "\n";
 
     for (auto& geometry : geometries) {

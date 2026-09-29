@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
+#include <vector>
 
 namespace vcam::product {
 
@@ -21,6 +22,7 @@ enum class CameraDecisionKind : std::uint8_t {
 enum class CameraDecisionSource : std::uint8_t {
     Original = 0,
     PreparedMedia,
+    DirectRenderedPhoto,
     BlackFallback,
     InPlaceBlackOwnershipGuard,
 };
@@ -66,6 +68,11 @@ public:
     static constexpr std::uint64_t
         kPhotoWorkingSetActiveObservationWindow = 32;
     static constexpr std::size_t
+        kDirectPhotoPlanCapacity = 16;
+    static constexpr std::size_t
+        kDirectRenderScratchByteBudget =
+            16U * 1024U * 1024U;
+    static constexpr std::size_t
         kBlackFallbackCapacity = 4;
 
     CameraConsumerAdapter() = default;
@@ -108,9 +115,28 @@ public:
     std::size_t photoVariantWorkingSetCount() const;
     std::uint64_t photoVariantEvictionCount() const;
     std::uint64_t photoVariantReprepareCount() const;
+    std::uint64_t directPhotoRenderCount() const;
+    std::uint64_t directPhotoRenderFailureCount() const;
+    std::size_t directPhotoScratchBytes() const;
     std::size_t blackFallbackCacheCount() const;
 
     void notePhotoGeometryObserved(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision);
+
+    bool bindDirectPhotoSource(
+        CVPixelBufferRef source,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision,
+        double translationX,
+        double translationY,
+        double scale);
+    bool prepareDirectPhotoGeometry(
         std::size_t width,
         std::size_t height,
         OSType pixelFormat,
@@ -149,6 +175,27 @@ private:
         OSType pixelFormat = 0;
         std::size_t retainedBytes = 0;
         std::uint64_t lastUseSerial = 0;
+    };
+
+    struct DirectPhotoPlan {
+        bool valid = false;
+        std::uint64_t mediaGeneration = 0;
+        std::uint64_t timelineEpoch = 0;
+        std::uint64_t transformRevision = 0;
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+        std::size_t sourceX = 0;
+        std::size_t sourceY = 0;
+        std::size_t sourceWidth = 0;
+        std::size_t sourceHeight = 0;
+        std::size_t destinationX = 0;
+        std::size_t destinationY = 0;
+        std::size_t destinationWidth = 0;
+        std::size_t destinationHeight = 0;
+        std::size_t yScratchBytes = 0;
+        std::size_t cbCrScratchBytes = 0;
+        std::uint64_t preparedSerial = 0;
     };
 
     struct PhotoWorkingSetEntry {
@@ -207,6 +254,16 @@ private:
         std::uint64_t transformRevision) const noexcept;
     bool photoGeometryActiveLocked(
         const PhotoVariantSlot& slot) const noexcept;
+    void clearDirectPhotoSourceLocked() noexcept;
+    DirectPhotoPlan* findDirectPhotoPlanLocked(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) noexcept;
+    bool renderDirectPhotoIntoOriginalLocked(
+        CVPixelBufferRef original) noexcept;
     std::uint64_t nextPhotoVariantUseSerialLocked() noexcept;
 
     CameraDecision blackOrEmergencyOriginal(
@@ -242,6 +299,23 @@ private:
     std::uint64_t photoVariantUseSerial_ = 0;
     std::uint64_t photoVariantEvictionCount_ = 0;
     std::uint64_t photoVariantReprepareCount_ = 0;
+
+    CVPixelBufferRef directPhotoSource_ = nullptr;
+    std::uint64_t directPhotoGeneration_ = 0;
+    std::uint64_t directPhotoEpoch_ = 0;
+    std::uint64_t directPhotoRevision_ = 0;
+    double directPhotoTranslationX_ = 0.0;
+    double directPhotoTranslationY_ = 0.0;
+    double directPhotoScale_ = 1.0;
+    std::array<
+        DirectPhotoPlan,
+        kDirectPhotoPlanCapacity>
+        directPhotoPlans_{};
+    std::uint64_t directPhotoPlanSerial_ = 0;
+    std::vector<std::uint8_t>
+        directPhotoScaleScratch_;
+    std::uint64_t directPhotoRenderCount_ = 0;
+    std::uint64_t directPhotoRenderFailureCount_ = 0;
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,

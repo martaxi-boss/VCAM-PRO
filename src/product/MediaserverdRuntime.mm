@@ -1070,6 +1070,15 @@ struct MediaserverdRuntime::Impl {
             epoch,
             revision);
 
+        (void)adapter_.
+            prepareDirectPhotoGeometry(
+                width,
+                height,
+                pixelFormat,
+                generation,
+                epoch,
+                revision);
+
         if (adapter_.hasReusablePhotoVariant(
                 width,
                 height,
@@ -1518,6 +1527,20 @@ struct MediaserverdRuntime::Impl {
                 : 0);
 
         if (reusableStaticMedia) {
+            const auto directTransform =
+                PhotoTransformForSnapshot(
+                    bindingSnapshot);
+            (void)adapter_.bindDirectPhotoSource(
+                session_->
+                    photoSourcePixelBuffer(),
+                queueGeneration,
+                queueEpoch,
+                bindingSnapshot.
+                    photoTransform.revision,
+                directTransform.translationX,
+                directTransform.translationY,
+                directTransform.scale);
+
             const std::uint64_t geometry =
                 observedGeometry_.load(
                     std::memory_order_acquire);
@@ -1541,6 +1564,15 @@ struct MediaserverdRuntime::Impl {
                     queueEpoch,
                     bindingSnapshot.
                         photoTransform.revision);
+                (void)adapter_.
+                    prepareDirectPhotoGeometry(
+                        width,
+                        height,
+                        pixelFormat,
+                        queueGeneration,
+                        queueEpoch,
+                        bindingSnapshot.
+                            photoTransform.revision);
             }
         }
 

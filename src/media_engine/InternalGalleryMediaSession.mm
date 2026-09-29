@@ -437,6 +437,14 @@ photoVariantPreparationCount() const noexcept {
     return photoVariantPreparationCount_;
 }
 
+CVPixelBufferRef InternalGalleryMediaSession::
+photoSourcePixelBuffer() const noexcept {
+    return photoReader_ != nullptr
+        ? photoReader_->
+              decodedPixelBufferForTesting()
+        : nullptr;
+}
+
 void InternalGalleryMediaSession::
 stopActiveSourceForReplacement() {
     if (driver_) {

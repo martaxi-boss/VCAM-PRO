@@ -94,6 +94,7 @@ public:
     std::uint64_t publishedFrameCount() const;
     std::uint64_t photoDecodeCount() const noexcept;
     std::uint64_t photoVariantPreparationCount() const noexcept;
+    CVPixelBufferRef photoSourcePixelBuffer() const noexcept;
 
 private:
     void stopActiveSourceForReplacement();
