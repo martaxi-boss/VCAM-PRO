@@ -387,7 +387,8 @@ retargetVideoOutput(
     queue_.clear();
 
     config_.target = target;
-    pump_->setTarget(target);
+    pump_->setTargetPreservingTimeline(
+        target);
 
     if (playback ==
         frame_engine::PlaybackState::Playing) {
