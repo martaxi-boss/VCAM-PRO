@@ -54,7 +54,10 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
                 return state_.playbackState();
             },
             [this](frame_engine::MonotonicHostTimeNs nowHostTimeNs) {
-                return pump_.pumpOnceAtHostTime(nowHostTimeNs);
+                const FramePipelinePumpResult result =
+                    pump_.pumpOnceAtHostTime(nowHostTimeNs);
+                observePumpResult(result);
+                return result;
             },
             *this,
             policy);
@@ -206,6 +209,121 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
         return value;
     }
 
+    ProducerRuntimeDiagnosticsSnapshot
+    runtimeDiagnostics() const {
+        ProducerRuntimeDiagnosticsSnapshot value;
+        if (!valid_ || !controller_) {
+            return value;
+        }
+        auto operation = [this, &value]() {
+            value = runtimeDiagnostics_;
+            value.publishCount =
+                publishedFrameCount_;
+        };
+        if (isOnProducerQueue()) {
+            operation();
+        } else {
+            dispatch_sync(queue_, ^{
+                operation();
+            });
+        }
+        return value;
+    }
+
+    static void incrementSaturated(
+        std::uint64_t* value) noexcept {
+        if (value != nullptr &&
+            *value !=
+                std::numeric_limits<std::uint64_t>::max()) {
+            ++*value;
+        }
+    }
+
+    void observePumpResult(
+        const FramePipelinePumpResult& result) noexcept {
+        runtimeDiagnostics_.lastReadResult =
+            result.readResult;
+        runtimeDiagnostics_.lastReaderError =
+            result.readerError;
+
+        if (result.readResult ==
+            ReadResultKind::Frame) {
+            incrementSaturated(
+                &runtimeDiagnostics_.
+                    readFrameCount);
+        }
+
+        if (result.frameTiming.has_value() &&
+            CMTIME_IS_NUMERIC(
+                result.frameTiming->sourcePTS)) {
+            runtimeDiagnostics_.hasLastSourcePTS =
+                true;
+            runtimeDiagnostics_.lastSourcePTSValue =
+                result.frameTiming->sourcePTS.value;
+            runtimeDiagnostics_.lastSourcePTSTimescale =
+                result.frameTiming->sourcePTS.timescale;
+        }
+
+        if (result.readResult ==
+            ReadResultKind::Frame) {
+            if (result.normalizationStatus ==
+                    NormalizationStatus::ReadyPassthrough ||
+                result.normalizationStatus ==
+                    NormalizationStatus::TransformRequired) {
+                incrementSaturated(
+                    &runtimeDiagnostics_.
+                        normalizeSuccessCount);
+            } else {
+                incrementSaturated(
+                    &runtimeDiagnostics_.
+                        normalizeFailureCount);
+            }
+        }
+
+        if (result.transformStatus ==
+            FrameTransformStatus::Transformed) {
+            incrementSaturated(
+                &runtimeDiagnostics_.
+                    transformSuccessCount);
+        } else if (
+            result.status ==
+                FramePipelinePumpStatus::TransformRequired ||
+            result.status ==
+                FramePipelinePumpStatus::TransformFailed) {
+            incrementSaturated(
+                &runtimeDiagnostics_.
+                    transformFailureCount);
+        }
+
+        switch (result.timelineStatus) {
+            case frame_engine::
+                TimelineScheduleStatus::ReadyNow:
+                incrementSaturated(
+                    &runtimeDiagnostics_.
+                        timelineReadyCount);
+                break;
+            case frame_engine::
+                TimelineScheduleStatus::WaitUntilDue:
+                incrementSaturated(
+                    &runtimeDiagnostics_.
+                        timelineWaitCount);
+                break;
+            case frame_engine::
+                TimelineScheduleStatus::DropLate:
+                incrementSaturated(
+                    &runtimeDiagnostics_.
+                        timelineDropCount);
+                break;
+            case frame_engine::
+                TimelineScheduleStatus::InvalidTiming:
+            case frame_engine::
+                TimelineScheduleStatus::GenerationMismatch:
+            case frame_engine::
+                TimelineScheduleStatus::TimelineMismatch:
+                break;
+        }
+    }
+
     bool armImmediate(
         std::uint64_t lifecycleToken) noexcept override {
         if (!valid_ || timer_ == nullptr) {
@@ -352,6 +470,8 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
     std::uint64_t armedLifecycleToken_ = 0;
     std::optional<FramePipelinePumpStatus> lastPumpStatus_;
     std::uint64_t publishedFrameCount_ = 0;
+    ProducerRuntimeDiagnosticsSnapshot
+        runtimeDiagnostics_{};
 };
 
 ProducerWakeupDriver::ProducerWakeupDriver(
@@ -398,6 +518,13 @@ ProducerWakeupDriver::lastPumpStatus() const {
 
 std::uint64_t ProducerWakeupDriver::publishedFrameCount() const {
     return impl_ ? impl_->publishedFrameCount() : 0;
+}
+
+ProducerRuntimeDiagnosticsSnapshot
+ProducerWakeupDriver::runtimeDiagnostics() const {
+    return impl_
+        ? impl_->runtimeDiagnostics()
+        : ProducerRuntimeDiagnosticsSnapshot{};
 }
 
 }  // namespace vcam::media_engine
