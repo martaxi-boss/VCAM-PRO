@@ -196,9 +196,12 @@ jobs:
 
           test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
 
-          grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
-          grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
-          if grep -Fq 'UIRotationGestureRecognizer' src/control/InternalGalleryViewController.mm; then
+          ! grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
+          ! grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
+          grep -Fq 'Adjust Photo' src/control/InternalGalleryViewController.mm
+          grep -Fq 'UIPanGestureRecognizer' src/product/SpringBoardControlHost.mm
+          grep -Fq 'UIPinchGestureRecognizer' src/product/SpringBoardControlHost.mm
+          if grep -RInF 'UIRotationGestureRecognizer' src/control/InternalGalleryViewController.mm src/product/SpringBoardControlHost.mm; then
             echo "Rotation recognizer is forbidden"
             exit 1
           fi
