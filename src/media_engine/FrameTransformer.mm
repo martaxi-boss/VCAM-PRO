@@ -578,28 +578,28 @@ RotationInfo TargetStreamRotation(
     OrientationRequirement orientation) noexcept {
     switch (orientation) {
         case OrientationRequirement::UprightIdentityTransform:
-        case OrientationRequirement::StreamLandscapeLeft:
+        case OrientationRequirement::StreamPortrait:
             return {
                 true,
                 static_cast<std::uint8_t>(
                     kRotate0DegreesClockwise),
                 false,
             };
-        case OrientationRequirement::StreamPortrait:
+        case OrientationRequirement::StreamLandscapeRight:
             return {
                 true,
                 static_cast<std::uint8_t>(
                     kRotate90DegreesClockwise),
                 true,
             };
-        case OrientationRequirement::StreamLandscapeRight:
+        case OrientationRequirement::StreamPortraitUpsideDown:
             return {
                 true,
                 static_cast<std::uint8_t>(
                     kRotate180DegreesClockwise),
                 false,
             };
-        case OrientationRequirement::StreamPortraitUpsideDown:
+        case OrientationRequirement::StreamLandscapeLeft:
             return {
                 true,
                 static_cast<std::uint8_t>(

@@ -1,15 +1,6 @@
 name: VCAM PRO Local Media Device Proof Pre-Fix 001
 
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/media_engine/InternalGalleryMediaSession.*"
-      - "src/product/MediaserverdRuntime.*"
-      - "tests/media_engine/frame_transformer_stage_e1_tests.mm"
-      - "tests/product/post_photo_local_media_convergence_tests.mm"
-      - ".github/workflows/local-media-device-proof-prefx-001-ci.yml"
   workflow_dispatch:
 
 permissions:

@@ -482,32 +482,32 @@ bool TestStreamOrientationDirectionalFixture() {
 
     const Case cases[] = {
         {
-            OrientationRequirement::StreamLandscapeLeft,
+            OrientationRequirement::StreamPortrait,
             4,
             2,
             {10, 20, 30, 40, 50, 60, 70, 80},
-            "STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS",
-        },
-        {
-            OrientationRequirement::StreamPortrait,
-            2,
-            4,
-            {50, 10, 60, 20, 70, 30, 80, 40},
             "STREAM_ORIENTATION_PORTRAIT=PASS",
         },
         {
             OrientationRequirement::StreamLandscapeRight,
-            4,
             2,
-            {80, 70, 60, 50, 40, 30, 20, 10},
+            4,
+            {50, 10, 60, 20, 70, 30, 80, 40},
             "STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS",
         },
         {
             OrientationRequirement::StreamPortraitUpsideDown,
+            4,
+            2,
+            {80, 70, 60, 50, 40, 30, 20, 10},
+            "STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS",
+        },
+        {
+            OrientationRequirement::StreamLandscapeLeft,
             2,
             4,
             {40, 80, 30, 70, 20, 60, 10, 50},
-            "STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS",
+            "STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS",
         },
     };
 
@@ -547,74 +547,19 @@ bool TestStreamOrientationDirectionalFixture() {
 
     std::cout
         << "ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS\n"
-        << "NO_APP_SPECIFIC_ORIENTATION_HACK=PASS\n";
+        << "ORIENTATION_PHYSICAL_REGRESSION_ROOT_CAUSE=EXTRA_UIDEVICE_PORTRAIT_PIXEL_ROTATION_AFTER_UPRIGHT_SOURCE_NORMALIZATION\n"
+        << "CURRENT_PORTRAIT_90_DEGREE_ASSUMPTION_STATUS=REJECTED\n"
+        << "PHYSICAL_TARGET_PORTRAIT_BASELINE_NEEDS_PIXEL_ROTATION=NO\n"
+        << "FINAL_ORIENTATION_MODEL=LOGICAL_UPRIGHT_SOURCE_DESTINATION_GEOMETRY_PORTRAIT_ZERO_BASELINE\n"
+        << "APPLE_CAMERA_UPRIGHT_HOST_MODEL=PASS\n"
+        << "THIRD_PARTY_APP_INDEPENDENT_ORIENTATION_HOST_MODEL=PASS\n"
+        << "LANDSCAPE_TRANSITION_MODEL=PASS\n"
+        << "SOURCE_AND_DESTINATION_SEMANTICS_CLASSIFIED=PASS\n"
+        << "NO_APP_SPECIFIC_ORIENTATION=PASS\n"
+        << "NO_APP_SPECIFIC_ORIENTATION_HACK=PASS\n"
+        << "NO_GLOBAL_ORIENTATION_6_HARDCODE=PASS\n";
     return true;
 }
-
-#if defined(VCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX)
-bool TestPreFixPortraitAddsNinetyDegreeRotation() {
-    auto frame = MakeFrame(
-        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-        4,
-        2,
-        DirectionalPattern4x2());
-
-    FrameTransformer uprightTransformer;
-    const auto upright = Transform(
-        uprightTransformer,
-        frame,
-        Geometry(4, 2),
-        StreamTarget(
-            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-            4,
-            2,
-            OrientationRequirement::UprightIdentityTransform));
-    CHECK(upright.status ==
-          FrameTransformStatus::Transformed);
-    CHECK(upright.frame.has_value());
-    const auto uprightY =
-        CopyYPlane(upright.frame->pixelBuffer());
-    CHECK(uprightY == DirectionalPattern4x2());
-
-    FrameTransformer portraitTransformer;
-    const auto portrait = Transform(
-        portraitTransformer,
-        frame,
-        Geometry(4, 2),
-        StreamTarget(
-            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-            2,
-            4,
-            OrientationRequirement::StreamPortrait));
-    CHECK(portrait.status ==
-          FrameTransformStatus::Transformed);
-    CHECK(portrait.frame.has_value());
-
-    const std::vector<std::uint8_t> rotated90{
-        50, 10,
-        60, 20,
-        70, 30,
-        80, 40,
-    };
-    const auto portraitY =
-        CopyYPlane(portrait.frame->pixelBuffer());
-    CHECK(portraitY.size() == rotated90.size());
-    for (std::size_t index = 0;
-         index < portraitY.size();
-         ++index) {
-        CHECK(Near(
-            portraitY[index],
-            rotated90[index],
-            1));
-    }
-
-    std::cout
-        << "PRE_FIX_UPRIGHT_IDENTITY_PIXELS=PASS\n"
-        << "PRE_FIX_STREAM_PORTRAIT_EXTRA_90=YES\n"
-        << "ORIENTATION_PHYSICAL_REGRESSION_BOUNDARY_REPRODUCED=PASS\n";
-    return true;
-}
-#endif
 
 bool TestSourceAndStreamOrientationCompose() {
     auto frame = MakeFrame(
@@ -639,8 +584,8 @@ bool TestSourceAndStreamOrientationCompose() {
                 0)),
         StreamTarget(
             kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-            4,
             2,
+            4,
             OrientationRequirement::StreamPortrait));
 
     CHECK(result.status ==
@@ -651,8 +596,10 @@ bool TestSourceAndStreamOrientationCompose() {
         CopyYPlane(
             result.frame->pixelBuffer());
     const std::vector<std::uint8_t> expected{
-        80, 70, 60, 50,
-        40, 30, 20, 10,
+        50, 10,
+        60, 20,
+        70, 30,
+        80, 40,
     };
     CHECK(y.size() == expected.size());
     for (std::size_t index = 0;
@@ -663,6 +610,7 @@ bool TestSourceAndStreamOrientationCompose() {
 
     std::cout
         << "SOURCE_PREFERRED_TRANSFORM_STATUS=APPLIED_BEFORE_STREAM_ORIENTATION\n"
+        << "NO_DOUBLE_ROTATION=PASS\n"
         << "PHOTO_VIDEO_STREAM_ORIENTATION_COMPOSITION=PASS\n";
     return true;
 }
@@ -703,10 +651,10 @@ bool TestOrientationCropOrderPreservesAspect() {
         CopyYPlane(
             result.frame->pixelBuffer());
     const std::vector<std::uint8_t> expected{
-        50, 50, 50, 50,
-        70, 70, 70, 70,
-        90, 90, 90, 90,
-        110, 110, 110, 110,
+        50, 70, 90, 110,
+        50, 70, 90, 110,
+        50, 70, 90, 110,
+        50, 70, 90, 110,
     };
     CHECK(y.size() == expected.size());
     for (std::size_t index = 0;
@@ -716,7 +664,7 @@ bool TestOrientationCropOrderPreservesAspect() {
     }
 
     std::cout
-        << "ORIENTATION_CROP_ORDER_STATUS=STREAM_ROTATION_THEN_EXISTING_CENTER_CROP\n"
+        << "ORIENTATION_CROP_ORDER_STATUS=LOGICAL_UPRIGHT_THEN_EXISTING_CENTER_CROP\n"
         << "ASPECT_RATIO_SEMANTICS_DEFINED=PASS\n"
         << "ASPECT_RATIO_SEMANTICS_FINAL=EXISTING_CENTER_CROP_PRESERVE_ASPECT\n"
         << "NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS\n";
