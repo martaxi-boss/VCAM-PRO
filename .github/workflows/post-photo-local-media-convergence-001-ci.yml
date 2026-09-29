@@ -183,7 +183,7 @@ jobs:
           grep -Fq 'Stage B tests run: 11, failures: 0' build/regressions/stage-b.txt
           grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/stage-b.txt
 
-          for marker in             STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS             STREAM_ORIENTATION_PORTRAIT=PASS             STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS             STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS             ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS             NO_APP_SPECIFIC_ORIENTATION_HACK=PASS             SOURCE_PREFERRED_TRANSFORM_STATUS=APPLIED_BEFORE_STREAM_ORIENTATION             PHOTO_VIDEO_STREAM_ORIENTATION_COMPOSITION=PASS             ORIENTATION_CROP_ORDER_STATUS=STREAM_ROTATION_THEN_EXISTING_CENTER_CROP             ASPECT_RATIO_SEMANTICS_DEFINED=PASS             ASPECT_RATIO_SEMANTICS_FINAL=EXISTING_CENTER_CROP_PRESERVE_ASPECT             NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS             PAN_TRANSLATION_STATE=PASS             PAN_TRANSLATION_PIXELS=PASS             PINCH_SCALE_STATE=PASS             PINCH_SCALE_PIXELS=PASS             PHOTO_ROTATION_DISABLED=PASS             PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
+          for marker in             STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS             STREAM_ORIENTATION_PORTRAIT=PASS             STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS             STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS             ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS             NO_APP_SPECIFIC_ORIENTATION_HACK=PASS             SOURCE_PREFERRED_TRANSFORM_STATUS=APPLIED_ONCE_BEFORE_DESTINATION_GEOMETRY             PHOTO_VIDEO_STREAM_ORIENTATION_COMPOSITION=PASS             ORIENTATION_CROP_ORDER_STATUS=SOURCE_NORMALIZATION_THEN_EXISTING_CENTER_CROP             ASPECT_RATIO_SEMANTICS_DEFINED=PASS             ASPECT_RATIO_SEMANTICS_FINAL=EXISTING_CENTER_CROP_PRESERVE_ASPECT             NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS             PAN_TRANSLATION_STATE=PASS             PAN_TRANSLATION_PIXELS=PASS             PINCH_SCALE_STATE=PASS             PINCH_SCALE_PIXELS=PASS             PHOTO_ROTATION_DISABLED=PASS             PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
             grep -Fq "$marker" build/regressions/e1-transformer.txt
           done
 
@@ -236,7 +236,7 @@ jobs:
             echo "CLEAR_VIDEO_RETURNS_BLACK=PASS"
           } | tee build/post-photo-local-media-convergence-ci/playback-aliases.txt
 
-      - name: Static central overlay and passthrough contract
+      - name: Static selected-media overlay and passthrough contract
         shell: bash
         run: |
           set -euo pipefail
@@ -246,8 +246,8 @@ jobs:
           control = Path("src/control/InternalGalleryViewController.mm").read_text()
           host = Path("src/product/SpringBoardControlHost.mm").read_text()
 
-          assert "Adjust Photo" in control
-          assert "adjustPhotoRequestHandler" in control
+          assert "Adjust Media" in control
+          assert "adjustMediaRequestHandler" in control
           assert "UIPanGestureRecognizer" not in control
           assert "UIPinchGestureRecognizer" not in control
           assert "UIPanGestureRecognizer" in host
@@ -259,7 +259,7 @@ jobs:
           assert "hit == self.rootViewController.view" in host
           assert "return nil;" in host
           assert "UIRotationGestureRecognizer" not in host
-          assert "setPhotoTransform" in host
+          assert "setMediaTransform" in host
 
           markers = [
               "PHOTO_DIRECT_OVERLAY_PAN=PASS",
