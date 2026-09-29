@@ -32,7 +32,7 @@ jobs:
           START=4951d227ac8ea4425e969adeb46259293d1b7d6a
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor "$START" HEAD
-          test "$(git rev-parse main)" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          test "$(git rev-parse origin/main)" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
 
       - name: Static picker and orientation-gap evidence
         shell: bash
