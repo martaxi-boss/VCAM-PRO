@@ -18,6 +18,7 @@ namespace {
 using vcam::product::ProductControlSnapshot;
 using vcam::product::ProductMediaKind;
 using vcam::product::ProductPlaybackIntent;
+using vcam::product::ProductStreamOrientation;
 using vcam::product::SharedControlStore;
 
 int gTests = 0;
@@ -551,6 +552,9 @@ bool TestValidSnapshotRoundTrip() {
     input.photoTransform.translationY = -0.45;
     input.photoTransform.scale = 1.75;
     input.photoTransform.revision = 9;
+    input.streamOrientation =
+        ProductStreamOrientation::Portrait;
+    input.streamOrientationRevision = 13;
 
     CHECK(store.save(
         input,
@@ -589,6 +593,12 @@ bool TestValidSnapshotRoundTrip() {
     CHECK(
         output.photoTransform.revision ==
         input.photoTransform.revision);
+    CHECK(
+        output.streamOrientation ==
+        input.streamOrientation);
+    CHECK(
+        output.streamOrientationRevision ==
+        input.streamOrientationRevision);
 
     RemoveTree(root);
     return true;
@@ -617,6 +627,10 @@ bool TestLegacySnapshotDefaultsPhotoTransform() {
     CHECK(snapshot.photoTransform.translationY == 0.0);
     CHECK(snapshot.photoTransform.scale == 1.0);
     CHECK(snapshot.photoTransform.revision == 0);
+    CHECK(
+        snapshot.streamOrientation ==
+        ProductStreamOrientation::Unknown);
+    CHECK(snapshot.streamOrientationRevision == 0);
 
     RemoveTree(root);
     return true;
