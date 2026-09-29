@@ -543,6 +543,9 @@ CameraDecision CameraConsumerAdapter::decide(
                                         InvalidLease;
                             }
                         } else {
+                            videoAcquireCount_.fetch_add(
+                                1,
+                                std::memory_order_relaxed);
                             CVPixelBufferRef retained =
                                 retainVideoLatestFrameLocked(
                                     selected,
@@ -777,6 +780,13 @@ std::uint64_t
 CameraConsumerAdapter::
 videoLatestReuseDecisionCount() const noexcept {
     return videoLatestReuseDecisionCount_.
+        load(std::memory_order_relaxed);
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+videoAcquireCount() const noexcept {
+    return videoAcquireCount_.
         load(std::memory_order_relaxed);
 }
 
