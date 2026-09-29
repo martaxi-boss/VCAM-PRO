@@ -162,6 +162,71 @@ bool IsDirect(const CameraDecision& decision) {
         decision.pixelBuffer != nullptr;
 }
 
+bool HasNonBlackLuma(
+    CVPixelBufferRef pixelBuffer) {
+    if (pixelBuffer == nullptr ||
+        !CVPixelBufferIsPlanar(pixelBuffer) ||
+        CVPixelBufferGetPlaneCount(pixelBuffer) < 1) {
+        return false;
+    }
+
+    if (CVPixelBufferLockBaseAddress(
+            pixelBuffer,
+            kCVPixelBufferLock_ReadOnly) !=
+        kCVReturnSuccess) {
+        return false;
+    }
+
+    const OSType format =
+        CVPixelBufferGetPixelFormatType(
+            pixelBuffer);
+    const std::uint8_t black =
+        format ==
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange
+            ? 16
+            : 0;
+    const auto* base =
+        static_cast<const std::uint8_t*>(
+            CVPixelBufferGetBaseAddressOfPlane(
+                pixelBuffer,
+                0));
+    const std::size_t stride =
+        CVPixelBufferGetBytesPerRowOfPlane(
+            pixelBuffer,
+            0);
+    const std::size_t width =
+        CVPixelBufferGetWidthOfPlane(
+            pixelBuffer,
+            0);
+    const std::size_t height =
+        CVPixelBufferGetHeightOfPlane(
+            pixelBuffer,
+            0);
+
+    bool visible = false;
+    if (base != nullptr) {
+        for (std::size_t y = 0;
+             y < height && !visible;
+             y += 8) {
+            const auto* row =
+                base + y * stride;
+            for (std::size_t x = 0;
+                 x < width;
+                 x += 8) {
+                if (row[x] != black) {
+                    visible = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    CVPixelBufferUnlockBaseAddress(
+        pixelBuffer,
+        kCVPixelBufferLock_ReadOnly);
+    return visible;
+}
+
 bool WaitForInitialPhoto(
     MediaserverdRuntime& runtime,
     std::uint64_t generation) {
@@ -558,12 +623,10 @@ bool TestOverflowGate() {
     const CameraDecision overflowReturn =
         runtime.decideCameraBuffer(
             geometries[0].buffer);
-    CHECK(
-        IsPrepared(overflowReturn) ||
-        IsDirect(overflowReturn));
+    CHECK(IsDirect(overflowReturn));
     CHECK(!IsSafeBlack(overflowReturn));
-    CHECK(runtime.resumeControlQueueForTesting());
-    CHECK(runtime.drainControlQueueForTesting());
+    CHECK(HasNonBlackLuma(
+        overflowReturn.pixelBuffer));
 
     const auto benchmarkStart =
         std::chrono::steady_clock::now();
@@ -572,15 +635,15 @@ bool TestOverflowGate() {
          ++iteration) {
         const CameraDecision decision =
             runtime.decideCameraBuffer(
-                geometries[
-                    directRenderIndex].
-                    buffer);
-        CHECK(
-            IsPrepared(decision) ||
-            IsDirect(decision));
+                geometries[0].buffer);
+        CHECK(IsDirect(decision));
+        CHECK(decision.pixelBuffer ==
+              geometries[0].buffer);
     }
     const auto benchmarkEnd =
         std::chrono::steady_clock::now();
+    CHECK(runtime.resumeControlQueueForTesting());
+    CHECK(runtime.drainControlQueueForTesting());
     const auto benchmarkNs =
         std::chrono::duration_cast<
             std::chrono::nanoseconds>(
