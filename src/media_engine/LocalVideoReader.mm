@@ -7,6 +7,7 @@
 #include <CoreMedia/CoreMedia.h>
 #include <CoreVideo/CoreVideo.h>
 
+#include <atomic>
 #include <utility>
 
 namespace vcam::media_engine {
@@ -148,11 +149,12 @@ struct LocalVideoReader::Impl {
 
     std::string fileIdentity;
     std::string lastErrorMessage;
-    ReaderErrorCode lastErrorCode = ReaderErrorCode::None;
+    std::atomic<ReaderErrorCode>
+        lastErrorCode{ReaderErrorCode::None};
 
-    bool opened = false;
-    bool started = false;
-    bool cancelled = false;
+    std::atomic<bool> opened{false};
+    std::atomic<bool> started{false};
+    std::atomic<bool> cancelled{false};
 };
 
 LocalVideoReader::LocalVideoReader(frame_engine::FrameEngineState& state)
@@ -571,7 +573,8 @@ const std::string& LocalVideoReader::fileIdentity() const noexcept {
 }
 
 ReaderErrorCode LocalVideoReader::lastErrorCode() const noexcept {
-    return impl_->lastErrorCode;
+    return impl_->lastErrorCode.load(
+        std::memory_order_acquire);
 }
 
 const std::string& LocalVideoReader::lastErrorMessage() const noexcept {
@@ -665,13 +668,17 @@ void LocalVideoReader::cancelCurrentReaderForReplacement() {
 }
 
 void LocalVideoReader::clearLastError() noexcept {
-    impl_->lastErrorCode = ReaderErrorCode::None;
+    impl_->lastErrorCode.store(
+        ReaderErrorCode::None,
+        std::memory_order_release);
     impl_->lastErrorMessage.clear();
 }
 
 void LocalVideoReader::setLastError(ReaderErrorCode code,
                                     const std::string& message) {
-    impl_->lastErrorCode = code;
+    impl_->lastErrorCode.store(
+        code,
+        std::memory_order_release);
     impl_->lastErrorMessage = message;
 }
 
