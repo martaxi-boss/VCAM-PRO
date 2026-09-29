@@ -477,6 +477,12 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
             &commitSucceeded,
             &ownershipGuardApplied);
 
+    // Atomic counters only; serialization to the diagnostic transport occurs
+    // later on the mediaserverd control queue.
+    runtime.noteCameraCommitResult(
+        commitAttempted,
+        commitSucceeded);
+
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
     proof::ActivationParityHookObservation
         observation;
