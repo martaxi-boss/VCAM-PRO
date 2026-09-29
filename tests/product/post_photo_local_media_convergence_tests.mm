@@ -403,6 +403,25 @@ bool WaitForPreparedGeometry(
     return false;
 }
 
+bool WaitForRuntimeEnabled(
+    MediaserverdRuntime& runtime,
+    bool enabled) {
+    for (int attempt = 0;
+         attempt < 2500;
+         ++attempt) {
+        CHECK(
+            runtime.
+                drainControlQueueForTesting());
+        if (runtime.snapshotForTesting().enabled ==
+            enabled) {
+            return true;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    return false;
+}
+
 bool TestPickerTypeContract() {
     CHECK(
         [UTTypeQuickTimeMovie
@@ -845,7 +864,9 @@ bool TestVideoSelectionAndGeometryChurn() {
 
     CHECK(owner.setEnabled(false));
     CHECK(
-        runtime.drainControlQueueForTesting());
+        WaitForRuntimeEnabled(
+            runtime,
+            false));
     const CameraDecision offDecision =
         runtime.decideCameraBuffer(a);
     CHECK(
@@ -860,7 +881,9 @@ bool TestVideoSelectionAndGeometryChurn() {
 
     CHECK(owner.setEnabled(true));
     CHECK(
-        runtime.drainControlQueueForTesting());
+        WaitForRuntimeEnabled(
+            runtime,
+            true));
     CHECK(owner.clearMedia());
     CHECK(
         runtime.drainControlQueueForTesting());
