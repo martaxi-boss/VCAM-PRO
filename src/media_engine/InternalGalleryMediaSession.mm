@@ -187,15 +187,23 @@ bool InternalGalleryMediaSession::resume() {
 }
 
 bool InternalGalleryMediaSession::
-setPhotoTransform(
+setMediaTransform(
     const PhotoTransformState& transform) {
-    if (selected_.kind !=
-            SelectedMediaKind::Photo ||
-        photoReader_ == nullptr ||
+    const bool photoSelected =
+        selected_.kind ==
+            SelectedMediaKind::Photo;
+    const bool videoSelected =
+        selected_.kind ==
+            SelectedMediaKind::Video;
+
+    if (!selected_.valid ||
+        (!photoSelected && !videoSelected) ||
+        (photoSelected && photoReader_ == nullptr) ||
+        (videoSelected && videoReader_ == nullptr) ||
         pump_ == nullptr ||
         driver_ == nullptr) {
         setStatus(
-            "Photo transform requires a selected photo.");
+            "Media transform requires selected local media.");
         return false;
     }
 
@@ -214,6 +222,17 @@ setPhotoTransform(
         return true;
     }
 
+    const auto playback =
+        state_.playbackState();
+
+    // Quiesce only F2 for live VIDEO. AVAssetReader, selection generation,
+    // source PTS and the F1 timeline remain intact.
+    if (videoSelected &&
+        playback ==
+            frame_engine::PlaybackState::Playing) {
+        driver_->stop();
+    }
+
     transformer_.setPhotoTransform(
         normalized);
     pump_->setForceTransform(
@@ -221,31 +240,46 @@ setPhotoTransform(
             hasNonDefaultPhotoTransform());
 
     queue_.clear();
-    scheduler_.reset();
 
-    if (state_.playbackState() ==
+    if (photoSelected) {
+        // Preserve the already-certified PHOTO republish semantics.
+        scheduler_.reset();
+    }
+
+    if (playback ==
         frame_engine::PlaybackState::Playing) {
         if (!driver_->start()) {
             setStatus(
-                "Unable to republish transformed photo.");
+                photoSelected
+                    ? "Unable to republish transformed photo."
+                    : "Unable to continue transformed video.");
             return false;
         }
     } else if (
-        state_.playbackState() ==
+        playback ==
         frame_engine::PlaybackState::Paused) {
         const auto result =
             pump_->pumpOnce();
         if (result.status !=
             FramePipelinePumpStatus::Published) {
             setStatus(
-                "Unable to refresh paused photo transform.");
+                photoSelected
+                    ? "Unable to refresh paused photo transform."
+                    : "Unable to refresh paused video transform.");
             return false;
         }
     }
 
     setStatus(
-        "Photo position / zoom updated.");
+        "Media position / zoom updated.");
     return true;
+}
+
+bool InternalGalleryMediaSession::
+setPhotoTransform(
+    const PhotoTransformState& transform) {
+    return setMediaTransform(
+        transform);
 }
 
 bool InternalGalleryMediaSession::
@@ -580,8 +614,8 @@ installPipelineForActiveSource() {
             queue_,
             config_.target);
     pump_->setForceTransform(
-        selected_.kind ==
-                SelectedMediaKind::Photo &&
+        selected_.kind !=
+                SelectedMediaKind::None &&
         transformer_.
             hasNonDefaultPhotoTransform());
 
