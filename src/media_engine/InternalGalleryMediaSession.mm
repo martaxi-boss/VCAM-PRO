@@ -244,6 +244,8 @@ setMediaTransform(
         playback ==
             frame_engine::PlaybackState::Playing) {
         driver_->stop();
+        pump_->
+            discardPendingTimedFrameForTransformUpdate();
     }
 
     transformer_.setPhotoTransform(
