@@ -137,6 +137,9 @@ private:
         driver_;
 
     SelectedMediaRecord selected_{};
+    frame_engine::ReaderErrorCode
+        lastVideoReaderErrorCode_ =
+            frame_engine::ReaderErrorCode::None;
     std::uint64_t photoVariantPreparationCount_ = 0;
     std::string statusMessage_ =
         "No media selected.";
