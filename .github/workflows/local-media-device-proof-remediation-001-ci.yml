@@ -360,6 +360,7 @@ jobs:
           assert "if (hit == self.rootViewController.view)" in spring
           assert "return nil;" in spring
           assert "enterPhotoAdjustMode" in spring
+          assert "ProductMediaKind::Video" in spring
           assert "_photoAdjustSurface" in spring
           assert "UIPanGestureRecognizer" in spring
           assert "UIPinchGestureRecognizer" in spring
@@ -367,12 +368,12 @@ jobs:
           assert "exitPhotoAdjustMode" in spring
           assert "[_photoAdjustSurface removeFromSuperview]" in spring
           assert "UIRotationGestureRecognizer" not in spring
-          assert 'buttonWithTitle:@"Adjust Photo"' in panel
+          assert 'buttonWithTitle:@"Adjust Media"' in panel
 
           out = Path("build/local-media-device-proof-remediation-001/overlay.txt")
           out.write_text("\n".join([
-              "PHOTO_ADJUST_OVERLAY_CHANGED=NO",
-              "PHOTO_ADJUST_OVERLAY_REASON=EXISTING_CENTRAL_OVERLAY_NOT_IMPLICATED_BY_DEVICE_EVIDENCE",
+              "PHOTO_ADJUST_OVERLAY_CHANGED=GENERALIZED_TO_SELECTED_MEDIA",
+              "PHOTO_ADJUST_OVERLAY_REASON=PHOTO_BEHAVIOR_PRESERVED_WHILE_VIDEO_ADDED",
               "PHOTO_OVERLAY_CODE_REGRESSION=PASS",
               "NORMAL_APP_TOUCH_PASSTHROUGH=PASS",
               "ADJUST_MODE_TOUCH_CAPTURE=PASS",
