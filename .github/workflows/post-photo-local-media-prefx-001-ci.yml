@@ -1,13 +1,6 @@
 name: VCAM PRO Post Photo Local Media Pre-Fix 001
 
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/product/MediaserverdRuntime.*"
-      - "tests/product/post_photo_local_media_prefx_tests.mm"
-      - ".github/workflows/post-photo-local-media-prefx-001-ci.yml"
   workflow_dispatch:
 
 permissions:
