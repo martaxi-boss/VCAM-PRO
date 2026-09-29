@@ -85,6 +85,8 @@ public:
 
     frame_engine::PlaybackState
     playbackState() const noexcept;
+    NormalizationTarget
+    currentTarget() const noexcept;
 
     frame_engine::FrameEngineState&
     state() noexcept;

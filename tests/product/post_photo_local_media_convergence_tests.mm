@@ -487,6 +487,100 @@ bool TestPickerTypeContract() {
     return true;
 }
 
+bool TestInitialOrientationAppliedBeforeSelection() {
+    const std::string root =
+        TempRoot("initial-orientation");
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.png";
+    CHECK(CreatePhoto(input));
+
+    const std::string controlPath =
+        root + "/control.plist";
+    const std::string media =
+        root + "/Media";
+    const std::string notification =
+        "com.vcampro.postphoto.orientation.initial." +
+        std::to_string(getpid());
+
+    ProductControlOwner owner(
+        controlPath,
+        notification,
+        media);
+    MediaserverdRuntime runtime(
+        controlPath,
+        notification);
+    CHECK(runtime.start());
+
+    CVPixelBufferRef geometry =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    CHECK(geometry != nullptr);
+
+    runtime.observeRealCameraBuffer(
+        geometry);
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(owner.setEnabled(true));
+
+    CHECK(
+        owner.setStreamOrientation(
+            ProductStreamOrientation::Portrait));
+
+    std::string error;
+    CHECK(
+        owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Photo,
+            &error));
+    CHECK(error.empty());
+
+    const auto selected =
+        owner.snapshot();
+    CHECK(
+        selected.streamOrientation ==
+            ProductStreamOrientation::Portrait);
+    CHECK(
+        selected.streamOrientationRevision != 0);
+
+    CHECK(
+        WaitForPhoto(
+            runtime,
+            selected.selectionGeneration));
+
+    const auto runtimeSnapshot =
+        runtime.snapshotForTesting();
+    CHECK(
+        runtimeSnapshot.currentTargetOrientation ==
+            static_cast<std::uint8_t>(
+                vcam::media_engine::
+                    OrientationRequirement::
+                        StreamPortrait));
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(
+                geometry)));
+
+    std::cout
+        << "INITIAL_MEDIA_SELECTION_STREAM_ORIENTATION=PASS\n"
+        << "INITIAL_MEDIA_SELECTION_ORIENTATION_REVISION_PRESERVED=PASS\n";
+
+    CVPixelBufferRelease(
+        geometry);
+
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString
+                stringWithUTF8String:
+                    root.c_str()]
+                   error:nil];
+
+    return true;
+}
+
 bool TestStablePhotoMicroflashOwnership() {
     const std::string root =
         TempRoot("photo");
@@ -943,6 +1037,10 @@ bool TestVideoSelectionAndGeometryChurn() {
 int main() {
     @autoreleasepool {
         if (!TestPickerTypeContract()) {
+            return EXIT_FAILURE;
+        }
+
+        if (!TestInitialOrientationAppliedBeforeSelection()) {
             return EXIT_FAILURE;
         }
 

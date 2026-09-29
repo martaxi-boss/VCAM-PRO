@@ -464,6 +464,12 @@ playbackState() const noexcept {
     return state_.playbackState();
 }
 
+NormalizationTarget
+InternalGalleryMediaSession::
+currentTarget() const noexcept {
+    return config_.target;
+}
+
 frame_engine::FrameEngineState&
 InternalGalleryMediaSession::state() noexcept {
     return state_;

@@ -1389,9 +1389,8 @@ struct MediaserverdRuntime::Impl {
         config.target.pixelFormat =
             pixelFormat;
         config.target.orientation =
-            media_engine::
-                OrientationRequirement::
-                    UprightIdentityTransform;
+            StreamOrientationForSnapshot(
+                snapshot);
         config.target.colorMetadata =
             media_engine::
                 ColorMetadataPolicy::
@@ -4056,6 +4055,11 @@ MediaserverdRuntime::snapshotForTesting() {
                 result.photoVariantPreparationCount =
                     impl_->session_->
                         photoVariantPreparationCount();
+                result.currentTargetOrientation =
+                    static_cast<std::uint8_t>(
+                        impl_->session_->
+                            currentTarget().
+                                orientation);
             }
 
             result.photoVariantRetainedBytes =
