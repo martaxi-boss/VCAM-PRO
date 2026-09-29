@@ -790,6 +790,44 @@ videoAcquireCount() const noexcept {
         load(std::memory_order_relaxed);
 }
 
+#if defined(VCAM_TESTING)
+std::uint64_t
+CameraConsumerAdapter::
+videoLatestTransformRevisionForTesting() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    const VideoLatestFrameSlot* latest = nullptr;
+    for (const auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer == nullptr) {
+            continue;
+        }
+        if (latest == nullptr ||
+            slot.lastUseSerial >
+                latest->lastUseSerial) {
+            latest = &slot;
+        }
+    }
+    return latest != nullptr
+        ? latest->transformRevision
+        : 0;
+}
+
+std::size_t
+CameraConsumerAdapter::
+videoLatestStaleTransformCountForTesting(
+    std::uint64_t expectedRevision) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t count = 0;
+    for (const auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.transformRevision !=
+                expectedRevision) {
+            ++count;
+        }
+    }
+    return count;
+}
+#endif
+
 std::size_t
 CameraConsumerAdapter::
 photoVariantRetainedBytes() const {
