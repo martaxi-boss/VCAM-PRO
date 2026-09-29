@@ -42,7 +42,7 @@ grep -q 'Stage D2 pipeline stress tests run: 5, failures: 0' build/regressions/d
 
 $CXX $BASE $INC   src/frame_engine/PreparedFrame.cpp src/media_engine/FrameNormalizer.cpp   src/media_engine/FrameTransformer.mm   tests/media_engine/frame_transformer_stage_e1_tests.mm   -framework Accelerate -framework CoreFoundation -framework CoreGraphics   -framework CoreMedia -framework CoreVideo -o build/regressions/e1t
 build/regressions/e1t | tee build/regressions/e1-transformer.txt
-grep -q 'Stage E1 transformer tests run: 27, failures: 0' build/regressions/e1-transformer.txt
+grep -q 'Stage E1 transformer tests run: 32, failures: 0' build/regressions/e1-transformer.txt
 
 $CXX $OBJC $INC   src/frame_engine/PreparedFrame.cpp src/frame_engine/FrameEngineState.cpp   src/frame_engine/ReadyFrameQueue.cpp src/media_engine/LocalVideoReader.mm   src/media_engine/FrameNormalizer.cpp src/media_engine/FrameTransformer.mm   src/media_engine/FramePipelinePump.cpp   tests/media_engine/frame_pipeline_stage_e1_tests.mm   -framework Accelerate -framework Foundation -framework AVFoundation   -framework CoreFoundation -framework CoreGraphics -framework CoreMedia   -framework CoreVideo -o build/regressions/e1p
 build/regressions/e1p | tee build/regressions/e1-pipeline.txt
