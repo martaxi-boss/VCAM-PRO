@@ -296,6 +296,53 @@ bool FillVisibleNV12(
     return ok;
 }
 
+int SampleLuma(
+    CVPixelBufferRef buffer,
+    std::size_t x,
+    std::size_t y) {
+    if (buffer == nullptr ||
+        !CVPixelBufferIsPlanar(buffer) ||
+        CVPixelBufferGetPlaneCount(buffer) < 1 ||
+        CVPixelBufferLockBaseAddress(
+            buffer,
+            kCVPixelBufferLock_ReadOnly) !=
+        kCVReturnSuccess) {
+        return -1;
+    }
+
+    const auto* base =
+        static_cast<const std::uint8_t*>(
+            CVPixelBufferGetBaseAddressOfPlane(
+                buffer,
+                0));
+    const std::size_t stride =
+        CVPixelBufferGetBytesPerRowOfPlane(
+            buffer,
+            0);
+    const std::size_t width =
+        CVPixelBufferGetWidthOfPlane(
+            buffer,
+            0);
+    const std::size_t height =
+        CVPixelBufferGetHeightOfPlane(
+            buffer,
+            0);
+
+    int value = -1;
+    if (base != nullptr &&
+        x < width &&
+        y < height) {
+        value =
+            static_cast<int>(
+                base[y * stride + x]);
+    }
+
+    CVPixelBufferUnlockBaseAddress(
+        buffer,
+        kCVPixelBufferLock_ReadOnly);
+    return value;
+}
+
 bool TestDirectRendererSyntheticSource() {
     const OSType full =
         kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
@@ -307,6 +354,13 @@ bool TestDirectRendererSyntheticSource() {
     CHECK(source != nullptr);
     CHECK(destination != nullptr);
     CHECK(FillVisibleNV12(source));
+    CHECK(HasNonBlackLuma(source));
+    const int sourceSample =
+        SampleLuma(source, 0, 12);
+    CHECK(sourceSample == 120);
+    std::cout
+        << "DIRECT_RENDER_SOURCE_LUMA="
+        << sourceSample << "\n";
 
     vcam::frame_engine::ReadyFrameQueue queue(1);
     CameraConsumerAdapter adapter;
@@ -337,6 +391,20 @@ bool TestDirectRendererSyntheticSource() {
     const CameraDecision decision =
         adapter.decide(destination);
     CHECK(IsDirect(decision));
+    const int destinationSample =
+        SampleLuma(
+            decision.pixelBuffer,
+            0,
+            0);
+    std::cout
+        << "DIRECT_RENDER_DESTINATION_LUMA="
+        << destinationSample << "\n"
+        << "DIRECT_RENDER_COUNT="
+        << adapter.directPhotoRenderCount()
+        << "\n"
+        << "DIRECT_RENDER_FAILURE_COUNT="
+        << adapter.directPhotoRenderFailureCount()
+        << "\n";
     CHECK(HasNonBlackLuma(
         decision.pixelBuffer));
 
