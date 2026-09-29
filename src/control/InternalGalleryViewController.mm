@@ -28,7 +28,7 @@ using vcam::product::ProductPlaybackIntent;
 @property(nonatomic, strong) UISwitch* vcamSwitch;
 @property(nonatomic, strong) UILabel* selectedLabel;
 @property(nonatomic, strong) UILabel* statusLabel;
-@@property(nonatomic, strong) UIButton* resetPhotoTransformButton;
+@property(nonatomic, strong) UIButton* resetPhotoTransformButton;
 @property(nonatomic, strong) UIButton* adjustPhotoButton;
 @property(nonatomic, strong, nullable) NSURL* ownedMediaURL;
 - (BOOL)claimFileCompletionForRequestToken:
