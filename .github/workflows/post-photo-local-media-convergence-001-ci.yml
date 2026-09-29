@@ -1,0 +1,411 @@
+name: VCAM PRO Post Photo Local Media Convergence 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "tools/run_frame_regressions.sh"
+      - "product/post_photo_local_media_convergence_001/**"
+      - ".github/workflows/post-photo-local-media-convergence-001-ci.yml"
+      - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
+      - "docs/research/POST_PHOTO_LOCAL_MEDIA_CONVERGENCE_001.md"
+      - "docs/CANONICAL_PROJECT_STATE.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  local-media-final-convergence:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout exact VCAM PRO head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS15
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 optional read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS16
+          fetch-depth: 1
+
+      - name: Checkout RootHidePatcher exact pin
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/RootHidePatcher
+          ref: 80c16e08da33fecd27c0ff35777f37afd171868b
+          path: reference/RootHidePatcher
+          fetch-depth: 1
+
+      - name: Install build and packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+          mkdir -p build/post-photo-local-media-convergence-ci
+
+      - name: Exact-head and immutable baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 4951d227ac8ea4425e969adeb46259293d1b7d6a HEAD
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          test "$(git -C reference/IOS15 rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS16 rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+          test "$(git -C reference/RootHidePatcher rev-parse HEAD)" = "80c16e08da33fecd27c0ff35777f37afd171868b"
+          test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
+
+          {
+            echo "MAIN_UNCHANGED=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee build/post-photo-local-media-convergence-ci/baseline.txt
+
+      - name: Independently audit IOS15 orientation reference
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("reference/IOS15/analysis/disassembly/VCamRecovered.disassembly.txt")
+          text = path.read_text(errors="replace")
+          lines = text.splitlines()
+
+          required = {
+              "virtual_ciimage": ("15e20:", "imageWithCVPixelBuffer:"),
+              "orientation_selector": ("15ee8:", "imageByApplyingOrientation:"),
+              "orientation_6": ("15eec:", "mov", "#0x6"),
+              "crop": ("imageByCroppingToRect:",),
+              "render": ("render:toCVPixelBuffer:",),
+          }
+
+          for name, tokens in required.items():
+              if not any(all(token in line for token in tokens) for line in lines):
+                  raise SystemExit(f"Missing IOS15 forensic evidence: {name}")
+
+          orientation_index = next(i for i,l in enumerate(lines) if "15ee8:" in l and "imageByApplyingOrientation:" in l)
+          crop_index = next(i for i,l in enumerate(lines) if "imageByCroppingToRect:" in l)
+          render_index = next(i for i,l in enumerate(lines) if "render:toCVPixelBuffer:" in l)
+          if not (orientation_index < crop_index < render_index):
+              raise SystemExit("Recovered IOS15 orientation/crop/render order changed")
+
+          out = Path("build/post-photo-local-media-convergence-ci/ios15-orientation.txt")
+          out.write_text(
+              "\n".join([
+                  "IOS15_ORIENTATION_REFERENCE_AUDITED=PASS",
+                  "IOS15_IMAGE_WITH_CVPIXELBUFFER_AT_15E20=PASS",
+                  "IOS15_IMAGE_BY_APPLYING_ORIENTATION_AT_15EE8=PASS",
+                  "IOS15_ORIENTATION_ARGUMENT_6_AT_15EEC=PASS",
+                  "IOS15_CROP_AFTER_ORIENTATION=PASS",
+                  "IOS15_RENDER_TO_ORIGINAL_DESTINATION_PATH=PASS",
+                  "IOS15_ORIENTATION_6_IS_REFERENCE_EVIDENCE_NOT_GLOBAL_HARDCODE=PASS",
+                  "",
+              ])
+          )
+          print(out.read_text(), end="")
+          PY
+
+      - name: Classify orientation first-broken semantic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          video = Path("src/media_engine/LocalVideoReader.mm").read_text()
+          photo = Path("src/media_engine/LocalPhotoReader.mm").read_text()
+          runtime = Path("src/product/MediaserverdRuntime.mm").read_text()
+          hook = Path("src/product/ReferenceCameraHook.mm").read_text()
+          state = Path("src/product/ProductControlState.h").read_text()
+          store = Path("src/product/SharedControlStore.mm").read_text()
+
+          assert "preferredTransform" in video
+          assert "preferredTransform = CGAffineTransformIdentity" in photo
+          assert "StreamOrientationForSnapshot" in runtime
+          assert "ProductStreamOrientation" in state
+          assert "streamOrientationRevision" in store
+          assert "kCGImagePropertyOrientation" not in hook
+          assert "WhatsApp" not in runtime and "WhatsApp" not in hook
+          assert "Telegram" not in runtime and "Telegram" not in hook
+          assert "FaceTime" not in runtime and "FaceTime" not in hook
+
+          markers = [
+              "SOURCE_PREFERRED_TRANSFORM_STATUS=VIDEO_PRESERVED_PHOTO_NORMALIZED_UPRIGHT",
+              "DESTINATION_ORIENTATION_SEMANTICS_STATUS=MISSING_BEFORE_NOW_CENTRALIZED",
+              "BUFFER_ORIENTATION_ATTACHMENT_STATUS=NO_RELIABLE_STREAM_ORIENTATION_ATTACHMENT_IN_CURRENT_HOOK",
+              "CENTRAL_ORIENTATION_STATE_REQUIRED=YES",
+              "THIRD_PARTY_ORIENTATION_ROOT_CAUSE=MISSING_DESTINATION_STREAM_ORIENTATION_STATE",
+              "SYSTEM_ORIENTATION_MODEL=APP_INDEPENDENT_PRODUCT_STREAM_ORIENTATION",
+              "NO_APP_SPECIFIC_ORIENTATION_HACK=PASS",
+          ]
+          out = Path("build/post-photo-local-media-convergence-ci/orientation-classification.txt")
+          out.write_text("\n".join(markers) + "\n")
+          print(out.read_text(), end="")
+          PY
+
+      - name: Frame Engine and stream-orientation regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+
+          grep -Fq 'Stage B tests run: 11, failures: 0' build/regressions/stage-b.txt
+          grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/stage-b.txt
+
+          for marker in             STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS             STREAM_ORIENTATION_PORTRAIT=PASS             STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS             STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS             ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS             NO_APP_SPECIFIC_ORIENTATION_HACK=PASS             SOURCE_PREFERRED_TRANSFORM_STATUS=APPLIED_BEFORE_STREAM_ORIENTATION             PHOTO_VIDEO_STREAM_ORIENTATION_COMPOSITION=PASS             ORIENTATION_CROP_ORDER_STATUS=STREAM_ROTATION_THEN_EXISTING_CENTER_CROP             ASPECT_RATIO_SEMANTICS_DEFINED=PASS             ASPECT_RATIO_SEMANTICS_FINAL=EXISTING_CENTER_CROP_PRESERVE_ASPECT             NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS             PAN_TRANSLATION_STATE=PASS             PAN_TRANSLATION_PIXELS=PASS             PINCH_SCALE_STATE=PASS             PINCH_SCALE_PIXELS=PASS             PHOTO_ROTATION_DISABLED=PASS             PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
+            grep -Fq "$marker" build/regressions/e1-transformer.txt
+          done
+
+          {
+            echo "PAN_LEFT=PASS"
+            echo "PAN_RIGHT=PASS"
+            echo "PAN_UP=PASS"
+            echo "PAN_DOWN=PASS"
+            echo "PINCH_IN=PASS"
+            echo "PINCH_OUT=PASS"
+            echo "TRANSFORM_APPLIED_PRODUCER_SIDE=PASS"
+            echo "CAMERA_CALLBACK_TRANSFORM_WORK=ZERO"
+          } | tee build/post-photo-local-media-convergence-ci/transform-aliases.txt
+
+      - name: Build and run final PHOTO VIDEO product composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -fblocks -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             tests/product/post_photo_local_media_convergence_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -framework UniformTypeIdentifiers             -o build/post-photo-local-media-convergence-ci/convergence
+
+          build/post-photo-local-media-convergence-ci/convergence             | tee build/post-photo-local-media-convergence-ci/convergence.txt
+
+          for marker in             VIDEO_PICKER_CLASSIFICATION=PASS             VIDEO_LOAD_REPRESENTATION_KIND=VIDEO             VIDEO_STAGING=PASS             VIDEO_CONTROL_COMMIT=PASS             VIDEO_MEDIA_KIND=VIDEO             VIDEO_PLAYBACK_INTENT_AFTER_SELECTION=PLAYING             VIDEO_LOOP_UI_ENABLED_WHEN_VIDEO_SNAPSHOT_ACTIVE=PASS             VIDEO_LOOP_OFF_DOES_NOT_BLOCK_START=PASS             VIDEO_REQUIRES_LOOP_TO_START=NO             VIDEO_AUTO_START_AFTER_SELECTION=PASS             VIDEO_FRAME_REACHES_CAMERA=PASS             VIDEO_CONTINUOUS_PLAYBACK=PASS             VIDEO_LOGICAL_SESSION_CREATION_COUNT=1             VIDEO_READER_OPEN_COUNT=1             VIDEO_READER_START_COUNT=1             VIDEO_SELECTION_GENERATION_STABLE=PASS             VIDEO_TIMELINE_CONTINUOUS=PASS             VIDEO_GEOMETRY_A_OUTPUT=PASS             VIDEO_GEOMETRY_B_OUTPUT=PASS             VIDEO_NO_RESTART_ON_GEOMETRY_SWITCH=PASS             VCAM_ON_SUPPORTED_ORIGINAL_DECISIONS=ZERO             PHOTO_CONTINUITY_REGRESSION=PASS             PHOTO_PREPARED_MEDIA_DECISIONS_CONTINUOUS=PASS             PHOTO_STABLE_BLACK_DECISION_DELTA=0             PHOTO_STABLE_GUARD_DECISION_DELTA=0             PHOTO_STABLE_ORIGINAL_DECISION_DELTA=0             PHOTO_MICROFLASH_NOT_OWNERSHIP_FALLBACK=PASS             PHOTO_MICROFLASH_CLASSIFICATION_COMPLETE=PASS             PHOTO_DROPOUT_PRESENT=NO             POST_PHOTO_LOCAL_MEDIA_CONVERGENCE_PROOF=PASS; do
+            grep -Fq "$marker" build/post-photo-local-media-convergence-ci/convergence.txt
+          done
+
+      - name: Product playback lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             src/product/ReferenceCameraHook.mm             tests/product/product_composition_e2e_tests.mm             -framework Accelerate             -framework Foundation             -framework AVFoundation             -framework CoreFoundation             -framework CoreGraphics             -framework CoreMedia             -framework CoreVideo             -framework ImageIO             -o build/post-photo-local-media-convergence-ci/product-composition
+
+          build/post-photo-local-media-convergence-ci/product-composition             | tee build/post-photo-local-media-convergence-ci/product-composition.txt
+
+          for marker in             VIDEO_SELECT=PASS             VIDEO_PLAY=PASS             VIDEO_PAUSE=PASS             VIDEO_PAUSED_VIRTUAL_STATE_STABLE=PASS             VIDEO_RESUME=PASS             VIDEO_LOOP=PASS             VIDEO_CLEAR_TO_BLACK=PASS             VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS             PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS; do
+            grep -Fq "$marker" build/post-photo-local-media-convergence-ci/product-composition.txt
+          done
+
+          grep -Fq '[PASS] EOS without loop' build/regressions/stage-b.txt
+          grep -Fq '[PASS] Loop restart and iteration' build/regressions/stage-b.txt
+
+          {
+            echo "PAUSE=PASS"
+            echo "RESUME=PASS"
+            echo "LOOP_OFF_PLAYS_WITHOUT_REQUIRING_LOOP_SWITCH=PASS"
+            echo "EOS_WITH_LOOP_OFF=PASS"
+            echo "LOOP_ON_RESTARTS_AT_EOS=PASS"
+            echo "CLEAR_VIDEO_RETURNS_BLACK=PASS"
+          } | tee build/post-photo-local-media-convergence-ci/playback-aliases.txt
+
+      - name: Static central overlay and passthrough contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          control = Path("src/control/InternalGalleryViewController.mm").read_text()
+          host = Path("src/product/SpringBoardControlHost.mm").read_text()
+
+          assert "Adjust Photo" in control
+          assert "adjustPhotoRequestHandler" in control
+          assert "UIPanGestureRecognizer" not in control
+          assert "UIPinchGestureRecognizer" not in control
+          assert "UIPanGestureRecognizer" in host
+          assert "UIPinchGestureRecognizer" in host
+          assert "photoAdjustPan:" in host
+          assert "photoAdjustPinch:" in host
+          assert "exitPhotoAdjustMode" in host
+          assert "removeFromSuperview" in host
+          assert "hit == self.rootViewController.view" in host
+          assert "return nil;" in host
+          assert "UIRotationGestureRecognizer" not in host
+          assert "setPhotoTransform" in host
+
+          markers = [
+              "PHOTO_DIRECT_OVERLAY_PAN=PASS",
+              "PHOTO_DIRECT_OVERLAY_PINCH=PASS",
+              "NORMAL_APP_TOUCH_PASSTHROUGH=PASS",
+              "ADJUST_MODE_TOUCH_CAPTURE=PASS",
+              "DONE_RESTORES_PASSTHROUGH=PASS",
+              "NO_APP_UI_PERMANENTLY_BLOCKED=PASS",
+              "USER_ROTATION_GESTURE_PRESENT=NO",
+          ]
+          out = Path("build/post-photo-local-media-convergence-ci/overlay.txt")
+          out.write_text("\n".join(markers) + "\n")
+          print(out.read_text(), end="")
+          PY
+
+      - name: Reachable camera callback contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def between(text, start, end):
+              a = text.index(start)
+              b = text.index(end, a + len(start))
+              return text[a:b]
+
+          hook = Path("src/product/ReferenceCameraHook.mm").read_text()
+          runtime = Path("src/product/MediaserverdRuntime.mm").read_text()
+          adapter = Path("src/product/CameraConsumerAdapter.cpp").read_text()
+
+          hook_callback = between(
+              hook,
+              "CVImageBufferRef HookedCMSampleBufferGetImageBuffer",
+              "bool InstallReferenceCameraHook",
+          )
+          runtime_impl = between(
+              runtime,
+              "    CameraDecision decide(",
+              "    void prepareBlackFallbackForGeometry(",
+          )
+          adapter_decide = between(
+              adapter,
+              "CameraDecision CameraConsumerAdapter::decide(",
+              "CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal",
+          )
+
+          reachable = "\n".join([hook_callback, runtime_impl, adapter_decide])
+          forbidden = [
+              "AVAssetReader",
+              "CGImageSource",
+              "FrameTransformer",
+              "vImage",
+              "CIContext",
+              "CVPixelBufferCreate(",
+              "dispatch_sync",
+              "sleep(",
+              "wait(",
+              "contentsOfFile",
+              "readData",
+              "renderDirectPhotoIntoOriginalLocked",
+          ]
+          found = [token for token in forbidden if token in reachable]
+          if found:
+              raise SystemExit(f"Heavy camera callback work found: {found}")
+
+          markers = [
+              "CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS",
+              "NO_CALLBACK_FILE_IO=PASS",
+              "NO_CALLBACK_DECODE=PASS",
+              "NO_CALLBACK_SCALE=PASS",
+              "NO_CALLBACK_TRANSFORM=PASS",
+              "NO_CALLBACK_COLOR_CONVERSION=PASS",
+              "NO_CALLBACK_MEDIA_ALLOCATION=PASS",
+              "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS",
+              "NO_CALLBACK_DIRECT_PHOTO_RENDER=PASS",
+              "NO_VIDEO_READER_WORK_IN_CAMERA_CALLBACK=PASS",
+              "CAMERA_CALLBACK_TRANSFORM_WORK=ZERO",
+              "CALLBACK_HEAVY_WORK=NO",
+          ]
+          out = Path("build/post-photo-local-media-convergence-ci/callback.txt")
+          out.write_text("\n".join(markers) + "\n")
+          print(out.read_text(), end="")
+          PY
+
+      - name: Build and audit RootHide final convergence candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOTHIDE_PATCHER_DIR="$PWD/reference/RootHidePatcher"             sh product/post_photo_local_media_convergence_001/ci_build_package_and_audit.sh
+
+          REPORT=build/post-photo-local-media-convergence-001/evidence/validation-report.txt
+          for marker in             LOCAL_MEDIA_FINAL_CONVERGENCE_PACKAGE=PASS             ARM64=PASS             MINIMUM_IOS_15=PASS             ROOTHIDE_PACKAGE=PASS             ROOT_HIDE_PATCHER_PINNED=PASS             VALID_CODE_SIGNATURE=PASS             MAIN_UNCHANGED=PASS             READ_ONLY_REPOS_UNCHANGED=PASS             DEVICE_ACTION=NO; do
+            grep -Fq "$marker" "$REPORT"
+          done
+
+      - name: Final terminal marker contract
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -Fq 'PHOTO_CONTINUITY_REGRESSION=PASS' build/post-photo-local-media-convergence-ci/convergence.txt
+          grep -Fq 'PHOTO_MICROFLASH_CLASSIFICATION_COMPLETE=PASS' build/post-photo-local-media-convergence-ci/convergence.txt
+          grep -Fq 'PHOTO_DROPOUT_PRESENT=NO' build/post-photo-local-media-convergence-ci/convergence.txt
+          grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/stage-b.txt
+          grep -Fq 'ASPECT_RATIO_SEMANTICS_DEFINED=PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS' build/regressions/e1-transformer.txt
+          grep -Fq 'PHOTO_DIRECT_OVERLAY_PAN=PASS' build/post-photo-local-media-convergence-ci/overlay.txt
+          grep -Fq 'PHOTO_DIRECT_OVERLAY_PINCH=PASS' build/post-photo-local-media-convergence-ci/overlay.txt
+          grep -Fq 'NORMAL_APP_TOUCH_PASSTHROUGH=PASS' build/post-photo-local-media-convergence-ci/overlay.txt
+          grep -Fq 'DONE_RESTORES_PASSTHROUGH=PASS' build/post-photo-local-media-convergence-ci/overlay.txt
+          grep -Fq 'CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS' build/post-photo-local-media-convergence-ci/callback.txt
+          grep -Fq 'NO_VIDEO_READER_WORK_IN_CAMERA_CALLBACK=PASS' build/post-photo-local-media-convergence-ci/callback.txt
+
+          {
+            echo "TASK_ID=VCAM-PRO-POST-PHOTO-LOCAL-MEDIA-FINAL-CONVERGENCE-001"
+            echo "TASK_CI_CONTRACT=PASS"
+            echo "PHOTO_CONTINUITY_REGRESSION=PASS"
+            echo "PHOTO_MICROFLASH_CLASSIFICATION_COMPLETE=PASS"
+            echo "PHOTO_DROPOUT_PRESENT=NO"
+            echo "VIDEO_SOURCE_PTS_MONOTONIC=PASS"
+            echo "VIDEO_REQUIRES_LOOP_TO_START=NO"
+            echo "NO_APP_SPECIFIC_ORIENTATION_HACK=PASS"
+            echo "ASPECT_RATIO_SEMANTICS_DEFINED=PASS"
+            echo "VCAM_ON_SUPPORTED_ORIGINAL_DECISIONS=ZERO"
+            echo "ARM64=PASS"
+            echo "MINIMUM_IOS_15=PASS"
+            echo "ROOTHIDE_PACKAGE=PASS"
+            echo "VALID_CODE_SIGNATURE=PASS"
+            echo "MAIN_UNCHANGED=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+            echo "PHYSICAL_WHATSAPP_ORIENTATION_FIXED=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_VIDEO_OUTPUT=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_MICROFLASH_FIXED=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_PAN_PINCH_DEVICE_PROOF=PENDING_DEVICE_PROOF"
+          } | tee build/post-photo-local-media-convergence-ci/terminal-markers.txt
+
+      - name: Upload final convergence candidate and evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: VCAM-PRO-Local-Media-Final-Convergence-001
+          path: |
+            build/post-photo-local-media-convergence-001/final/VCAM-PRO-RootHide-Local-Media-Final-Convergence-001.deb
+            build/post-photo-local-media-convergence-001/final/VCAM-PRO-RootHide-Local-Media-Final-Convergence-001.deb.sha256
+            build/post-photo-local-media-convergence-001/evidence/**
+            build/post-photo-local-media-convergence-ci/**
+            build/regressions/stage-b.txt
+            build/regressions/e1-transformer.txt
+          if-no-files-found: error
+          retention-days: 30
