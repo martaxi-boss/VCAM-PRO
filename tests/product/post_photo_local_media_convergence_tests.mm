@@ -916,6 +916,126 @@ bool TestPreFixVideoQueueDrainsToBlackWithoutLatestReuse() {
 }
 #endif
 
+bool TestVideoLatestFramePersistsAcrossProducerGap() {
+    const std::string root =
+        TempRoot("video-latest-frame");
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input, 240));
+
+    const std::string controlPath =
+        root + "/control.plist";
+    const std::string media =
+        root + "/Media";
+    const std::string notification =
+        "com.vcampro.deviceproof.latestvideo." +
+        std::to_string(getpid());
+
+    ProductControlOwner owner(
+        controlPath,
+        notification,
+        media);
+    MediaserverdRuntime runtime(
+        controlPath,
+        notification);
+    CHECK(runtime.start());
+
+    CVPixelBufferRef geometry =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    CHECK(geometry != nullptr);
+
+    runtime.observeRealCameraBuffer(geometry);
+    CHECK(runtime.drainControlQueueForTesting());
+    CHECK(owner.setEnabled(true));
+
+    std::string error;
+    CHECK(owner.selectFromTemporaryPath(
+        input,
+        ProductMediaKind::Video,
+        &error));
+    CHECK(error.empty());
+
+    const auto selected = owner.snapshot();
+    CHECK(WaitForVideo(
+        runtime,
+        selected.selectionGeneration,
+        1));
+
+    bool queueReady = false;
+    for (int attempt = 0;
+         attempt < 2500;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.readyQueueSize > 0 &&
+            snapshot.publishedFrameCount > 0) {
+            queueReady = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(queueReady);
+    CHECK(runtime.stopVideoProducerForTesting());
+
+    auto& adapter = runtime.cameraAdapter();
+    const auto blackBefore =
+        adapter.blackVirtualDecisionCount();
+    const auto guardBefore =
+        adapter.inPlaceBlackGuardDecisionCount();
+    const auto reuseBefore =
+        adapter.videoLatestReuseDecisionCount();
+
+    for (int callback = 0;
+         callback < 16;
+         ++callback) {
+        const CameraDecision decision =
+            runtime.decideCameraBuffer(
+                geometry);
+        CHECK(IsPrepared(decision));
+    }
+
+    CHECK(adapter.videoLatestFrameCount() == 1);
+    CHECK(adapter.videoLatestRetainedBytes() > 0);
+    CHECK(
+        adapter.videoLatestRetainedBytes() <=
+            CameraConsumerAdapter::
+                kVideoLatestRetainedByteBudget);
+    CHECK(
+        adapter.videoLatestReuseDecisionCount() >
+            reuseBefore);
+    CHECK(
+        adapter.blackVirtualDecisionCount() ==
+            blackBefore);
+    CHECK(
+        adapter.inPlaceBlackGuardDecisionCount() ==
+            guardBefore);
+    CHECK(
+        adapter.enabledSupportedOriginalDecisionCount() ==
+            0);
+
+    std::cout
+        << "VIDEO_REAL_PRODUCT_COMPOSITION_FIX=PASS\n"
+        << "VIDEO_FRAME_REACHES_PREPARED_MEDIA=PASS\n"
+        << "VIDEO_LATEST_FRAME_REUSE=PASS\n"
+        << "VIDEO_LATEST_FRAME_MEMORY_BOUNDED=PASS\n"
+        << "VIDEO_BLACK_DECISION_DELTA_DURING_PRODUCER_GAP=0\n";
+
+    CVPixelBufferRelease(geometry);
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString stringWithUTF8String:
+                root.c_str()]
+                   error:nil];
+    return true;
+}
+
 bool TestVideoSelectionAndGeometryChurn() {
     const std::string root =
         TempRoot("video");
@@ -1063,6 +1183,36 @@ bool TestVideoSelectionAndGeometryChurn() {
 
     const std::uint64_t publishedAfterGeometry =
         after.totalVideoPublishedFrameCount;
+
+    const auto blackBeforeRapid =
+        runtime.cameraAdapter().
+            blackVirtualDecisionCount();
+    const auto guardBeforeRapid =
+        runtime.cameraAdapter().
+            inPlaceBlackGuardDecisionCount();
+
+    for (int index = 0;
+         index < 32;
+         ++index) {
+        CVPixelBufferRef current =
+            (index % 2) == 0
+                ? a
+                : b;
+        runtime.observeRealCameraBuffer(current);
+        CHECK(runtime.drainControlQueueForTesting());
+        CHECK(IsPrepared(
+            runtime.decideCameraBuffer(current)));
+    }
+
+    CHECK(
+        runtime.cameraAdapter().
+            blackVirtualDecisionCount() ==
+        blackBeforeRapid);
+    CHECK(
+        runtime.cameraAdapter().
+            inPlaceBlackGuardDecisionCount() ==
+        guardBeforeRapid);
+
     const std::uint64_t videoCameraDecisions =
         runtime.cameraAdapter().
             mediaVirtualDecisionCount();
@@ -1088,6 +1238,7 @@ bool TestVideoSelectionAndGeometryChurn() {
         << "VIDEO_GEOMETRY_A_OUTPUT=PASS\n"
         << "VIDEO_GEOMETRY_B_OUTPUT=PASS\n"
         << "VIDEO_NO_RESTART_ON_GEOMETRY_SWITCH=PASS\n"
+        << "VIDEO_GEOMETRY_STARVATION=NO\n"
         << "VIDEO_GEOMETRY_SESSION_FINDING=RETARGET_WITHOUT_READER_REOPEN\n"
         << "VIDEO_PUBLISHED_FRAME_COUNT="
         << publishedAfterGeometry << "\n"
@@ -1219,6 +1370,10 @@ int main() {
             return EXIT_FAILURE;
         }
 #endif
+
+        if (!TestVideoLatestFramePersistsAcrossProducerGap()) {
+            return EXIT_FAILURE;
+        }
 
         if (!TestVideoSelectionAndGeometryChurn()) {
             return EXIT_FAILURE;
