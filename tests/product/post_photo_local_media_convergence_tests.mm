@@ -809,9 +809,11 @@ bool TestVideoSelectionAndGeometryChurn() {
         WaitForPhoto(
             runtime,
             photoSelected.selectionGeneration));
+    // The last observed destination before the media switch is B.
+    // A media-kind change does not itself synthesize a new camera geometry.
     CHECK(
         IsPrepared(
-            runtime.decideCameraBuffer(a)));
+            runtime.decideCameraBuffer(b)));
 
     std::cout
         << "VIDEO_TO_PHOTO_CHANGE=PASS\n";
@@ -830,6 +832,7 @@ bool TestVideoSelectionAndGeometryChurn() {
             runtime,
             videoReselected.selectionGeneration,
             2));
+    runtime.observeRealCameraBuffer(a);
     CHECK(
         WaitForPreparedGeometry(
             runtime,
