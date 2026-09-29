@@ -55,6 +55,14 @@ public:
     bool setPlaybackIntent(
         ProductPlaybackIntent intent);
 
+    bool setMediaTransform(
+        double translationX,
+        double translationY,
+        double scale);
+
+    bool resetMediaTransform();
+
+    // Compatibility wrappers for the historical PHOTO API.
     bool setPhotoTransform(
         double translationX,
         double translationY,
