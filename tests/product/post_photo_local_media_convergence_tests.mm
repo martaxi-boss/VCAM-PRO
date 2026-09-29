@@ -1027,6 +1027,7 @@ bool TestVideoLatestFramePersistsAcrossProducerGap() {
         << "VIDEO_REAL_PRODUCT_COMPOSITION_FIX=PASS\n"
         << "VIDEO_FRAME_REACHES_PREPARED_MEDIA=PASS\n"
         << "VIDEO_LATEST_FRAME_REUSE=PASS\n"
+        << "VIDEO_LATEST_REUSE_PRESERVED=PASS\n"
         << "VIDEO_LATEST_FRAME_MEMORY_BOUNDED=PASS\n"
         << "VIDEO_BLACK_DECISION_DELTA_DURING_PRODUCER_GAP=0\n";
 
@@ -1250,6 +1251,12 @@ bool TestVideoSelectionAndGeometryChurn() {
         transformRevisionBefore =
             defaultVideoTransform.
                 photoTransform.revision;
+    const std::uint64_t
+        transformBlackBefore =
+            runtime.cameraAdapter().
+                blackVirtualDecisionCount() +
+            runtime.cameraAdapter().
+                inPlaceBlackGuardDecisionCount();
     const std::uint64_t
         sourcePTSBeforeValue =
             static_cast<std::uint64_t>(
@@ -1509,6 +1516,16 @@ bool TestVideoSelectionAndGeometryChurn() {
         resumedTransform.queueEpoch ==
             initialEpoch);
 
+    const std::uint64_t
+        transformBlackAfter =
+            runtime.cameraAdapter().
+                blackVirtualDecisionCount() +
+            runtime.cameraAdapter().
+                inPlaceBlackGuardDecisionCount();
+    CHECK(
+        transformBlackAfter ==
+        transformBlackBefore);
+
     std::cout
         << "VIDEO_DEFAULT_TRANSFORM=PASS\n"
         << "VIDEO_PAN_TRANSFORM=PASS\n"
@@ -1525,7 +1542,6 @@ bool TestVideoSelectionAndGeometryChurn() {
         << "VIDEO_TRANSFORM_TIMELINE_CONTINUOUS=PASS\n"
         << "VIDEO_LATEST_FRAME_STALE_AFTER_TRANSFORM=NO\n"
         << "VIDEO_LATEST_FRAME_MEMORY_BOUNDED=PASS\n"
-        << "VIDEO_LATEST_REUSE_PRESERVED=PASS\n"
         << "VIDEO_NO_BLACK_REGRESSION_DURING_TRANSFORM_UPDATE=PASS\n"
         << "VIDEO_RUNTIME_DIAGNOSTIC_SUCCESS_PATH=PASS\n";
 
