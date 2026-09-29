@@ -14,9 +14,9 @@ mkdir -p "$EVIDENCE"
 test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
 git merge-base --is-ancestor "$START" HEAD
 test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "$MAIN"
-test "$(git -C reference/IOS-15-USB rev-parse HEAD)" = "$IOS15"
-test "$(git -C reference/MotionCam-iOS rev-parse HEAD)" = "$MOTION"
-test "$(git -C reference/IOS-16-USB-4k rev-parse HEAD)" = "$IOS16"
+test "$(git -C reference/IOS15 rev-parse HEAD)" = "$IOS15"
+test "$(git -C reference/MotionCam rev-parse HEAD)" = "$MOTION"
+test "$(git -C reference/IOS16 rev-parse HEAD)" = "$IOS16"
 
 # Freeze accepted PHOTO architecture constraints.
 grep -Fq 'kPhotoVariantStructuralCapacity = 12' src/product/CameraConsumerAdapter.h
@@ -54,8 +54,8 @@ grep -Fq 'UIDeviceOrientationDidChangeNotification' src/product/SpringBoardContr
 } | tee "$EVIDENCE/orientation-root-cause.txt"
 
 # Independently audit the exact IOS15 recovered binary, not prior chat text.
-xcrun otool -tvV reference/IOS-15-USB/recovered/VCamRecovered.dylib > "$EVIDENCE/ios15-otool-tvV.txt"
-strings -a reference/IOS-15-USB/recovered/VCamRecovered.dylib > "$EVIDENCE/ios15-strings.txt"
+xcrun otool -tvV reference/IOS15/recovered/VCamRecovered.dylib > "$EVIDENCE/ios15-otool-tvV.txt"
+strings -a reference/IOS15/recovered/VCamRecovered.dylib > "$EVIDENCE/ios15-strings.txt"
 for selector in   'imageWithCVPixelBuffer:'   'imageByApplyingOrientation:'   'imageByApplyingTransform:'   'imageByCroppingToRect:'   'render:toCVPixelBuffer:'; do
   grep -Fq "$selector" "$EVIDENCE/ios15-strings.txt"
 done
@@ -102,10 +102,10 @@ print("IOS15_ORIENTATION_HARDCODE_COPIED_TO_PRODUCT=NO")
 PY
 
 # MotionCam is comparison-only and remains read-only.
-grep -Fq 'AVAssetReader' reference/MotionCam-iOS/MediaManager.m
-grep -Fq 'AVAssetReaderTrackOutput' reference/MotionCam-iOS/MediaManager.m
-grep -Eq 'alwaysCopiesSampleData[[:space:]]*=[[:space:]]*NO' reference/MotionCam-iOS/MediaManager.m
-grep -Fq 'copyNextSampleBuffer' reference/MotionCam-iOS/MediaManager.m
+grep -Fq 'AVAssetReader' reference/MotionCam/MediaManager.m
+grep -Fq 'AVAssetReaderTrackOutput' reference/MotionCam/MediaManager.m
+grep -Eq 'alwaysCopiesSampleData[[:space:]]*=[[:space:]]*NO' reference/MotionCam/MediaManager.m
+grep -Fq 'copyNextSampleBuffer' reference/MotionCam/MediaManager.m
 {
   echo "MOTIONCAM_REFERENCE_INSPECTED=YES"
   echo "MOTIONCAM_AVASSETREADER_COMPARISON=PASS"
@@ -190,24 +190,13 @@ for marker in [
     print(marker)
 PY
 
-# Full frame/media engine regression suite, with the exact new transformer count.
-cp tools/run_frame_regressions.sh "$ROOT/run_frame_regressions.sh"
-python3 - <<'PY'
-from pathlib import Path
-p = Path("build/post-photo-local-media-convergence-001/run_frame_regressions.sh")
-text = p.read_text()
-old = "Stage E1 transformer tests run: 27, failures: 0"
-new = "Stage E1 transformer tests run: 32, failures: 0"
-if old not in text:
-    raise SystemExit("Unexpected transformer regression count contract")
-p.write_text(text.replace(old, new))
-PY
-chmod +x "$ROOT/run_frame_regressions.sh"
-"$ROOT/run_frame_regressions.sh"
+# Full frame/media engine regression suite. The canonical script itself
+# carries the exact current test-count contracts.
+tools/run_frame_regressions.sh
 
-grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/b-reader.txt
-grep -Fq '[PASS] EOS without loop' build/regressions/b-reader.txt
-grep -Fq '[PASS] Loop restart and iteration' build/regressions/b-reader.txt
+grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/stage-b.txt
+grep -Fq '[PASS] EOS without loop' build/regressions/stage-b.txt
+grep -Fq '[PASS] Loop restart and iteration' build/regressions/stage-b.txt
 for marker in   STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS   STREAM_ORIENTATION_PORTRAIT=PASS   STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS   STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS   ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS   NO_APP_SPECIFIC_ORIENTATION_HACK=PASS   PHOTO_VIDEO_STREAM_ORIENTATION_COMPOSITION=PASS   ASPECT_RATIO_SEMANTICS_DEFINED=PASS   NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS   PAN_TRANSLATION_STATE=PASS   PAN_TRANSLATION_PIXELS=PASS   PINCH_SCALE_STATE=PASS   PINCH_SCALE_PIXELS=PASS   PHOTO_ROTATION_DISABLED=PASS   PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
   grep -Fq "$marker" build/regressions/e1-transformer.txt
 done
