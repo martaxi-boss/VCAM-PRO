@@ -310,6 +310,45 @@ bool Test420fOutput(const std::string& path) {
     return true;
 }
 
+bool TestSourcePTSMonotonic(
+    const std::string& path) {
+    FrameEngineState state;
+    LocalVideoReader reader(state);
+
+    CHECK(reader.open(
+        path,
+        Config(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange)));
+    CHECK(reader.start());
+
+    CMTime previous = kCMTimeInvalid;
+    std::size_t frames = 0;
+
+    while (frames < 3) {
+        ReadResult result =
+            ReadUntilFrameOrTerminal(reader);
+        CHECK(result.kind ==
+              ReadResultKind::Frame);
+        CHECK(result.frame.has_value());
+
+        const CMTime pts =
+            result.frame->timing().sourcePTS;
+        CHECK(CMTIME_IS_NUMERIC(pts));
+        if (CMTIME_IS_NUMERIC(previous)) {
+            CHECK(CMTimeCompare(
+                      pts,
+                      previous) > 0);
+        }
+
+        previous = pts;
+        ++frames;
+    }
+
+    std::cout
+        << "VIDEO_SOURCE_PTS_MONOTONIC=PASS\n";
+    return true;
+}
+
 bool TestEOSWithoutLoop(const std::string& path) {
     FrameEngineState state;
     LocalVideoReader reader(state);
@@ -475,6 +514,8 @@ int main() {
             [&] { return TestOpenStartAndFrame420v(fixtureA); });
         Run("420f output",
             [&] { return Test420fOutput(fixtureA); });
+        Run("Source PTS monotonic",
+            [&] { return TestSourcePTSMonotonic(fixtureA); });
         Run("EOS without loop",
             [&] { return TestEOSWithoutLoop(fixtureA); });
         Run("Loop restart and iteration",
