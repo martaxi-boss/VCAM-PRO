@@ -1,0 +1,102 @@
+name: VCAM PRO Photo Geometry Working Set Pre-Fix 002
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "tests/product/photo_geometry_working_set_prefx_tests.mm"
+      - ".github/workflows/photo-geometry-working-set-prefx-002-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  reproduce:
+    name: Exact-source five-geometry pre-fix reproduction
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout test-only head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Lock production source to exact starting HEAD
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=fcb873e60772b0258e8e6c57a97fdcf82c020613
+          git merge-base --is-ancestor "$START" HEAD
+          git diff --exit-code "$START" HEAD -- src product
+          test "$(git rev-parse "$START":src/product/CameraConsumerAdapter.cpp)" = "$(git rev-parse HEAD:src/product/CameraConsumerAdapter.cpp)"
+          test "$(git rev-parse "$START":src/product/CameraConsumerAdapter.h)" = "$(git rev-parse HEAD:src/product/CameraConsumerAdapter.h)"
+          test "$(git rev-parse "$START":src/product/MediaserverdRuntime.mm)" = "$(git rev-parse HEAD:src/product/MediaserverdRuntime.mm)"
+          test "$(git rev-parse "$START":src/media_engine/InternalGalleryMediaSession.mm)" = "$(git rev-parse HEAD:src/media_engine/InternalGalleryMediaSession.mm)"
+          test "$(git rev-parse "$START":src/frame_engine/ReadyFrameQueue.cpp)" = "$(git rev-parse HEAD:src/frame_engine/ReadyFrameQueue.cpp)"
+          grep -Fq 'kPhotoVariantCapacity = 4' src/product/CameraConsumerAdapter.h
+          echo "PRE_FIX_PRODUCTION_SOURCE_LOCK=PASS"
+
+      - name: Build and execute deterministic five-geometry reproduction
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/photo-geometry-working-set-prefx
+
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            tests/product/photo_geometry_working_set_prefx_tests.mm \
+            -framework Accelerate -framework Foundation -framework AVFoundation \
+            -framework CoreFoundation -framework CoreGraphics -framework CoreMedia \
+            -framework CoreVideo -framework ImageIO \
+            -o build/photo-geometry-working-set-prefx/repro
+
+          build/photo-geometry-working-set-prefx/repro \
+            | tee build/photo-geometry-working-set-prefx/repro.txt
+
+          grep -Fq 'PRE_FIX_WORKING_SET_REPRODUCED=PASS' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_VARIANT_CAPACITY=4' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_UNIQUE_GEOMETRIES=5' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_RETURN_TO_EVICTED_GEOMETRY_BLACK=YES' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Eq 'PRE_FIX_REPREPARATION_COUNT=[1-9][0-9]*' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Eq 'PRE_FIX_VARIANT_EVICTION_COUNT=[1-9][0-9]*' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_PHOTO_TO_BLACK_OSCILLATION_REPRODUCED=PASS' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_PHOTO_LOGICAL_SESSION_CREATION_COUNT=1' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_PHOTO_SOURCE_DECODE_COUNT=1' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_ORIGINAL_DECISION_COUNT=0' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_RAPID_GEOMETRY_INTERLEAVING=PASS' build/photo-geometry-working-set-prefx/repro.txt
+          grep -Fq 'PRE_FIX_NO_GEOMETRY_EVENT_ALIASING=PASS' build/photo-geometry-working-set-prefx/repro.txt
+
+      - name: Upload pre-fix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-geometry-working-set-prefx-002-evidence
+          path: build/photo-geometry-working-set-prefx/repro.txt
+          if-no-files-found: error
+          retention-days: 14
