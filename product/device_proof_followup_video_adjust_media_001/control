@@ -1,0 +1,6 @@
+Package: com.vcampro.camera
+Name: VCAM PRO Video Diagnostic 001
+Version: 0.1.0+roothide22~videodiag1
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: VCAM PRO iOS 15 rootless diagnostic candidate for physical VIDEO black-stage measurement plus live Adjust Media for PHOTO and VIDEO.
