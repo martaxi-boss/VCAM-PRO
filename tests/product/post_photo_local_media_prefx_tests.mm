@@ -441,14 +441,12 @@ bool TestStablePhotoMicroflashOwnership() {
         MakeBuffer(
             64,
             48,
-            kCVPixelFormatType_
-                420YpCbCr8BiPlanarFullRange);
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
     CVPixelBufferRef b =
         MakeBuffer(
             80,
             60,
-            kCVPixelFormatType_
-                420YpCbCr8BiPlanarVideoRange);
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
 
     CHECK(a != nullptr);
     CHECK(b != nullptr);
@@ -613,14 +611,12 @@ bool TestVideoSelectionAndGeometryChurn() {
         MakeBuffer(
             64,
             48,
-            kCVPixelFormatType_
-                420YpCbCr8BiPlanarFullRange);
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
     CVPixelBufferRef b =
         MakeBuffer(
             80,
             60,
-            kCVPixelFormatType_
-                420YpCbCr8BiPlanarVideoRange);
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
 
     CHECK(a != nullptr);
     CHECK(b != nullptr);
