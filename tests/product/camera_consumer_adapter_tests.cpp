@@ -648,37 +648,53 @@ bool TestStaticPhotoVariantsBoundedAndEvictSafely() {
         true,
         7);
 
-    struct Geometry {
-        std::size_t width;
-        std::size_t height;
-        OSType format;
-    };
+    constexpr std::size_t capacity =
+        CameraConsumerAdapter::
+            kPhotoVariantCapacity;
 
-    const Geometry geometries[] = {
-        {64, 48, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange},
-        {80, 60, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange},
-        {64, 48, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange},
-        {80, 60, kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange},
-        {96, 72, kCVPixelFormatType_420YpCbCr8BiPlanarFullRange},
-    };
+    auto geometryFor =
+        [](std::size_t index) {
+            struct Geometry {
+                std::size_t width;
+                std::size_t height;
+                OSType format;
+            };
+
+            const std::size_t width =
+                64 + index * 8;
+            const std::size_t height =
+                48 + index * 6;
+            const OSType format =
+                (index % 2) == 0
+                    ? kCVPixelFormatType_420YpCbCr8BiPlanarFullRange
+                    : kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
+            return Geometry{
+                width,
+                height,
+                format,
+            };
+        };
 
     for (std::size_t index = 0;
-         index < 5;
+         index < capacity + 1;
          ++index) {
+        const auto geometry =
+            geometryFor(index);
+
         CHECK(Publish(
             queue,
             index,
             11,
             5,
-            geometries[index].width,
-            geometries[index].height,
-            geometries[index].format));
+            geometry.width,
+            geometry.height,
+            geometry.format));
 
         CVPixelBufferRef original =
             MakeBuffer(
-                geometries[index].width,
-                geometries[index].height,
-                geometries[index].format);
+                geometry.width,
+                geometry.height,
+                geometry.format);
         CHECK(original != nullptr);
 
         const auto decision =
@@ -689,29 +705,39 @@ bool TestStaticPhotoVariantsBoundedAndEvictSafely() {
         CVPixelBufferRelease(original);
 
         CHECK(adapter.photoVariantCount() <=
-              CameraConsumerAdapter::
-                  kPhotoVariantCapacity);
+              capacity);
     }
 
     CHECK(adapter.photoVariantCount() ==
-          CameraConsumerAdapter::
-              kPhotoVariantCapacity);
+          capacity);
 
+    const auto newest =
+        geometryFor(capacity);
     CHECK(adapter.hasReusablePhotoVariant(
-        96,
-        72,
-        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+        newest.width,
+        newest.height,
+        newest.format,
         11,
         5,
         7));
 
-    // A recently retained slot must remain usable after deterministic LRU
-    // eviction of the oldest slot.
+    const auto oldest =
+        geometryFor(0);
+    CHECK(!adapter.hasReusablePhotoVariant(
+        oldest.width,
+        oldest.height,
+        oldest.format,
+        11,
+        5,
+        7));
+
+    const auto recentGeometry =
+        geometryFor(capacity - 1);
     CVPixelBufferRef recent =
         MakeBuffer(
-            80,
-            60,
-            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+            recentGeometry.width,
+            recentGeometry.height,
+            recentGeometry.format);
     CHECK(recent != nullptr);
     CHECK(adapter.decide(recent).source ==
           CameraDecisionSource::PreparedMedia);
@@ -728,9 +754,9 @@ bool TestStaticPhotoVariantsBoundedAndEvictSafely() {
 
     recent =
         MakeBuffer(
-            80,
-            60,
-            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+            recentGeometry.width,
+            recentGeometry.height,
+            recentGeometry.format);
     CHECK(recent != nullptr);
     CHECK(adapter.decide(recent).source ==
           CameraDecisionSource::PreparedMedia);
