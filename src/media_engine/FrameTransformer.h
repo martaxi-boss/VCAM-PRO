@@ -40,6 +40,7 @@ struct FrameTransformerStats {
     std::uint64_t outputPoolBuilds = 0;
     std::uint64_t photoTransformPoolBuilds = 0;
     std::uint64_t rotationPoolBuilds = 0;
+    std::uint64_t streamRotationPoolBuilds = 0;
     std::uint64_t conversionInputPoolBuilds = 0;
     std::uint64_t scaleScratchBuilds = 0;
     std::uint64_t argbScratchBuilds = 0;

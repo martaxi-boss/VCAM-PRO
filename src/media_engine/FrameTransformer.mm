@@ -574,6 +574,44 @@ RotationInfo ParseRotation(
     return {};
 }
 
+RotationInfo TargetStreamRotation(
+    OrientationRequirement orientation) noexcept {
+    switch (orientation) {
+        case OrientationRequirement::UprightIdentityTransform:
+        case OrientationRequirement::StreamLandscapeLeft:
+            return {
+                true,
+                static_cast<std::uint8_t>(
+                    kRotate0DegreesClockwise),
+                false,
+            };
+        case OrientationRequirement::StreamPortrait:
+            return {
+                true,
+                static_cast<std::uint8_t>(
+                    kRotate90DegreesClockwise),
+                true,
+            };
+        case OrientationRequirement::StreamLandscapeRight:
+            return {
+                true,
+                static_cast<std::uint8_t>(
+                    kRotate180DegreesClockwise),
+                false,
+            };
+        case OrientationRequirement::StreamPortraitUpsideDown:
+            return {
+                true,
+                static_cast<std::uint8_t>(
+                    kRotate270DegreesClockwise),
+                true,
+            };
+        case OrientationRequirement::PreserveSourceOrientation:
+            return {};
+    }
+    return {};
+}
+
 bool ComputeCenterCrop(
     std::size_t sourceWidth,
     std::size_t sourceHeight,
@@ -788,6 +826,7 @@ struct FrameTransformer::Impl {
     ~Impl() {
         releasePool(outputPool);
         releasePool(rotationPool);
+        releasePool(streamRotationPool);
         releasePool(conversionInputPool);
         releasePool(photoTransformPool);
     }
@@ -1470,6 +1509,9 @@ struct FrameTransformer::Impl {
     CVPixelBufferPoolRef rotationPool = nullptr;
     PoolKey rotationPoolKey{};
 
+    CVPixelBufferPoolRef streamRotationPool = nullptr;
+    PoolKey streamRotationPoolKey{};
+
     CVPixelBufferPoolRef conversionInputPool = nullptr;
     PoolKey conversionInputPoolKey{};
 
@@ -1553,8 +1595,8 @@ FrameTransformResult FrameTransformer::transformImpl(
         (target.width % 2) != 0 ||
         (target.height % 2) != 0 ||
         !IsSupportedPixelFormat(target.pixelFormat) ||
-        target.orientation !=
-            OrientationRequirement::UprightIdentityTransform) {
+        target.orientation ==
+            OrientationRequirement::PreserveSourceOrientation) {
         result.status = FrameTransformStatus::UnsupportedTarget;
         return result;
     }
@@ -1612,6 +1654,8 @@ FrameTransformResult FrameTransformer::transformImpl(
     }
 
     CVPixelBufferRef working = source.pixelBuffer();
+    std::size_t workingWidth = source.width();
+    std::size_t workingHeight = source.height();
     PixelBufferHolder rotated;
 
     if (rotation.constant !=
@@ -1650,6 +1694,63 @@ FrameTransformResult FrameTransformer::transformImpl(
         }
 
         working = rotated.get();
+        workingWidth = rotatedWidth;
+        workingHeight = rotatedHeight;
+    }
+
+    const RotationInfo streamRotation =
+        TargetStreamRotation(
+            target.orientation);
+    if (!streamRotation.supported) {
+        result.status =
+            FrameTransformStatus::UnsupportedTarget;
+        return result;
+    }
+
+    PixelBufferHolder streamRotated;
+    if (streamRotation.constant !=
+        static_cast<std::uint8_t>(
+            kRotate0DegreesClockwise)) {
+        const std::size_t streamWidth =
+            streamRotation.swapsDimensions
+                ? workingHeight
+                : workingWidth;
+        const std::size_t streamHeight =
+            streamRotation.swapsDimensions
+                ? workingWidth
+                : workingHeight;
+
+        const PoolKey streamKey{
+            streamWidth,
+            streamHeight,
+            source.pixelFormat(),
+        };
+
+        if (!impl_->ensurePool(
+                streamKey,
+                &impl_->streamRotationPool,
+                &impl_->streamRotationPoolKey,
+                &impl_->stats.streamRotationPoolBuilds) ||
+            !AcquirePixelBuffer(
+                impl_->streamRotationPool,
+                &streamRotated)) {
+            result.status =
+                FrameTransformStatus::PoolFailure;
+            return result;
+        }
+
+        if (!impl_->rotateNV12(
+                working,
+                streamRotated.get(),
+                streamRotation.constant)) {
+            result.status =
+                FrameTransformStatus::TransformFailure;
+            return result;
+        }
+
+        working = streamRotated.get();
+        workingWidth = streamWidth;
+        workingHeight = streamHeight;
     }
 
     if (source.pixelFormat() == target.pixelFormat) {

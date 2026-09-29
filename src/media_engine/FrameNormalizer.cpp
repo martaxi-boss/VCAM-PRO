@@ -13,6 +13,21 @@ bool IsAllowedTargetPixelFormat(OSType pixelFormat) noexcept {
                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
 }
 
+bool IsSupportedTargetOrientation(
+    OrientationRequirement orientation) noexcept {
+    switch (orientation) {
+        case OrientationRequirement::UprightIdentityTransform:
+        case OrientationRequirement::StreamPortrait:
+        case OrientationRequirement::StreamPortraitUpsideDown:
+        case OrientationRequirement::StreamLandscapeLeft:
+        case OrientationRequirement::StreamLandscapeRight:
+            return true;
+        case OrientationRequirement::PreserveSourceOrientation:
+            return false;
+    }
+    return false;
+}
+
 bool HasRequiredColorMetadata(
     const frame_engine::PreparedFrame& frame) noexcept {
     return frame.colorPrimaries() != nullptr &&
@@ -43,8 +58,8 @@ NormalizationResult FrameNormalizer::prepare(
     if (target.width == 0 ||
         target.height == 0 ||
         !IsAllowedTargetPixelFormat(target.pixelFormat) ||
-        target.orientation !=
-            OrientationRequirement::UprightIdentityTransform) {
+        !IsSupportedTargetOrientation(
+            target.orientation)) {
         NormalizationResult result;
         result.status = NormalizationStatus::UnsupportedTarget;
         return result;
@@ -72,7 +87,9 @@ NormalizationResult FrameNormalizer::prepare(
     }
 
     if (!CGAffineTransformIsIdentity(
-            geometry.preferredTransform)) {
+            geometry.preferredTransform) ||
+        target.orientation !=
+            OrientationRequirement::UprightIdentityTransform) {
         return TransformRequired(TransformRequirement::Orientation);
     }
 

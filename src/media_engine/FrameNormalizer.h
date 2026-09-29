@@ -14,6 +14,10 @@ namespace vcam::media_engine {
 enum class OrientationRequirement : std::uint8_t {
     UprightIdentityTransform = 0,
     PreserveSourceOrientation,
+    StreamPortrait,
+    StreamPortraitUpsideDown,
+    StreamLandscapeLeft,
+    StreamLandscapeRight,
 };
 
 enum class ColorMetadataPolicy : std::uint8_t {
