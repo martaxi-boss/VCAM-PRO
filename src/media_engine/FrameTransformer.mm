@@ -579,32 +579,18 @@ RotationInfo TargetStreamRotation(
     switch (orientation) {
         case OrientationRequirement::UprightIdentityTransform:
         case OrientationRequirement::StreamPortrait:
+        case OrientationRequirement::StreamPortraitUpsideDown:
+        case OrientationRequirement::StreamLandscapeLeft:
+        case OrientationRequirement::StreamLandscapeRight:
+            // Local media is normalized into logical upright source space.
+            // The real camera buffer supplied by the central hook already
+            // defines the raw destination geometry. Device/interface
+            // orientation is not an additional pixel-memory rotation.
             return {
                 true,
                 static_cast<std::uint8_t>(
                     kRotate0DegreesClockwise),
                 false,
-            };
-        case OrientationRequirement::StreamLandscapeRight:
-            return {
-                true,
-                static_cast<std::uint8_t>(
-                    kRotate90DegreesClockwise),
-                true,
-            };
-        case OrientationRequirement::StreamPortraitUpsideDown:
-            return {
-                true,
-                static_cast<std::uint8_t>(
-                    kRotate180DegreesClockwise),
-                false,
-            };
-        case OrientationRequirement::StreamLandscapeLeft:
-            return {
-                true,
-                static_cast<std::uint8_t>(
-                    kRotate270DegreesClockwise),
-                true,
             };
         case OrientationRequirement::PreserveSourceOrientation:
             return {};

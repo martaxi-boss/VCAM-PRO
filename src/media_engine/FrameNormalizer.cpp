@@ -87,9 +87,7 @@ NormalizationResult FrameNormalizer::prepare(
     }
 
     if (!CGAffineTransformIsIdentity(
-            geometry.preferredTransform) ||
-        target.orientation !=
-            OrientationRequirement::UprightIdentityTransform) {
+            geometry.preferredTransform)) {
         return TransformRequired(TransformRequirement::Orientation);
     }
 

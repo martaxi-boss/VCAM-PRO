@@ -129,49 +129,20 @@ bool SameMediaIdentity(
 media_engine::OrientationRequirement
 StreamOrientationForSnapshot(
     const ProductControlSnapshot& snapshot) noexcept {
-    switch (snapshot.streamOrientation) {
-        case ProductStreamOrientation::Portrait:
-            return media_engine::OrientationRequirement::StreamPortrait;
-        case ProductStreamOrientation::PortraitUpsideDown:
-            return media_engine::OrientationRequirement::StreamPortraitUpsideDown;
-        case ProductStreamOrientation::LandscapeLeft:
-            return media_engine::OrientationRequirement::StreamLandscapeLeft;
-        case ProductStreamOrientation::LandscapeRight:
-            return media_engine::OrientationRequirement::StreamLandscapeRight;
-        case ProductStreamOrientation::Unknown:
-            return media_engine::OrientationRequirement::UprightIdentityTransform;
-    }
-    return media_engine::OrientationRequirement::UprightIdentityTransform;
+    // Keep ProductStreamOrientation in the backward-compatible control
+    // schema as lightweight presentation telemetry only. Physical device
+    // proof showed that treating UIDevice portrait as another pixel rotation
+    // regressed an already-upright local source. The destination camera
+    // pixel-buffer geometry is authoritative for raw output memory.
+    (void)snapshot;
+    return media_engine::OrientationRequirement::
+        UprightIdentityTransform;
 }
 
 std::uint64_t PhotoPresentationRevision(
     const ProductControlSnapshot& snapshot) noexcept {
-    if (snapshot.streamOrientation ==
-            ProductStreamOrientation::Unknown &&
-        snapshot.streamOrientationRevision == 0) {
-        return snapshot.photoTransform.revision;
-    }
-
-    std::uint64_t value =
-        UINT64_C(1469598103934665603);
-    const auto mix =
-        [&value](std::uint64_t input) {
-            for (unsigned shift = 0;
-                 shift < 64;
-                 shift += 8) {
-                value ^=
-                    static_cast<std::uint8_t>(
-                        input >> shift);
-                value *=
-                    UINT64_C(1099511628211);
-            }
-        };
-
-    mix(snapshot.photoTransform.revision);
-    mix(snapshot.streamOrientationRevision);
-    mix(static_cast<std::uint64_t>(
-        snapshot.streamOrientation));
-    return value;
+    // Interface-orientation telemetry does not alter prepared pixel content.
+    return snapshot.photoTransform.revision;
 }
 
 }  // namespace
@@ -1300,49 +1271,12 @@ struct MediaserverdRuntime::Impl {
             SameMediaIdentity(
                 snapshot,
                 applied_)) {
-            const bool orientationChanged =
-                snapshot.streamOrientationRevision !=
-                    applied_.streamOrientationRevision ||
-                snapshot.streamOrientation !=
-                    applied_.streamOrientation;
-
+            // Device/interface orientation updates do not invalidate prepared
+            // pixel memory and must not churn PHOTO variants or VIDEO producer
+            // state. Real destination geometry changes are handled separately
+            // by handleGeometryRequest().
             applyMutableControls(
                 snapshot);
-
-            if (orientationChanged) {
-                const std::uint64_t currentGeometry =
-                    observedGeometry_.load(
-                        std::memory_order_acquire);
-
-                if (snapshot.mediaKind ==
-                        ProductMediaKind::Photo) {
-                    adapter_.unbindQueue();
-                    if (session_->
-                            invalidatePhotoPreparedOutputs()) {
-                        (void)
-                            preparePhotoVariantForGeometry(
-                                snapshot,
-                                currentGeometry);
-                        bindCurrentSession(
-                            session_->playbackState() ==
-                                frame_engine::
-                                    PlaybackState::Playing);
-                    }
-                } else if (
-                    snapshot.mediaKind ==
-                        ProductMediaKind::Video) {
-                    adapter_.unbindQueue();
-                    if (retargetVideoForGeometry(
-                            snapshot,
-                            currentGeometry)) {
-                        bindCurrentSession(
-                            session_->playbackState() ==
-                                frame_engine::
-                                    PlaybackState::Playing);
-                    }
-                }
-            }
-
             applied_ = snapshot;
             return;
         }
