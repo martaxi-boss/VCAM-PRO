@@ -422,6 +422,27 @@ bool WaitForRuntimeEnabled(
     return false;
 }
 
+bool WaitForRuntimeNoMedia(
+    MediaserverdRuntime& runtime) {
+    for (int attempt = 0;
+         attempt < 2500;
+         ++attempt) {
+        CHECK(
+            runtime.
+                drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (!snapshot.hasMedia &&
+            !snapshot.photoSelected &&
+            !snapshot.videoSelected) {
+            return true;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    return false;
+}
+
 bool TestPickerTypeContract() {
     CHECK(
         [UTTypeQuickTimeMovie
@@ -886,7 +907,8 @@ bool TestVideoSelectionAndGeometryChurn() {
             true));
     CHECK(owner.clearMedia());
     CHECK(
-        runtime.drainControlQueueForTesting());
+        WaitForRuntimeNoMedia(
+            runtime));
 
     const CameraDecision clearDecision =
         runtime.decideCameraBuffer(a);
@@ -894,8 +916,11 @@ bool TestVideoSelectionAndGeometryChurn() {
         clearDecision.kind ==
             CameraDecisionKind::Virtual);
     CHECK(
-        clearDecision.source !=
-            CameraDecisionSource::Original);
+        clearDecision.source ==
+            CameraDecisionSource::BlackFallback ||
+        clearDecision.source ==
+            CameraDecisionSource::
+                InPlaceBlackOwnershipGuard);
 
     std::cout
         << "CLEAR_VIDEO_RETURNS_BLACK=PASS\n";
