@@ -15,6 +15,7 @@ on:
       - "docs/**"
       - "product/**"
       - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
+      - ".github/workflows/device-proof-followup-video-adjust-media-001-ci.yml"
   workflow_dispatch:
 
 permissions:
