@@ -14,96 +14,6 @@ namespace {
 
 char kProducerWakeupQueueKey;
 
-void IncrementSaturated(
-    std::uint64_t* value) noexcept {
-    if (value != nullptr &&
-        *value !=
-            std::numeric_limits<std::uint64_t>::max()) {
-        ++*value;
-    }
-}
-
-void ObserveProducerRuntimeDiagnostics(
-    ProducerRuntimeDiagnosticsSnapshot* snapshot,
-    const FramePipelinePumpResult& result) noexcept {
-    if (snapshot == nullptr) {
-        return;
-    }
-
-    snapshot->lastReadResult =
-        result.readResult;
-    snapshot->lastReaderError =
-        result.readerError;
-
-    if (result.readResult ==
-        ReadResultKind::Frame) {
-        IncrementSaturated(
-            &snapshot->readFrameCount);
-    }
-
-    if (result.frameTiming.has_value() &&
-        CMTIME_IS_NUMERIC(
-            result.frameTiming->sourcePTS)) {
-        snapshot->hasLastSourcePTS = true;
-        snapshot->lastSourcePTSValue =
-            result.frameTiming->sourcePTS.value;
-        snapshot->lastSourcePTSTimescale =
-            result.frameTiming->sourcePTS.timescale;
-    }
-
-    if (result.readResult ==
-        ReadResultKind::Frame) {
-        if (result.normalizationStatus ==
-                NormalizationStatus::ReadyPassthrough ||
-            result.normalizationStatus ==
-                NormalizationStatus::TransformRequired) {
-            IncrementSaturated(
-                &snapshot->normalizeSuccessCount);
-        } else {
-            IncrementSaturated(
-                &snapshot->normalizeFailureCount);
-        }
-    }
-
-    if (result.transformStatus ==
-        FrameTransformStatus::Transformed) {
-        IncrementSaturated(
-            &snapshot->transformSuccessCount);
-    } else if (
-        result.status ==
-            FramePipelinePumpStatus::TransformRequired ||
-        result.status ==
-            FramePipelinePumpStatus::TransformFailed) {
-        IncrementSaturated(
-            &snapshot->transformFailureCount);
-    }
-
-    switch (result.timelineStatus) {
-        case frame_engine::
-            TimelineScheduleStatus::ReadyNow:
-            IncrementSaturated(
-                &snapshot->timelineReadyCount);
-            break;
-        case frame_engine::
-            TimelineScheduleStatus::WaitUntilDue:
-            IncrementSaturated(
-                &snapshot->timelineWaitCount);
-            break;
-        case frame_engine::
-            TimelineScheduleStatus::DropLate:
-            IncrementSaturated(
-                &snapshot->timelineDropCount);
-            break;
-        case frame_engine::
-            TimelineScheduleStatus::InvalidTiming:
-        case frame_engine::
-            TimelineScheduleStatus::GenerationMismatch:
-        case frame_engine::
-            TimelineScheduleStatus::TimelineMismatch:
-            break;
-    }
-}
-
 }  // namespace
 
 struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
@@ -322,7 +232,7 @@ struct ProducerWakeupDriver::Impl final : ProducerWakeupSink {
 
     void observePumpResult(
         const FramePipelinePumpResult& result) noexcept {
-        ObserveProducerRuntimeDiagnostics(
+        AccumulateProducerRuntimeDiagnostics(
             &runtimeDiagnostics_,
             result);
     }
@@ -530,14 +440,5 @@ ProducerWakeupDriver::runtimeDiagnostics() const {
         : ProducerRuntimeDiagnosticsSnapshot{};
 }
 
-#if defined(VCAM_TESTING)
-void ObserveProducerRuntimeDiagnosticsForTesting(
-    ProducerRuntimeDiagnosticsSnapshot* snapshot,
-    const FramePipelinePumpResult& result) noexcept {
-    ObserveProducerRuntimeDiagnostics(
-        snapshot,
-        result);
-}
-#endif
 
 }  // namespace vcam::media_engine
