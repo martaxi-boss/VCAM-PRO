@@ -296,6 +296,26 @@ bool FillVisibleNV12(
     return ok;
 }
 
+std::uintptr_t LumaBaseAddress(
+    CVPixelBufferRef buffer) {
+    if (buffer == nullptr ||
+        CVPixelBufferLockBaseAddress(
+            buffer,
+            kCVPixelBufferLock_ReadOnly) !=
+        kCVReturnSuccess) {
+        return 0;
+    }
+    const auto address =
+        reinterpret_cast<std::uintptr_t>(
+            CVPixelBufferGetBaseAddressOfPlane(
+                buffer,
+                0));
+    CVPixelBufferUnlockBaseAddress(
+        buffer,
+        kCVPixelBufferLock_ReadOnly);
+    return address;
+}
+
 int SampleLuma(
     CVPixelBufferRef buffer,
     std::size_t x,
@@ -392,8 +412,16 @@ bool TestDirectRendererSyntheticSource() {
               directPhotoSourceMatchesForTesting(
                   source));
     CHECK(SampleLuma(source, 0, 12) == 120);
+    const std::uintptr_t sourceBase =
+        LumaBaseAddress(source);
+    const std::uintptr_t destinationBase =
+        LumaBaseAddress(destination);
+    CHECK(sourceBase != 0);
+    CHECK(destinationBase != 0);
+    CHECK(sourceBase != destinationBase);
     std::cout
-        << "DIRECT_RENDER_SOURCE_IDENTITY=PASS\n";
+        << "DIRECT_RENDER_SOURCE_IDENTITY=PASS\n"
+        << "DIRECT_RENDER_STORAGE_DISTINCT=PASS\n";
 
     const CameraDecision decision =
         adapter.decide(destination);
@@ -403,9 +431,13 @@ bool TestDirectRendererSyntheticSource() {
             decision.pixelBuffer,
             0,
             0);
+    const int sourceAfter =
+        SampleLuma(source, 0, 12);
     std::cout
         << "DIRECT_RENDER_DESTINATION_LUMA="
         << destinationSample << "\n"
+        << "DIRECT_RENDER_SOURCE_LUMA_AFTER="
+        << sourceAfter << "\n"
         << "DIRECT_RENDER_INTERNAL_SOURCE_LUMA="
         << static_cast<unsigned>(
             adapter.directPhotoTestSourceLuma())
