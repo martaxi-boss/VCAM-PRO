@@ -1185,31 +1185,38 @@ CameraDecision CameraConsumerAdapter::decide(
                                 context_.
                                     currentTimelineEpoch,
                                 reusableStaticRevision_);
+                        if (selected == nullptr) {
+                            mediaFailure =
+                                CameraFailOpenReason::
+                                    InvalidLease;
+                        }
                     } else {
                         pin(
                             std::move(
                                 *acquired.lease));
                     }
 
-                    virtualDecisionCount_.
-                        fetch_add(
-                            1,
-                            std::memory_order_relaxed);
-                    mediaVirtualDecisionCount_.
-                        fetch_add(
-                            1,
-                            std::memory_order_relaxed);
+                    if (selected != nullptr) {
+                        virtualDecisionCount_.
+                            fetch_add(
+                                1,
+                                std::memory_order_relaxed);
+                        mediaVirtualDecisionCount_.
+                            fetch_add(
+                                1,
+                                std::memory_order_relaxed);
 
-                    decision.kind =
-                        CameraDecisionKind::Virtual;
-                    decision.source =
-                        CameraDecisionSource::
-                            PreparedMedia;
-                    decision.reason =
-                        CameraFailOpenReason::None;
-                    decision.pixelBuffer =
-                        selected;
-                    return decision;
+                        decision.kind =
+                            CameraDecisionKind::Virtual;
+                        decision.source =
+                            CameraDecisionSource::
+                                PreparedMedia;
+                        decision.reason =
+                            CameraFailOpenReason::None;
+                        decision.pixelBuffer =
+                            selected;
+                        return decision;
+                    }
                 }
             }
         }
