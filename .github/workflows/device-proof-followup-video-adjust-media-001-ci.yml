@@ -16,6 +16,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: vcampro-device-proof-followup-video-adjust-media-001
+  cancel-in-progress: true
+
 jobs:
   device-proof-followup:
     runs-on: macos-26
