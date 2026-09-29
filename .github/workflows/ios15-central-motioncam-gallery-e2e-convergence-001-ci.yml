@@ -130,6 +130,19 @@ jobs:
           grep -Fq 'lastObject' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
           grep -Fq 'AVAssetReaderTrackOutput' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
 
+          for marker in \
+            CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS \
+            NO_CALLBACK_FILE_IO=PASS \
+            NO_CALLBACK_DECODE=PASS \
+            NO_CALLBACK_SCALE=PASS \
+            NO_CALLBACK_TRANSFORM=PASS \
+            NO_CALLBACK_COLOR_CONVERSION=PASS \
+            NO_CALLBACK_MEDIA_ALLOCATION=PASS \
+            NO_CALLBACK_SYNCHRONOUS_WAIT=PASS \
+            NO_CALLBACK_DIRECT_PHOTO_RENDER=PASS \
+            NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS; do
+            grep -Fq "$marker" build/e2e-convergence/static-contract.txt
+          done
           {
             echo "IOS15_REFERENCE_INSPECTED=YES"
             echo "MOTIONCAM_REFERENCE_INSPECTED=YES"
@@ -213,40 +226,129 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
 
-          text = Path("src/product/ReferenceCameraHook.mm").read_text()
-          start = text.index("CVImageBufferRef HookedCMSampleBufferGetImageBuffer")
-          end = text.index("bool InstallReferenceCameraHook", start)
-          callback = text[start:end]
+          def between(text, start, end):
+              a = text.index(start)
+              b = text.index(end, a + len(start))
+              return text[a:b]
 
-          forbidden = [
+          hook_text = Path("src/product/ReferenceCameraHook.mm").read_text()
+          runtime_text = Path("src/product/MediaserverdRuntime.mm").read_text()
+          adapter_text = Path("src/product/CameraConsumerAdapter.cpp").read_text()
+          adapter_header = Path("src/product/CameraConsumerAdapter.h").read_text()
+
+          hook_callback = between(
+              hook_text,
+              "CVImageBufferRef HookedCMSampleBufferGetImageBuffer",
+              "bool InstallReferenceCameraHook",
+          )
+          runtime_impl_decide = between(
+              runtime_text,
+              "    CameraDecision decide(",
+              "    void prepareBlackFallbackForGeometry(",
+          )
+          runtime_wrapper = between(
+              runtime_text,
+              "CameraDecision MediaserverdRuntime::",
+              "CameraConsumerAdapter&",
+          )
+          adapter_decide = between(
+              adapter_text,
+              "CameraDecision CameraConsumerAdapter::decide(",
+              "CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal",
+          )
+          adapter_black = between(
+              adapter_text,
+              "CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal",
+              "std::size_t\nCameraConsumerAdapter::pinnedLeaseCount",
+          )
+
+          if "runtime.decideCameraBuffer" not in hook_callback:
+              raise SystemExit("Hook no longer reaches runtime decision")
+          if "impl_->decide" not in runtime_wrapper:
+              raise SystemExit("Runtime wrapper no longer reaches Impl::decide")
+          if "adapter_.decide" not in runtime_impl_decide:
+              raise SystemExit("Runtime Impl::decide no longer reaches adapter")
+          if "blackOrEmergencyOriginal" not in adapter_decide:
+              raise SystemExit("Adapter decision no longer audits BLACK ownership helper")
+
+          reachable = "\n".join([
+              hook_callback,
+              runtime_wrapper,
+              runtime_impl_decide,
+              adapter_decide,
+              adapter_black,
+          ])
+
+          forbidden_reachable = [
               "AVAssetReader",
               "CGImageSource",
               "FrameTransformer",
               "vImage",
+              "CIContext",
               "CVPixelBufferCreate(",
               "dispatch_sync",
+              "sleep(",
+              "wait(",
               "loadFile",
               "contentsOfFile",
               "readData",
+              "bindDirectPhotoSource",
+              "prepareDirectPhotoGeometry",
+              "renderDirectPhotoIntoOriginalLocked",
+              "DirectRenderedPhoto",
+              "ySourceColumns",
+              "cbCrSourceByteColumns",
+              "yValueMap",
+              "cbCrValueMap",
           ]
-          found = [token for token in forbidden if token in callback]
+          found = [token for token in forbidden_reachable if token in reachable]
           if found:
-              raise SystemExit(
-                  f"Heavy camera callback work found: {found}"
-              )
-          PY
+              raise SystemExit(f"Heavy reachable camera callback work found: {found}")
 
-          {
-            echo "NO_CALLBACK_FILE_IO=PASS"
-            echo "NO_CALLBACK_DECODE=PASS"
-            echo "NO_CALLBACK_SCALE_OR_TRANSFORM=PASS"
-            echo "NO_CALLBACK_SYNCHRONOUS_MEDIA_WAIT=PASS"
-            echo "NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS"
-            echo "NO_APP_SPECIFIC_HOOKS=PASS"
-            echo "MAIN_UNCHANGED=PASS"
-            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
-            echo "DEVICE_ACTION=NO"
-          } | tee build/e2e-convergence/static-contract.txt
+          forbidden_adapter = [
+              "DirectRenderedPhoto",
+              "DirectPhotoPlan",
+              "bindDirectPhotoSource",
+              "prepareDirectPhotoGeometry",
+              "renderDirectPhotoIntoOriginalLocked",
+              "directPhotoSourceY_",
+              "directPhotoSourceCbCr_",
+              "directPhotoPlans_",
+              "ySourceColumns",
+              "ySourceRows",
+              "cbCrSourceByteColumns",
+              "cbCrSourceRows",
+              "yValueMap",
+              "cbCrValueMap",
+              "std::llround",
+          ]
+          found_adapter = [
+              token for token in forbidden_adapter
+              if token in adapter_text or token in adapter_header
+          ]
+          if found_adapter:
+              raise SystemExit(f"Direct PHOTO render machinery remains: {found_adapter}")
+
+          markers = [
+              "CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS",
+              "NO_CALLBACK_FILE_IO=PASS",
+              "NO_CALLBACK_DECODE=PASS",
+              "NO_CALLBACK_SCALE=PASS",
+              "NO_CALLBACK_TRANSFORM=PASS",
+              "NO_CALLBACK_COLOR_CONVERSION=PASS",
+              "NO_CALLBACK_MEDIA_ALLOCATION=PASS",
+              "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS",
+              "NO_CALLBACK_DIRECT_PHOTO_RENDER=PASS",
+              "NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS",
+              "NO_APP_SPECIFIC_HOOKS=PASS",
+              "MAIN_UNCHANGED=PASS",
+              "READ_ONLY_REPOS_UNCHANGED=PASS",
+              "DEVICE_ACTION=NO",
+          ]
+          out = Path("build/e2e-convergence/static-contract.txt")
+          out.write_text("\n".join(markers) + "\n")
+          print(out.read_text(), end="")
+          PY
 
       - name: Frame Engine A through F2 regression matrix
         shell: bash
@@ -451,12 +553,7 @@ jobs:
             echo "PINCH_SCALE_PIXELS=PASS"
             echo "PHOTO_ROTATION_DISABLED=PASS"
             echo "PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS"
-            echo "NO_CALLBACK_FILE_IO=PASS"
-            echo "NO_CALLBACK_DECODE=PASS"
-            echo "NO_CALLBACK_SCALE_OR_TRANSFORM=PASS"
-            echo "NO_CALLBACK_SYNCHRONOUS_MEDIA_WAIT=PASS"
-            echo "NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS"
-            echo "NO_APP_SPECIFIC_HOOKS=PASS"
+            cat build/e2e-convergence/static-contract.txt
             echo "CANONICAL_VCAMPRO_FILTER_PARITY=PASS"
             echo "ARM64=PASS"
             echo "MINIMUM_IOS_15=PASS"
