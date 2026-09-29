@@ -125,6 +125,11 @@ public:
             std::memory_order_release);
     }
 
+    // The caller must quiesce the producer before invoking this. It drops
+    // only a prepared-but-not-yet-presented frame and deliberately preserves
+    // media generation, timeline epoch, scheduler state and source position.
+    void discardPendingTimedFrameForTransformUpdate() noexcept;
+
 private:
     friend class FramePipelinePumpStageE1TestAccess;
     friend class FramePipelinePumpStageF1TestAccess;
