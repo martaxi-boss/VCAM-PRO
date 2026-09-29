@@ -271,6 +271,12 @@ FramePipelinePumpResult FramePipelinePump::publishTimedFrame(
     }
 }
 
+void FramePipelinePump::
+discardPendingTimedFrameForTransformUpdate() noexcept {
+    pendingTimedFrame_.reset();
+    pendingPreparedResult_ = {};
+}
+
 FramePipelinePumpResult FramePipelinePump::resetTimedContextIfNeeded() {
     FramePipelinePumpResult result;
 
