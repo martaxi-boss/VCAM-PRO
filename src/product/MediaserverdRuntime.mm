@@ -1103,6 +1103,52 @@ struct MediaserverdRuntime::Impl {
             target);
     }
 
+    bool retargetVideoForGeometry(
+        const ProductControlSnapshot& snapshot,
+        std::uint64_t geometry) {
+        if (session_ == nullptr ||
+            snapshot.mediaKind !=
+                ProductMediaKind::Video ||
+            !snapshot.hasMedia() ||
+            !SameMediaIdentity(
+                snapshot,
+                applied_)) {
+            return false;
+        }
+
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+        DecodeGeometryKey(
+            geometry,
+            &width,
+            &height,
+            &pixelFormat);
+
+        if (width == 0 ||
+            height == 0 ||
+            !SupportedCameraFormat(
+                pixelFormat)) {
+            return false;
+        }
+
+        media_engine::NormalizationTarget target;
+        target.width = width;
+        target.height = height;
+        target.pixelFormat = pixelFormat;
+        target.orientation =
+            media_engine::
+                OrientationRequirement::
+                    UprightIdentityTransform;
+        target.colorMetadata =
+            media_engine::
+                ColorMetadataPolicy::
+                    PreserveSource;
+
+        return session_->retargetVideoOutput(
+            target);
+    }
+
     void handleGeometryRequest(
         std::uint64_t geometry) {
 #if defined(VCAM_TESTING)
@@ -1139,6 +1185,35 @@ struct MediaserverdRuntime::Impl {
                     geometry)) {
                 return;
             }
+        }
+
+        if (snapshot.mediaKind ==
+                ProductMediaKind::Video &&
+            snapshot.hasMedia() &&
+            session_ != nullptr &&
+            SameMediaIdentity(
+                snapshot,
+                applied_)) {
+            applyMutableControls(
+                snapshot);
+            const bool retargeted =
+                retargetVideoForGeometry(
+                    snapshot,
+                    geometry);
+            applied_ = snapshot;
+
+            if (retargeted) {
+                bindCurrentSession(
+                    session_->playbackState() ==
+                        frame_engine::
+                            PlaybackState::Playing);
+            } else {
+                // Geometry has already received a prepared BLACK fallback.
+                // Preserve one logical VIDEO session rather than reopening
+                // LocalVideoReader in response to destination churn.
+                adapter_.unbindQueue();
+            }
+            return;
         }
 
         applyCachedState(

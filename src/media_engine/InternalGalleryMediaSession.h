@@ -67,6 +67,8 @@ public:
     bool pause();
     bool resume();
     bool setVideoLoopEnabled(bool enabled);
+    bool retargetVideoOutput(
+        const NormalizationTarget& target);
     bool setPhotoTransform(
         const PhotoTransformState& transform);
     bool preparePhotoVariant(

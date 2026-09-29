@@ -328,6 +328,66 @@ hasQueuedPhotoVariant(
 }
 
 bool InternalGalleryMediaSession::
+retargetVideoOutput(
+    const NormalizationTarget& target) {
+    if (selected_.kind !=
+            SelectedMediaKind::Video ||
+        videoReader_ == nullptr ||
+        pump_ == nullptr ||
+        driver_ == nullptr) {
+        setStatus(
+            "Video output retarget requires a selected video.");
+        return false;
+    }
+
+    if (target.width == 0 ||
+        target.height == 0 ||
+        target.pixelFormat == 0) {
+        setStatus(
+            "Video output retarget rejected an invalid target.");
+        return false;
+    }
+
+    const NormalizationTarget current =
+        pump_->target();
+    if (current.width == target.width &&
+        current.height == target.height &&
+        current.pixelFormat ==
+            target.pixelFormat &&
+        current.orientation ==
+            target.orientation &&
+        current.colorMetadata ==
+            target.colorMetadata) {
+        return true;
+    }
+
+    const auto playback =
+        state_.playbackState();
+
+    // Producer-side retarget only. Stopping the wakeup driver does not stop
+    // or recreate LocalVideoReader/AVAssetReader and does not change the
+    // FrameEngine media generation or timeline epoch.
+    driver_->stop();
+    queue_.clear();
+
+    config_.target = target;
+    pump_->setTarget(target);
+
+    if (playback ==
+        frame_engine::PlaybackState::Playing) {
+        if (!driver_->start()) {
+            setStatus(
+                "Unable to resume video producer after output retarget.");
+            return false;
+        }
+    }
+
+    setStatus(
+        "Video output target updated without reopening source.");
+    return true;
+}
+
+bool InternalGalleryMediaSession::
 setVideoLoopEnabled(bool enabled) {
     if (videoReader_ == nullptr ||
         selected_.kind !=
