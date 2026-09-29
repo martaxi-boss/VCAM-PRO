@@ -605,6 +605,7 @@ CameraDecision CameraConsumerAdapter::decide(
                 }
             }
         }
+    }
 
     if (lock.owns_lock()) {
         lock.unlock();
