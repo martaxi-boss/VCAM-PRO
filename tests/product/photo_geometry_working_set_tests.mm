@@ -116,13 +116,16 @@ CVPixelBufferRef MakeBuffer(
     std::size_t width,
     std::size_t height,
     OSType format) {
+    NSDictionary* attributes = @{
+        (NSString*)kCVPixelBufferIOSurfacePropertiesKey : @{}
+    };
     CVPixelBufferRef buffer = nullptr;
     if (CVPixelBufferCreate(
             kCFAllocatorDefault,
             width,
             height,
             format,
-            nullptr,
+            (__bridge CFDictionaryRef)attributes,
             &buffer) != kCVReturnSuccess) {
         return nullptr;
     }
