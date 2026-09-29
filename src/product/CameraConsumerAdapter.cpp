@@ -2,9 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
-#if defined(VCAM_TESTING)
 #include <cstdio>
-#endif
 #include <cstring>
 #include <limits>
 #include <new>
@@ -2306,7 +2304,6 @@ renderDirectPhotoIntoOriginalLocked(
                 directPhotoSource_,
                 1) * 2;
 
-#if defined(VCAM_TESTING)
         if (!plan->ySourceRows.empty() &&
             !plan->ySourceColumns.empty()) {
             const std::size_t debugRow =
@@ -2333,7 +2330,6 @@ renderDirectPhotoIntoOriginalLocked(
                 plan->ySourceRows.size(),
                 plan->ySourceColumns.size());
         }
-#endif
 
         for (std::size_t y = 0;
              y < plan->destinationHeight &&
@@ -2373,7 +2369,6 @@ renderDirectPhotoIntoOriginalLocked(
             }
         }
 
-#if defined(VCAM_TESTING)
         if (plan->destinationHeight != 0 &&
             plan->destinationWidth != 0) {
             std::fprintf(
@@ -2385,7 +2380,6 @@ renderDirectPhotoIntoOriginalLocked(
                             destinationYStride +
                         plan->destinationX]));
         }
-#endif
 
         for (std::size_t y = 0;
              y < plan->destinationHeight / 2 &&
