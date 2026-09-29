@@ -559,7 +559,7 @@ bool TestInitialOrientationAppliedBeforeSelection() {
             static_cast<std::uint8_t>(
                 vcam::media_engine::
                     OrientationRequirement::
-                        StreamPortrait));
+                        UprightIdentityTransform));
     CHECK(
         IsPrepared(
             runtime.decideCameraBuffer(
@@ -567,7 +567,8 @@ bool TestInitialOrientationAppliedBeforeSelection() {
 
     std::cout
         << "INITIAL_MEDIA_SELECTION_STREAM_ORIENTATION=PASS\n"
-        << "INITIAL_MEDIA_SELECTION_ORIENTATION_REVISION_PRESERVED=PASS\n";
+        << "INITIAL_MEDIA_SELECTION_ORIENTATION_REVISION_PRESERVED=PASS\n"
+        << "INITIAL_MEDIA_SELECTION_PIXEL_TARGET_UPRIGHT_IDENTITY=PASS\n";
 
     CVPixelBufferRelease(
         geometry);
