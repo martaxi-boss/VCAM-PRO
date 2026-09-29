@@ -1,4 +1,5 @@
 #include "CameraConsumerAdapter.h"
+#include "FrameNormalizer.h"
 #include "MediaserverdRuntime.h"
 #include "ProductControlOwner.h"
 
