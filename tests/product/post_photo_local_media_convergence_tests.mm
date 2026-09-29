@@ -1170,6 +1170,13 @@ bool TestVideoSelectionAndGeometryChurn() {
             a,
             selected.selectionGeneration));
 
+    runtime.noteCameraCommitResult(
+        true,
+        true);
+    runtime.noteCameraCommitResult(
+        true,
+        false);
+
     const auto initial =
         runtime.snapshotForTesting();
     const std::uint64_t initialEpoch =
@@ -1196,6 +1203,20 @@ bool TestVideoSelectionAndGeometryChurn() {
         initial.videoNormalizeSuccessCount > 0);
     CHECK(
         initial.publishedFrameCount > 0);
+    CHECK(
+        initial.videoAcquireCount > 0);
+    CHECK(
+        initial.
+            videoPreparedMediaDecisionCount > 0);
+    CHECK(
+        initial.videoCommitSuccessCount > 0);
+    CHECK(
+        initial.videoCommitFailureCount > 0);
+    CHECK(
+        initial.videoReaderError ==
+            static_cast<std::uint8_t>(
+                vcam::frame_engine::
+                    ReaderErrorCode::None));
 
     const auto defaultVideoTransform =
         owner.snapshot();
@@ -1599,6 +1620,25 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         photoSelected.photoTransform.scale ==
             1.0);
+
+    ProductControlSnapshot persistedPhoto;
+    CHECK(
+        persistedStore.load(
+            &persistedPhoto));
+    CHECK(
+        persistedPhoto.mediaKind ==
+            ProductMediaKind::Photo);
+    CHECK(persistedPhoto.hasMedia());
+    CHECK(
+        persistedPhoto.photoTransform.translationX ==
+            0.0);
+    CHECK(
+        persistedPhoto.photoTransform.translationY ==
+            0.0);
+    CHECK(
+        persistedPhoto.photoTransform.scale ==
+            1.0);
+
     CHECK(
         WaitForPhoto(
             runtime,
@@ -1661,6 +1701,10 @@ bool TestVideoSelectionAndGeometryChurn() {
         WaitForRuntimeEnabled(
             runtime,
             true));
+    const auto blackBeforeClear =
+        runtime.snapshotForTesting().
+            videoBlackDecisionCount;
+
     CHECK(owner.clearMedia());
     CHECK(
         WaitForRuntimeNoMedia(
@@ -1678,8 +1722,21 @@ bool TestVideoSelectionAndGeometryChurn() {
             CameraDecisionSource::
                 InPlaceBlackOwnershipGuard);
 
+    const auto clearDiagnostics =
+        runtime.snapshotForTesting();
+    CHECK(
+        clearDiagnostics.
+            videoBlackDecisionCount >
+        blackBeforeClear);
+
     std::cout
-        << "CLEAR_VIDEO_RETURNS_BLACK=PASS\n";
+        << "CLEAR_VIDEO_RETURNS_BLACK=PASS\n"
+        << "VIDEO_DIAGNOSTIC_PUBLISH_SUCCESS=PASS\n"
+        << "VIDEO_DIAGNOSTIC_QUEUE_ACQUIRE=PASS\n"
+        << "VIDEO_DIAGNOSTIC_PREPARED_MEDIA_DECISION=PASS\n"
+        << "VIDEO_DIAGNOSTIC_BLACK_DECISION=PASS\n"
+        << "VIDEO_DIAGNOSTIC_COMMIT_SUCCESS=PASS\n"
+        << "VIDEO_DIAGNOSTIC_COMMIT_FAILURE=PASS\n";
 
     CVPixelBufferRelease(a);
     CVPixelBufferRelease(b);
