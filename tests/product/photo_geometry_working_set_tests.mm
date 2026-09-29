@@ -453,6 +453,18 @@ bool TestDirectRendererSyntheticSource() {
         << static_cast<unsigned>(
             adapter.directPhotoTestDestinationLuma())
         << "\n"
+        << "DIRECT_RENDER_EXTERNAL_SOURCE_BASE="
+        << sourceBase
+        << "\n"
+        << "DIRECT_RENDER_INTERNAL_SOURCE_BASE="
+        << adapter.directPhotoTestSourceBase()
+        << "\n"
+        << "DIRECT_RENDER_INTERNAL_SOURCE_ROW="
+        << adapter.directPhotoTestSourceRow()
+        << "\n"
+        << "DIRECT_RENDER_INTERNAL_SOURCE_COLUMN="
+        << adapter.directPhotoTestSourceColumn()
+        << "\n"
         << "DIRECT_RENDER_COUNT="
         << adapter.directPhotoRenderCount()
         << "\n"

@@ -1630,6 +1630,27 @@ directPhotoSourceMatchesForTesting(
     std::lock_guard<std::mutex> lock(mutex_);
     return directPhotoSource_ == expected;
 }
+
+std::uintptr_t
+CameraConsumerAdapter::
+directPhotoTestSourceBase() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoTestSourceBase_;
+}
+
+std::size_t
+CameraConsumerAdapter::
+directPhotoTestSourceRow() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoTestSourceRow_;
+}
+
+std::size_t
+CameraConsumerAdapter::
+directPhotoTestSourceColumn() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoTestSourceColumn_;
+}
 #endif
 
 bool CameraConsumerAdapter::
@@ -2344,6 +2365,13 @@ renderDirectPhotoIntoOriginalLocked(
                 sourceYBase +
                 debugRow *
                     sourceYStride;
+            directPhotoTestSourceBase_ =
+                reinterpret_cast<std::uintptr_t>(
+                    sourceYBase);
+            directPhotoTestSourceRow_ =
+                debugRow;
+            directPhotoTestSourceColumn_ =
+                debugColumn;
             directPhotoTestSourceLuma_ =
                 debugSource[debugColumn];
             directPhotoTestMappedLuma_ =

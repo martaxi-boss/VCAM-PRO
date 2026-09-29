@@ -189,6 +189,9 @@ public:
     std::uint8_t directPhotoTestDestinationLuma() const;
     bool directPhotoSourceMatchesForTesting(
         CVPixelBufferRef expected) const;
+    std::uintptr_t directPhotoTestSourceBase() const;
+    std::size_t directPhotoTestSourceRow() const;
+    std::size_t directPhotoTestSourceColumn() const;
 #endif
     std::size_t blackFallbackCacheCount() const;
 
@@ -399,6 +402,9 @@ private:
     std::uint8_t directPhotoTestSourceLuma_ = 0;
     std::uint8_t directPhotoTestMappedLuma_ = 0;
     std::uint8_t directPhotoTestDestinationLuma_ = 0;
+    std::uintptr_t directPhotoTestSourceBase_ = 0;
+    std::size_t directPhotoTestSourceRow_ = 0;
+    std::size_t directPhotoTestSourceColumn_ = 0;
 #endif
 
     std::array<
