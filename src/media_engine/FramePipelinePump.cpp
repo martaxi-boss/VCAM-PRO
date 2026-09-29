@@ -245,4 +245,11 @@ void FramePipelinePump::setTarget(
     timedTimelineEpoch_ = 0;
 }
 
+void FramePipelinePump::setTargetPreservingTimeline(
+    const NormalizationTarget& target) noexcept {
+    target_ = target;
+    pendingTimedFrame_.reset();
+    pendingPreparedResult_ = {};
+}
+
 }  // namespace vcam::media_engine
