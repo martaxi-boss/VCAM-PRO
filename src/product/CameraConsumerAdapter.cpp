@@ -528,6 +528,14 @@ CameraDecision CameraConsumerAdapter::decide(
                             if (retained != nullptr) {
                                 selected = retained;
                             }
+
+                            // Preserve the historical bounded lease pinning
+                            // contract while the retained pixel buffer provides
+                            // a latest-frame visual source for callbacks between
+                            // producer publications.
+                            pin(
+                                std::move(
+                                    *acquired.lease));
                         }
 
                         if (selected != nullptr) {
