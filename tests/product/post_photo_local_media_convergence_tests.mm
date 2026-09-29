@@ -1451,21 +1451,19 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         runtime.drainControlQueueForTesting());
 
-    bool pausedRevisionApplied = false;
-    for (int attempt = 0;
-         attempt < 500;
-         ++attempt) {
-        if (runtime.cameraAdapter().
-                videoBoundTransformRevisionForTesting() ==
-            pausedControl.photoTransform.revision) {
-            pausedRevisionApplied = true;
-            break;
-        }
-        [NSThread
-            sleepForTimeInterval:
-                0.002];
-    }
-    CHECK(pausedRevisionApplied);
+    // Paused VIDEO must not consume source frames merely to refresh
+    // a framing transform. Keep the currently presented revision bound until
+    // playback resumes and a fresh transformed frame can supersede it.
+    CHECK(
+        runtime.cameraAdapter().
+            videoBoundTransformRevisionForTesting() ==
+        transformedControl.
+            photoTransform.revision);
+    CHECK(
+        runtime.cameraAdapter().
+            videoLatestTransformRevisionForTesting() ==
+        transformedControl.
+            photoTransform.revision);
 
     const auto pausedAfter =
         runtime.snapshotForTesting();
@@ -1486,6 +1484,42 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         pausedAfter.queueEpoch ==
             initialEpoch);
+    CHECK(
+        pausedAfter.videoReadFrameCount ==
+            pausedBefore.videoReadFrameCount);
+    CHECK(
+        pausedAfter.videoLastSourcePTSValue ==
+            pausedBefore.videoLastSourcePTSValue);
+    CHECK(
+        pausedAfter.videoLastSourcePTSTimescale ==
+            pausedBefore.videoLastSourcePTSTimescale);
+
+    const auto pausedBlackBefore =
+        runtime.cameraAdapter().
+            blackVirtualDecisionCount();
+    const auto pausedGuardBefore =
+        runtime.cameraAdapter().
+            inPlaceBlackGuardDecisionCount();
+
+    for (std::uint32_t index = 0;
+         index <
+             CameraConsumerAdapter::
+                 kVideoTransformTransitionReuseBudget +
+             8U;
+         ++index) {
+        const auto decision =
+            runtime.decideCameraBuffer(a);
+        CHECK(IsPrepared(decision));
+    }
+
+    CHECK(
+        runtime.cameraAdapter().
+            blackVirtualDecisionCount() ==
+        pausedBlackBefore);
+    CHECK(
+        runtime.cameraAdapter().
+            inPlaceBlackGuardDecisionCount() ==
+        pausedGuardBefore);
 
     CHECK(
         owner.setPlaybackIntent(
@@ -1496,6 +1530,10 @@ bool TestVideoSelectionAndGeometryChurn() {
         waitForTransformRevision(
             pausedControl.
                 photoTransform.revision));
+    CHECK(
+        runtime.cameraAdapter().
+            videoBoundTransformRevisionForTesting() ==
+        pausedControl.photoTransform.revision);
 
     const auto resumedTransform =
         runtime.snapshotForTesting();
@@ -1535,6 +1573,9 @@ bool TestVideoSelectionAndGeometryChurn() {
         << "EXISTING_PHOTO_STATE_LOAD=PASS\n"
         << "VIDEO_TRANSFORM_WHILE_PLAYING=PASS\n"
         << "VIDEO_TRANSFORM_WHILE_PAUSED=PASS\n"
+        << "VIDEO_PAUSED_TRANSFORM_SOURCE_READ_DELTA=0\n"
+        << "VIDEO_PAUSED_OUTPUT_STABLE=PASS\n"
+        << "VIDEO_PAUSED_TRANSFORM_DEFERRED_UNTIL_RESUME=PASS\n"
         << "VIDEO_TRANSFORM_READER_REOPEN_COUNT_DELTA=0\n"
         << "VIDEO_TRANSFORM_LOGICAL_SESSION_RECREATE_DELTA=0\n"
         << "VIDEO_TRANSFORM_SELECTION_GENERATION_STABLE=PASS\n"
