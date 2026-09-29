@@ -386,13 +386,6 @@ CVImageBufferRef ApplyCameraDecisionToOriginal(
 
     if (decision.source ==
             CameraDecisionSource::
-                DirectRenderedPhoto &&
-        decision.pixelBuffer == original) {
-        return original;
-    }
-
-    if (decision.source ==
-            CameraDecisionSource::
                 InPlaceBlackOwnershipGuard &&
         decision.pixelBuffer == original) {
         const bool guarded =

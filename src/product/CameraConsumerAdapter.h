@@ -10,7 +10,6 @@
 #include <cstdint>
 #include <mutex>
 #include <optional>
-#include <vector>
 
 namespace vcam::product {
 
@@ -22,7 +21,6 @@ enum class CameraDecisionKind : std::uint8_t {
 enum class CameraDecisionSource : std::uint8_t {
     Original = 0,
     PreparedMedia,
-    DirectRenderedPhoto,
     BlackFallback,
     InPlaceBlackOwnershipGuard,
 };
@@ -133,17 +131,6 @@ public:
     static constexpr std::uint64_t
         kPhotoWorkingSetActiveObservationWindow = 32;
     static constexpr std::size_t
-        kDirectPhotoPlanCapacity = 16;
-    static constexpr std::size_t
-        kDirectRenderScratchByteBudget =
-            16U * 1024U * 1024U;
-    // Producer-side compact snapshot of the already-decoded PHOTO. A
-    // 4032x3024 NV12 source is about 18.3 MiB, so 24 MiB covers the A9
-    // 12 MP source class while remaining explicitly bounded.
-    static constexpr std::size_t
-        kDirectPhotoSourceByteBudget =
-            24U * 1024U * 1024U;
-    static constexpr std::size_t
         kBlackFallbackCapacity = 4;
 
     CameraConsumerAdapter() = default;
@@ -186,40 +173,9 @@ public:
     std::size_t photoVariantWorkingSetCount() const;
     std::uint64_t photoVariantEvictionCount() const;
     std::uint64_t photoVariantReprepareCount() const;
-    std::uint64_t directPhotoRenderCount() const;
-    std::uint64_t directPhotoRenderFailureCount() const;
-    std::size_t directPhotoScratchBytes() const;
-    std::size_t directPhotoSourceBytes() const;
-#if defined(VCAM_TESTING)
-    std::uint8_t directPhotoTestSourceLuma() const;
-    std::uint8_t directPhotoTestMappedLuma() const;
-    std::uint8_t directPhotoTestDestinationLuma() const;
-    std::uint8_t directPhotoSnapshotFirstLumaForTesting() const;
-    bool directPhotoSourceMatchesForTesting(
-        CVPixelBufferRef expected) const;
-    std::uintptr_t directPhotoTestSourceBase() const;
-    std::size_t directPhotoTestSourceRow() const;
-    std::size_t directPhotoTestSourceColumn() const;
-#endif
     std::size_t blackFallbackCacheCount() const;
 
     void notePhotoGeometryObserved(
-        std::size_t width,
-        std::size_t height,
-        OSType pixelFormat,
-        std::uint64_t mediaGeneration,
-        std::uint64_t timelineEpoch,
-        std::uint64_t transformRevision);
-
-    bool bindDirectPhotoSource(
-        CVPixelBufferRef source,
-        std::uint64_t mediaGeneration,
-        std::uint64_t timelineEpoch,
-        std::uint64_t transformRevision,
-        double translationX,
-        double translationY,
-        double scale);
-    bool prepareDirectPhotoGeometry(
         std::size_t width,
         std::size_t height,
         OSType pixelFormat,
@@ -258,36 +214,6 @@ private:
         OSType pixelFormat = 0;
         std::size_t retainedBytes = 0;
         std::uint64_t lastUseSerial = 0;
-    };
-
-    struct DirectPhotoPlan {
-        bool valid = false;
-        std::uint64_t mediaGeneration = 0;
-        std::uint64_t timelineEpoch = 0;
-        std::uint64_t transformRevision = 0;
-        std::size_t width = 0;
-        std::size_t height = 0;
-        OSType pixelFormat = 0;
-        std::size_t sourceX = 0;
-        std::size_t sourceY = 0;
-        std::size_t sourceWidth = 0;
-        std::size_t sourceHeight = 0;
-        std::size_t destinationX = 0;
-        std::size_t destinationY = 0;
-        std::size_t destinationWidth = 0;
-        std::size_t destinationHeight = 0;
-
-        // All scaling coordinates and range conversion are prepared on the
-        // producer/control side. The camera callback only walks these bounded
-        // immutable tables and copies into the supplied ORIGINAL buffer.
-        std::vector<std::uint32_t> ySourceColumns{};
-        std::vector<std::uint32_t> ySourceRows{};
-        std::vector<std::uint32_t> cbCrSourceByteColumns{};
-        std::vector<std::uint32_t> cbCrSourceRows{};
-        std::array<std::uint8_t, 256> yValueMap{};
-        std::array<std::uint8_t, 256> cbCrValueMap{};
-        std::size_t mappingBytes = 0;
-        std::uint64_t preparedSerial = 0;
     };
 
     struct PhotoWorkingSetEntry {
@@ -346,16 +272,6 @@ private:
         std::uint64_t transformRevision) const noexcept;
     bool photoGeometryActiveLocked(
         const PhotoVariantSlot& slot) const noexcept;
-    void clearDirectPhotoSourceLocked() noexcept;
-    DirectPhotoPlan* findDirectPhotoPlanLocked(
-        std::size_t width,
-        std::size_t height,
-        OSType pixelFormat,
-        std::uint64_t mediaGeneration,
-        std::uint64_t timelineEpoch,
-        std::uint64_t transformRevision) noexcept;
-    bool renderDirectPhotoIntoOriginalLocked(
-        CVPixelBufferRef original) noexcept;
     std::uint64_t nextPhotoVariantUseSerialLocked() noexcept;
 
     CameraDecision blackOrEmergencyOriginal(
@@ -391,34 +307,6 @@ private:
     std::uint64_t photoVariantUseSerial_ = 0;
     std::uint64_t photoVariantEvictionCount_ = 0;
     std::uint64_t photoVariantReprepareCount_ = 0;
-
-    CVPixelBufferRef directPhotoSource_ = nullptr;
-    OSType directPhotoSourceFormat_ = 0;
-    std::size_t directPhotoSourceWidth_ = 0;
-    std::size_t directPhotoSourceHeight_ = 0;
-    std::vector<std::uint8_t> directPhotoSourceY_{};
-    std::vector<std::uint8_t> directPhotoSourceCbCr_{};
-    std::uint64_t directPhotoGeneration_ = 0;
-    std::uint64_t directPhotoEpoch_ = 0;
-    std::uint64_t directPhotoRevision_ = 0;
-    double directPhotoTranslationX_ = 0.0;
-    double directPhotoTranslationY_ = 0.0;
-    double directPhotoScale_ = 1.0;
-    std::array<
-        DirectPhotoPlan,
-        kDirectPhotoPlanCapacity>
-        directPhotoPlans_{};
-    std::uint64_t directPhotoPlanSerial_ = 0;
-    std::uint64_t directPhotoRenderCount_ = 0;
-    std::uint64_t directPhotoRenderFailureCount_ = 0;
-#if defined(VCAM_TESTING)
-    std::uint8_t directPhotoTestSourceLuma_ = 0;
-    std::uint8_t directPhotoTestMappedLuma_ = 0;
-    std::uint8_t directPhotoTestDestinationLuma_ = 0;
-    std::uintptr_t directPhotoTestSourceBase_ = 0;
-    std::size_t directPhotoTestSourceRow_ = 0;
-    std::size_t directPhotoTestSourceColumn_ = 0;
-#endif
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,

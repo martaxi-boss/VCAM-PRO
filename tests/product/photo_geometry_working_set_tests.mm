@@ -157,14 +157,6 @@ bool IsSafeBlack(const CameraDecision& decision) {
              CameraDecisionSource::InPlaceBlackOwnershipGuard);
 }
 
-bool IsDirect(const CameraDecision& decision) {
-    return
-        decision.kind == CameraDecisionKind::Virtual &&
-        decision.source ==
-            CameraDecisionSource::DirectRenderedPhoto &&
-        decision.pixelBuffer != nullptr;
-}
-
 bool HasNonBlackLuma(
     CVPixelBufferRef pixelBuffer) {
     if (pixelBuffer == nullptr ||
@@ -256,244 +248,6 @@ struct GeometryFixture {
     std::size_t height = 0;
     OSType format = 0;
 };
-
-bool FillVisibleNV12(
-    CVPixelBufferRef buffer) {
-    if (buffer == nullptr ||
-        !CVPixelBufferIsPlanar(buffer) ||
-        CVPixelBufferGetPlaneCount(buffer) != 2 ||
-        CVPixelBufferLockBaseAddress(
-            buffer,
-            0) != kCVReturnSuccess) {
-        return false;
-    }
-
-    bool ok = true;
-    for (std::size_t plane = 0; plane < 2; ++plane) {
-        auto* base =
-            static_cast<std::uint8_t*>(
-                CVPixelBufferGetBaseAddressOfPlane(
-                    buffer,
-                    plane));
-        const std::size_t stride =
-            CVPixelBufferGetBytesPerRowOfPlane(
-                buffer,
-                plane);
-        const std::size_t rows =
-            CVPixelBufferGetHeightOfPlane(
-                buffer,
-                plane);
-        if (base == nullptr || stride == 0 || rows == 0) {
-            ok = false;
-            break;
-        }
-        std::memset(
-            base,
-            plane == 0 ? 120 : 128,
-            stride * rows);
-    }
-
-    CVPixelBufferUnlockBaseAddress(
-        buffer,
-        0);
-    return ok;
-}
-
-std::uintptr_t LumaBaseAddress(
-    CVPixelBufferRef buffer) {
-    if (buffer == nullptr ||
-        CVPixelBufferLockBaseAddress(
-            buffer,
-            kCVPixelBufferLock_ReadOnly) !=
-        kCVReturnSuccess) {
-        return 0;
-    }
-    const auto address =
-        reinterpret_cast<std::uintptr_t>(
-            CVPixelBufferGetBaseAddressOfPlane(
-                buffer,
-                0));
-    CVPixelBufferUnlockBaseAddress(
-        buffer,
-        kCVPixelBufferLock_ReadOnly);
-    return address;
-}
-
-int SampleLuma(
-    CVPixelBufferRef buffer,
-    std::size_t x,
-    std::size_t y) {
-    if (buffer == nullptr ||
-        !CVPixelBufferIsPlanar(buffer) ||
-        CVPixelBufferGetPlaneCount(buffer) < 1 ||
-        CVPixelBufferLockBaseAddress(
-            buffer,
-            kCVPixelBufferLock_ReadOnly) !=
-        kCVReturnSuccess) {
-        return -1;
-    }
-
-    const auto* base =
-        static_cast<const std::uint8_t*>(
-            CVPixelBufferGetBaseAddressOfPlane(
-                buffer,
-                0));
-    const std::size_t stride =
-        CVPixelBufferGetBytesPerRowOfPlane(
-            buffer,
-            0);
-    const std::size_t width =
-        CVPixelBufferGetWidthOfPlane(
-            buffer,
-            0);
-    const std::size_t height =
-        CVPixelBufferGetHeightOfPlane(
-            buffer,
-            0);
-
-    int value = -1;
-    if (base != nullptr &&
-        x < width &&
-        y < height) {
-        value =
-            static_cast<int>(
-                base[y * stride + x]);
-    }
-
-    CVPixelBufferUnlockBaseAddress(
-        buffer,
-        kCVPixelBufferLock_ReadOnly);
-    return value;
-}
-
-bool TestDirectRendererSyntheticSource() {
-    const OSType full =
-        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
-
-    CVPixelBufferRef source =
-        MakeBuffer(128, 96, full);
-    CVPixelBufferRef destination =
-        MakeBuffer(640, 360, full);
-    CHECK(source != nullptr);
-    CHECK(destination != nullptr);
-    CHECK(FillVisibleNV12(source));
-    CHECK(HasNonBlackLuma(source));
-    const int sourceSample =
-        SampleLuma(source, 0, 12);
-    CHECK(sourceSample == 120);
-    std::cout
-        << "DIRECT_RENDER_SOURCE_LUMA="
-        << sourceSample << "\n";
-
-    vcam::frame_engine::ReadyFrameQueue queue(1);
-    CameraConsumerAdapter adapter;
-    adapter.setEnabled(true);
-    adapter.bindQueue(
-        &queue,
-        1,
-        1,
-        true,
-        true,
-        0);
-    CHECK(adapter.bindDirectPhotoSource(
-        source,
-        1,
-        1,
-        0,
-        0.0,
-        0.0,
-        1.0));
-    std::cout
-        << "DIRECT_RENDER_SNAPSHOT_BYTES="
-        << adapter.directPhotoSourceBytes()
-        << "\n"
-        << "DIRECT_RENDER_SNAPSHOT_FIRST_LUMA="
-        << static_cast<unsigned>(
-            adapter.directPhotoSnapshotFirstLumaForTesting())
-        << "\n";
-    CHECK(adapter.directPhotoSourceBytes() > 0);
-    CHECK(
-        adapter.directPhotoSnapshotFirstLumaForTesting() ==
-        120);
-    CHECK(adapter.prepareDirectPhotoGeometry(
-        640,
-        360,
-        full,
-        1,
-        1,
-        0));
-    CHECK(adapter.directPhotoScratchBytes() > 0);
-    CHECK(source != destination);
-    CHECK(adapter.
-              directPhotoSourceMatchesForTesting(
-                  source));
-    CHECK(SampleLuma(source, 0, 12) == 120);
-    const std::uintptr_t sourceBase =
-        LumaBaseAddress(source);
-    const std::uintptr_t destinationBase =
-        LumaBaseAddress(destination);
-    CHECK(sourceBase != 0);
-    CHECK(destinationBase != 0);
-    CHECK(sourceBase != destinationBase);
-    std::cout
-        << "DIRECT_RENDER_SOURCE_IDENTITY=PASS\n"
-        << "DIRECT_RENDER_STORAGE_DISTINCT=PASS\n";
-
-    const CameraDecision decision =
-        adapter.decide(destination);
-    CHECK(IsDirect(decision));
-    const int destinationSample =
-        SampleLuma(
-            decision.pixelBuffer,
-            0,
-            0);
-    const int sourceAfter =
-        SampleLuma(source, 0, 12);
-    std::cout
-        << "DIRECT_RENDER_DESTINATION_LUMA="
-        << destinationSample << "\n"
-        << "DIRECT_RENDER_SOURCE_LUMA_AFTER="
-        << sourceAfter << "\n"
-        << "DIRECT_RENDER_INTERNAL_SOURCE_LUMA="
-        << static_cast<unsigned>(
-            adapter.directPhotoTestSourceLuma())
-        << "\n"
-        << "DIRECT_RENDER_INTERNAL_MAPPED_LUMA="
-        << static_cast<unsigned>(
-            adapter.directPhotoTestMappedLuma())
-        << "\n"
-        << "DIRECT_RENDER_INTERNAL_DESTINATION_LUMA="
-        << static_cast<unsigned>(
-            adapter.directPhotoTestDestinationLuma())
-        << "\n"
-        << "DIRECT_RENDER_EXTERNAL_SOURCE_BASE="
-        << sourceBase
-        << "\n"
-        << "DIRECT_RENDER_INTERNAL_SOURCE_BASE="
-        << adapter.directPhotoTestSourceBase()
-        << "\n"
-        << "DIRECT_RENDER_INTERNAL_SOURCE_ROW="
-        << adapter.directPhotoTestSourceRow()
-        << "\n"
-        << "DIRECT_RENDER_INTERNAL_SOURCE_COLUMN="
-        << adapter.directPhotoTestSourceColumn()
-        << "\n"
-        << "DIRECT_RENDER_COUNT="
-        << adapter.directPhotoRenderCount()
-        << "\n"
-        << "DIRECT_RENDER_FAILURE_COUNT="
-        << adapter.directPhotoRenderFailureCount()
-        << "\n";
-    CHECK(HasNonBlackLuma(
-        decision.pixelBuffer));
-
-    std::cout
-        << "DIRECT_RENDER_SYNTHETIC_SOURCE=PASS\n";
-
-    CVPixelBufferRelease(destination);
-    CVPixelBufferRelease(source);
-    return true;
-}
 
 bool ObserveDrainAndPhoto(
     MediaserverdRuntime& runtime,
@@ -769,13 +523,8 @@ bool TestOverflowGate() {
         "com.vcampro.geomws.overflow." +
         std::to_string(getpid());
 
-    ProductControlOwner owner(
-        controlPath,
-        notification,
-        media);
-    MediaserverdRuntime runtime(
-        controlPath,
-        notification);
+    ProductControlOwner owner(controlPath, notification, media);
+    MediaserverdRuntime runtime(controlPath, notification);
     CHECK(runtime.start());
 
     const OSType full =
@@ -785,179 +534,106 @@ bool TestOverflowGate() {
 
     GeometryFixture geometries[12];
     for (std::size_t index = 0; index < 12; ++index) {
-        const std::size_t width =
-            1920 - index * 2;
+        const std::size_t width = 1920 - index * 2;
         const std::size_t height = 1080;
-        const OSType format =
-            (index % 2) == 0
-                ? full
-                : video;
+        const OSType format = (index % 2) == 0 ? full : video;
         geometries[index] = {
-            MakeBuffer(width, height, format),
-            width,
-            height,
-            format,
-        };
+            MakeBuffer(width, height, format), width, height, format};
         CHECK(geometries[index].buffer != nullptr);
     }
 
-    runtime.observeRealCameraBuffer(
-        geometries[0].buffer);
+    runtime.observeRealCameraBuffer(geometries[0].buffer);
     CHECK(runtime.drainControlQueueForTesting());
     CHECK(owner.setEnabled(true));
 
     std::string error;
     CHECK(owner.selectFromTemporaryPath(
-        input,
-        ProductMediaKind::Photo,
-        &error));
+        input, ProductMediaKind::Photo, &error));
     CHECK(error.empty());
     const auto selected = owner.snapshot();
-    CHECK(WaitForInitialPhoto(
-        runtime,
-        selected.selectionGeneration));
-    const CameraDecision initialPrepared =
-        runtime.decideCameraBuffer(
-            geometries[0].buffer);
-    CHECK(IsPrepared(initialPrepared));
-    CHECK(HasNonBlackLuma(
-        initialPrepared.pixelBuffer));
-    std::cout
-        << "PREPARED_PHOTO_LUMA_VISIBLE=PASS\n";
+    CHECK(WaitForInitialPhoto(runtime, selected.selectionGeneration));
+    CHECK(IsPrepared(runtime.decideCameraBuffer(geometries[0].buffer)));
 
-    std::size_t directRenderIndex = 12;
+    std::size_t peakRetainedBytes =
+        runtime.snapshotForTesting().photoVariantRetainedBytes;
 
-    for (std::size_t index = 1;
-         index < 12;
-         ++index) {
-        runtime.observeRealCameraBuffer(
-            geometries[index].buffer);
+    for (std::size_t index = 1; index < 12; ++index) {
+        runtime.observeRealCameraBuffer(geometries[index].buffer);
         CHECK(runtime.drainControlQueueForTesting());
         const CameraDecision decision =
-            runtime.decideCameraBuffer(
-                geometries[index].buffer);
-        CHECK(
-            IsPrepared(decision) ||
-            IsDirect(decision));
-        if (IsDirect(decision) &&
-            directRenderIndex == 12) {
-            directRenderIndex = index;
+            runtime.decideCameraBuffer(geometries[index].buffer);
+        CHECK(IsPrepared(decision) || IsSafeBlack(decision));
+        CHECK(decision.source != CameraDecisionSource::Original);
+
+        const auto snapshot = runtime.snapshotForTesting();
+        if (snapshot.photoVariantRetainedBytes > peakRetainedBytes) {
+            peakRetainedBytes = snapshot.photoVariantRetainedBytes;
         }
+        CHECK(snapshot.photoVariantRetainedBytes <=
+              CameraConsumerAdapter::kPhotoVariantRetainedByteBudget);
+        CHECK(runtime.cameraAdapter().photoVariantCount() <=
+              CameraConsumerAdapter::kPhotoVariantStructuralCapacity);
     }
 
-    const auto stressed =
-        runtime.snapshotForTesting();
-    CHECK(directRenderIndex < 12);
-    CHECK(stressed.photoVariantRetainedBytes <=
-          CameraConsumerAdapter::
-              kPhotoVariantRetainedByteBudget);
-    CHECK(runtime.cameraAdapter().photoVariantCount() <=
-          CameraConsumerAdapter::
-              kPhotoVariantStructuralCapacity);
-    CHECK(runtime.cameraAdapter().
-              directPhotoRenderCount() > 0);
-    CHECK(runtime.cameraAdapter().
-              directPhotoRenderFailureCount() == 0);
-    CHECK(runtime.cameraAdapter().
-              directPhotoScratchBytes() <=
-          CameraConsumerAdapter::
-              kDirectRenderScratchByteBudget);
+    const auto stressed = runtime.snapshotForTesting();
+    CHECK(peakRetainedBytes <=
+          CameraConsumerAdapter::kPhotoVariantRetainedByteBudget);
 
-    const auto current =
-        runtime.snapshotForTesting();
     std::size_t overflowGeometryIndex = 12;
-    for (std::size_t index = 0;
-         index < 12;
-         ++index) {
-        if (!runtime.cameraAdapter().
-                hasReusablePhotoVariant(
-                    geometries[index].width,
-                    geometries[index].height,
-                    geometries[index].format,
-                    current.queueGeneration,
-                    current.queueEpoch,
-                    selected.photoTransform.revision)) {
+    for (std::size_t index = 0; index < 12; ++index) {
+        if (!runtime.cameraAdapter().hasReusablePhotoVariant(
+                geometries[index].width,
+                geometries[index].height,
+                geometries[index].format,
+                stressed.queueGeneration,
+                stressed.queueEpoch,
+                selected.photoTransform.revision)) {
             overflowGeometryIndex = index;
             break;
         }
     }
     CHECK(overflowGeometryIndex < 12);
 
+    const std::uint64_t preparationsBefore =
+        stressed.photoVariantPreparationCount;
     CHECK(runtime.suspendControlQueueForTesting());
     runtime.observeRealCameraBuffer(
-        geometries[
-            overflowGeometryIndex].
-            buffer);
-    const CameraDecision overflowReturn =
-        runtime.decideCameraBuffer(
-            geometries[
-                overflowGeometryIndex].
-                buffer);
-    CHECK(IsDirect(overflowReturn));
-    CHECK(!IsSafeBlack(overflowReturn));
-    CHECK(HasNonBlackLuma(
-        overflowReturn.pixelBuffer));
+        geometries[overflowGeometryIndex].buffer);
 
-    const auto benchmarkStart =
-        std::chrono::steady_clock::now();
-    for (std::size_t iteration = 0;
-         iteration < 10;
-         ++iteration) {
-        const CameraDecision decision =
-            runtime.decideCameraBuffer(
-                geometries[
-                    overflowGeometryIndex].
-                    buffer);
-        CHECK(IsDirect(decision));
-        CHECK(
-            decision.pixelBuffer ==
-            geometries[
-                overflowGeometryIndex].
-                buffer);
+    for (std::size_t attempt = 0; attempt < 4; ++attempt) {
+        const CameraDecision decision = runtime.decideCameraBuffer(
+            geometries[overflowGeometryIndex].buffer);
+        CHECK(IsSafeBlack(decision));
+        CHECK(decision.source != CameraDecisionSource::Original);
     }
-    const auto benchmarkEnd =
-        std::chrono::steady_clock::now();
+
+    const auto whileSuspended = runtime.snapshotForTesting();
+    CHECK(whileSuspended.photoVariantPreparationCount ==
+          preparationsBefore);
+    CHECK(runtime.cameraAdapter().enabledSupportedOriginalDecisionCount() == 0);
+
     CHECK(runtime.resumeControlQueueForTesting());
     CHECK(runtime.drainControlQueueForTesting());
-    const auto benchmarkNs =
-        std::chrono::duration_cast<
-            std::chrono::nanoseconds>(
-                benchmarkEnd -
-                benchmarkStart).
-            count() / 10;
-
-    CHECK(runtime.cameraAdapter().
-              enabledSupportedOriginalDecisionCount() == 0);
+    const auto afterProducer = runtime.snapshotForTesting();
+    CHECK(afterProducer.photoVariantPreparationCount > preparationsBefore);
+    CHECK(afterProducer.photoVariantRetainedBytes <=
+          CameraConsumerAdapter::kPhotoVariantRetainedByteBudget);
+    CHECK(runtime.cameraAdapter().enabledSupportedOriginalDecisionCount() == 0);
 
     std::cout
         << "OVER_BUDGET_STRESS=PASS\n"
-        << "IOS15_DIRECT_RENDER_FALLBACK_REQUIRED=YES\n"
-        << "IOS15_DIRECT_RENDER_FALLBACK_USED=YES\n"
-        << "DIRECT_RENDER_OVERFLOW_CONTINUITY=PASS\n"
-        << "DIRECT_RENDER_HOST_BENCHMARK=PASS\n"
-        << "DIRECT_RENDER_HOST_AVERAGE_NS="
-        << benchmarkNs
-        << "\n"
-        << "OVER_BUDGET_FIRST_DIRECT_INDEX="
-        << directRenderIndex
-        << "\n"
-        << "OVER_BUDGET_BENCHMARK_DIRECT_INDEX="
-        << overflowGeometryIndex
-        << "\n"
-        << "OVER_BUDGET_RETAINED_BYTES="
-        << stressed.photoVariantRetainedBytes
-        << "\n"
-        << "OVER_BUDGET_EVICTION_COUNT="
-        << stressed.photoVariantEvictionCount
-        << "\n"
-        << "DIRECT_RENDER_COUNT="
-        << runtime.cameraAdapter().
-            directPhotoRenderCount()
-        << "\n"
-        << "DIRECT_RENDER_SCRATCH_BYTES="
-        << runtime.cameraAdapter().
-            directPhotoScratchBytes()
-        << "\n";
+        << "OVER_BUDGET_SAFE_VIRTUAL_OWNERSHIP=PASS\n"
+        << "OVER_BUDGET_ORIGINAL_DECISIONS=ZERO\n"
+        << "OVER_BUDGET_CALLBACK_SCALING=ZERO\n"
+        << "OVER_BUDGET_CALLBACK_TRANSFORM=ZERO\n"
+        << "OVER_BUDGET_MAY_USE_BLACK_WHILE_PREPARING=PASS\n"
+        << "OVER_BUDGET_PRODUCER_REPREPARATION_OUTSIDE_CALLBACK=PASS\n"
+        << "VCAM_ON_SUPPORTED_ORIGINAL_DECISIONS=ZERO\n"
+        << "PHOTO_VARIANT_PEAK_RETAINED_BYTES=" << peakRetainedBytes << "\n"
+        << "PHOTO_VARIANT_MEMORY_BUDGET="
+        << CameraConsumerAdapter::kPhotoVariantRetainedByteBudget << "\n"
+        << "DIRECT_RENDER_SOURCE_BYTES=0\n"
+        << "DIRECT_RENDER_MAPPING_BYTES=0\n";
 
     for (auto& geometry : geometries) {
         CVPixelBufferRelease(geometry.buffer);
@@ -975,9 +651,6 @@ bool TestOverflowGate() {
 
 int main() {
     @autoreleasepool {
-        if (!TestDirectRendererSyntheticSource()) {
-            return EXIT_FAILURE;
-        }
         if (!TestFiveGeometryWorkingSet()) {
             return EXIT_FAILURE;
         }
