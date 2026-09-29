@@ -465,11 +465,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
-          grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
-          grep -Fq 'setPhotoTransform' src/control/InternalGalleryViewController.mm
+          grep -Fq 'Adjust Photo' src/control/InternalGalleryViewController.mm
+          grep -Fq 'adjustPhotoRequestHandler' src/control/InternalGalleryViewController.mm
+          ! grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
+          ! grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
+          grep -Fq 'UIPanGestureRecognizer' src/product/SpringBoardControlHost.mm
+          grep -Fq 'UIPinchGestureRecognizer' src/product/SpringBoardControlHost.mm
+          grep -Fq 'photoAdjustPan:' src/product/SpringBoardControlHost.mm
+          grep -Fq 'photoAdjustPinch:' src/product/SpringBoardControlHost.mm
+          grep -Fq 'exitPhotoAdjustMode' src/product/SpringBoardControlHost.mm
+          grep -Fq 'setPhotoTransform' src/product/SpringBoardControlHost.mm
           grep -Fq 'resetPhotoTransform' src/control/InternalGalleryViewController.mm
-          ! grep -Fq 'UIRotationGestureRecognizer' src/control/InternalGalleryViewController.mm
+          ! grep -R -Fq 'UIRotationGestureRecognizer' src/control src/product
 
           {
             echo "PAN_TRANSLATION_STATE=PASS"
@@ -478,6 +485,10 @@ jobs:
             echo "PINCH_SCALE_PIXELS=PASS"
             echo "PHOTO_ROTATION_DISABLED=PASS"
             echo "PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS"
+            echo "PHOTO_DIRECT_OVERLAY_PAN=PASS"
+            echo "PHOTO_DIRECT_OVERLAY_PINCH=PASS"
+            echo "ADJUST_MODE_TOUCH_CAPTURE=PASS"
+            echo "DONE_RESTORES_PASSTHROUGH=PASS"
           } | tee -a build/e2e-convergence/markers.txt
 
       - name: Build and audit RootHide corrected product candidate
@@ -564,6 +575,14 @@ jobs:
             echo "MAIN_UNCHANGED=PASS"
             echo "DEVICE_ACTION=NO"
           } | tee build/e2e-convergence/final-markers.txt
+          for marker in \
+            PHOTO_DIRECT_OVERLAY_PAN=PASS \
+            PHOTO_DIRECT_OVERLAY_PINCH=PASS \
+            ADJUST_MODE_TOUCH_CAPTURE=PASS \
+            DONE_RESTORES_PASSTHROUGH=PASS; do
+            grep -Fq "$marker" build/e2e-convergence/markers.txt
+          done
+
 
       - name: Upload corrected product candidate
         uses: actions/upload-artifact@v4
