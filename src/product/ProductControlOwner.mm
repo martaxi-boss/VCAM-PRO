@@ -479,17 +479,18 @@ bool ProductControlOwner::setPlaybackIntent(
     return true;
 }
 
-bool ProductControlOwner::setPhotoTransform(
+bool ProductControlOwner::setMediaTransform(
     double translationX,
     double translationY,
     double scale) {
     std::lock_guard<std::mutex>
         lock(mutex_);
 
-    if (current_.mediaKind != ProductMediaKind::Photo ||
+    if ((current_.mediaKind != ProductMediaKind::Photo &&
+         current_.mediaKind != ProductMediaKind::Video) ||
         !current_.hasMedia()) {
         lastStatus_ =
-            "Photo transform requires a selected photo.";
+            "Media transform requires selected local media.";
         return false;
     }
 
@@ -529,15 +530,29 @@ bool ProductControlOwner::setPhotoTransform(
 
     current_ = next;
     lastStatus_ =
-        "Photo position / zoom updated.";
+        "Media position / zoom updated.";
     return true;
 }
 
-bool ProductControlOwner::resetPhotoTransform() {
-    return setPhotoTransform(
+bool ProductControlOwner::resetMediaTransform() {
+    return setMediaTransform(
         0.0,
         0.0,
         1.0);
+}
+
+bool ProductControlOwner::setPhotoTransform(
+    double translationX,
+    double translationY,
+    double scale) {
+    return setMediaTransform(
+        translationX,
+        translationY,
+        scale);
+}
+
+bool ProductControlOwner::resetPhotoTransform() {
+    return resetMediaTransform();
 }
 
 bool ProductControlOwner::
