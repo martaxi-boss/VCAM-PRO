@@ -4108,6 +4108,30 @@ MediaserverdRuntime::snapshotForTesting() {
 
     return result;
 }
+
+bool MediaserverdRuntime::
+stopVideoProducerForTesting() {
+    if (!impl_ ||
+        impl_->controlQueue_ == nullptr) {
+        return false;
+    }
+
+    __block bool stopped = false;
+    dispatch_sync(
+        impl_->controlQueue_,
+        ^{
+            const ProductControlSnapshot snapshot =
+                impl_->cache_.snapshot();
+            if (impl_->session_ != nullptr &&
+                snapshot.mediaKind ==
+                    ProductMediaKind::Video) {
+                impl_->session_->
+                    stopProducerForTesting();
+                stopped = true;
+            }
+        });
+    return stopped;
+}
 #endif
 
 MediaserverdRuntime::~MediaserverdRuntime() =

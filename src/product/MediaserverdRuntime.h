@@ -58,6 +58,7 @@ public:
     bool resumeControlQueueForTesting();
     MediaserverdRuntimeTestSnapshot
     snapshotForTesting();
+    bool stopVideoProducerForTesting();
 #endif
     ~MediaserverdRuntime();
 

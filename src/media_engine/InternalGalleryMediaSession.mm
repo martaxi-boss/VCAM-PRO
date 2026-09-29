@@ -520,6 +520,15 @@ photoVariantPreparationCount() const noexcept {
     return photoVariantPreparationCount_;
 }
 
+#if defined(VCAM_TESTING)
+void InternalGalleryMediaSession::
+stopProducerForTesting() {
+    if (driver_) {
+        driver_->stop();
+    }
+}
+#endif
+
 void InternalGalleryMediaSession::
 stopActiveSourceForReplacement() {
     if (driver_) {

@@ -752,6 +752,170 @@ bool TestStablePhotoMicroflashOwnership() {
     return true;
 }
 
+#if defined(VCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX)
+bool TestPreFixVideoQueueDrainsToBlackWithoutLatestReuse() {
+    const std::string root =
+        TempRoot("video-one-shot-prefx");
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input, 240));
+
+    const std::string controlPath =
+        root + "/control.plist";
+    const std::string media =
+        root + "/Media";
+    const std::string notification =
+        "com.vcampro.deviceproof.prefx.video." +
+        std::to_string(getpid());
+
+    ProductControlOwner owner(
+        controlPath,
+        notification,
+        media);
+    MediaserverdRuntime runtime(
+        controlPath,
+        notification);
+    CHECK(runtime.start());
+
+    CVPixelBufferRef geometry =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    CHECK(geometry != nullptr);
+
+    runtime.observeRealCameraBuffer(geometry);
+    CHECK(runtime.drainControlQueueForTesting());
+    CHECK(owner.setEnabled(true));
+
+    std::string error;
+    CHECK(owner.selectFromTemporaryPath(
+        input,
+        ProductMediaKind::Video,
+        &error));
+    CHECK(error.empty());
+
+    const auto selected = owner.snapshot();
+    CHECK(selected.mediaKind ==
+          ProductMediaKind::Video);
+    CHECK(selected.playbackIntent ==
+          ProductPlaybackIntent::Playing);
+
+    CHECK(WaitForVideo(
+        runtime,
+        selected.selectionGeneration,
+        1));
+
+    bool queueReady = false;
+    for (int attempt = 0;
+         attempt < 2500;
+         ++attempt) {
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.readyQueueSize > 0 &&
+            snapshot.publishedFrameCount > 0) {
+            queueReady = true;
+            break;
+        }
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    CHECK(queueReady);
+
+    CHECK(runtime.stopVideoProducerForTesting());
+
+    const auto before =
+        runtime.snapshotForTesting();
+    CHECK(before.logicalVideoSessionCreationCount == 1);
+    CHECK(before.videoReaderOpenCount == 1);
+    CHECK(before.videoReaderStartCount == 1);
+    CHECK(before.readyQueueSize > 0);
+
+    auto& adapter = runtime.cameraAdapter();
+    const auto mediaBefore =
+        adapter.mediaVirtualDecisionCount();
+    const auto blackBefore =
+        adapter.blackVirtualDecisionCount();
+    const auto guardBefore =
+        adapter.inPlaceBlackGuardDecisionCount();
+    const auto originalBefore =
+        adapter.enabledSupportedOriginalDecisionCount();
+
+    std::uint64_t preparedCount = 0;
+    bool blackObserved = false;
+
+    for (int callback = 0;
+         callback < 8;
+         ++callback) {
+        const CameraDecision decision =
+            runtime.decideCameraBuffer(
+                geometry);
+        if (IsPrepared(decision)) {
+            ++preparedCount;
+            continue;
+        }
+
+        CHECK(
+            decision.kind ==
+                CameraDecisionKind::Virtual);
+        CHECK(
+            decision.source ==
+                CameraDecisionSource::BlackFallback ||
+            decision.source ==
+                CameraDecisionSource::
+                    InPlaceBlackOwnershipGuard);
+        blackObserved = true;
+        break;
+    }
+
+    CHECK(preparedCount > 0);
+    CHECK(blackObserved);
+    CHECK(
+        adapter.enabledSupportedOriginalDecisionCount() -
+            originalBefore ==
+        0);
+    CHECK(
+        adapter.mediaVirtualDecisionCount() -
+            mediaBefore ==
+        preparedCount);
+    CHECK(
+        (adapter.blackVirtualDecisionCount() -
+             blackBefore) +
+            (adapter.inPlaceBlackGuardDecisionCount() -
+             guardBefore) >
+        0);
+
+    const auto after =
+        runtime.snapshotForTesting();
+    CHECK(after.logicalVideoSessionCreationCount == 1);
+    CHECK(after.videoReaderOpenCount == 1);
+    CHECK(after.videoReaderStartCount == 1);
+
+    std::cout
+        << "PRE_FIX_VIDEO_READER_OPEN=PASS\n"
+        << "PRE_FIX_VIDEO_READER_START=PASS\n"
+        << "PRE_FIX_VIDEO_PUBLISH_COUNT="
+        << before.publishedFrameCount << "\n"
+        << "PRE_FIX_VIDEO_PREPARED_BEFORE_DRAIN="
+        << preparedCount << "\n"
+        << "PRE_FIX_VIDEO_QUEUE_DRAINS_TO_BLACK=YES\n"
+        << "PRE_FIX_VIDEO_ONE_SHOT_LEASE_STARVATION=PASS\n"
+        << "PRE_FIX_VIDEO_ORIGINAL_DECISIONS=ZERO\n"
+        << "VIDEO_FIRST_BROKEN_STAGE=ONE_SHOT_VIDEO_LEASE_CONSUMPTION_NO_PERSISTENT_LATEST_FRAME\n";
+
+    CVPixelBufferRelease(geometry);
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString stringWithUTF8String:
+                root.c_str()]
+                   error:nil];
+    return true;
+}
+#endif
+
 bool TestVideoSelectionAndGeometryChurn() {
     const std::string root =
         TempRoot("video");
@@ -1048,6 +1212,12 @@ int main() {
         if (!TestStablePhotoMicroflashOwnership()) {
             return EXIT_FAILURE;
         }
+
+#if defined(VCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX)
+        if (!TestPreFixVideoQueueDrainsToBlackWithoutLatestReuse()) {
+            return EXIT_FAILURE;
+        }
+#endif
 
         if (!TestVideoSelectionAndGeometryChurn()) {
             return EXIT_FAILURE;

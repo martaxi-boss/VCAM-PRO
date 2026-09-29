@@ -551,6 +551,71 @@ bool TestStreamOrientationDirectionalFixture() {
     return true;
 }
 
+#if defined(VCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX)
+bool TestPreFixPortraitAddsNinetyDegreeRotation() {
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        4,
+        2,
+        DirectionalPattern4x2());
+
+    FrameTransformer uprightTransformer;
+    const auto upright = Transform(
+        uprightTransformer,
+        frame,
+        Geometry(4, 2),
+        StreamTarget(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            4,
+            2,
+            OrientationRequirement::UprightIdentityTransform));
+    CHECK(upright.status ==
+          FrameTransformStatus::Transformed);
+    CHECK(upright.frame.has_value());
+    const auto uprightY =
+        CopyYPlane(upright.frame->pixelBuffer());
+    CHECK(uprightY == DirectionalPattern4x2());
+
+    FrameTransformer portraitTransformer;
+    const auto portrait = Transform(
+        portraitTransformer,
+        frame,
+        Geometry(4, 2),
+        StreamTarget(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            2,
+            4,
+            OrientationRequirement::StreamPortrait));
+    CHECK(portrait.status ==
+          FrameTransformStatus::Transformed);
+    CHECK(portrait.frame.has_value());
+
+    const std::vector<std::uint8_t> rotated90{
+        50, 10,
+        60, 20,
+        70, 30,
+        80, 40,
+    };
+    const auto portraitY =
+        CopyYPlane(portrait.frame->pixelBuffer());
+    CHECK(portraitY.size() == rotated90.size());
+    for (std::size_t index = 0;
+         index < portraitY.size();
+         ++index) {
+        CHECK(Near(
+            portraitY[index],
+            rotated90[index],
+            1));
+    }
+
+    std::cout
+        << "PRE_FIX_UPRIGHT_IDENTITY_PIXELS=PASS\n"
+        << "PRE_FIX_STREAM_PORTRAIT_EXTRA_90=YES\n"
+        << "ORIENTATION_PHYSICAL_REGRESSION_BOUNDARY_REPRODUCED=PASS\n";
+    return true;
+}
+#endif
+
 bool TestSourceAndStreamOrientationCompose() {
     auto frame = MakeFrame(
         kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
@@ -1536,6 +1601,9 @@ int main() {
     Run("center crop preserves aspect ratio", TestCenterCropPreservesAspectRatio);
     Run("exact output dimensions", TestExactOutputDimensions);
     Run("stream orientation asymmetric fixture", TestStreamOrientationDirectionalFixture);
+#if defined(VCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX)
+    Run("pre-fix portrait extra 90 regression", TestPreFixPortraitAddsNinetyDegreeRotation);
+#endif
     Run("source and stream orientation compose", TestSourceAndStreamOrientationCompose);
     Run("orientation crop order preserves aspect", TestOrientationCropOrderPreservesAspect);
     Run("90 rotation directional pattern", TestRotate90Pattern);

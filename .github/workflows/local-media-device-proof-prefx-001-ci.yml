@@ -1,0 +1,67 @@
+name: VCAM PRO Local Media Device Proof Pre-Fix 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/media_engine/InternalGalleryMediaSession.*"
+      - "src/product/MediaserverdRuntime.*"
+      - "tests/media_engine/frame_transformer_stage_e1_tests.mm"
+      - "tests/product/post_photo_local_media_convergence_tests.mm"
+      - ".github/workflows/local-media-device-proof-prefx-001-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pre-fix:
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Verify authorized ancestry and immutable state
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=5e2dfa2062addf7f8d03cdf982a602ea378a2164
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$START" HEAD
+          test "$(git rev-parse origin/main)" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+
+      - name: Build and run orientation pre-fix regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/device-proof-prefx
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX=1             -Isrc/frame_engine -Isrc/media_engine             src/frame_engine/PreparedFrame.cpp             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             tests/media_engine/frame_transformer_stage_e1_tests.mm             -framework Accelerate -framework Foundation             -framework CoreFoundation -framework CoreGraphics             -framework CoreMedia -framework CoreVideo             -o build/device-proof-prefx/orientation-prefx
+          build/device-proof-prefx/orientation-prefx |
+            tee build/device-proof-prefx/orientation.txt
+          grep -Fq 'PRE_FIX_UPRIGHT_IDENTITY_PIXELS=PASS' build/device-proof-prefx/orientation.txt
+          grep -Fq 'PRE_FIX_STREAM_PORTRAIT_EXTRA_90=YES' build/device-proof-prefx/orientation.txt
+          grep -Fq 'ORIENTATION_PHYSICAL_REGRESSION_BOUNDARY_REPRODUCED=PASS' build/device-proof-prefx/orientation.txt
+
+      - name: Build and run real-product VIDEO pre-fix regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1 -DVCAM_LOCAL_MEDIA_DEVICE_PROOF_PREFX=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             tests/product/post_photo_local_media_convergence_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers             -o build/device-proof-prefx/video-prefx
+          build/device-proof-prefx/video-prefx |
+            tee build/device-proof-prefx/video.txt
+          for marker in             PRE_FIX_VIDEO_READER_OPEN=PASS             PRE_FIX_VIDEO_READER_START=PASS             PRE_FIX_VIDEO_QUEUE_DRAINS_TO_BLACK=YES             PRE_FIX_VIDEO_ONE_SHOT_LEASE_STARVATION=PASS             PRE_FIX_VIDEO_ORIGINAL_DECISIONS=ZERO             VIDEO_FIRST_BROKEN_STAGE=ONE_SHOT_VIDEO_LEASE_CONSUMPTION_NO_PERSISTENT_LATEST_FRAME; do
+            grep -Fq "$marker" build/device-proof-prefx/video.txt
+          done
+
+      - name: Upload pre-fix evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-media-device-proof-prefx-001
+          path: build/device-proof-prefx/**
+          if-no-files-found: error
+          retention-days: 14
