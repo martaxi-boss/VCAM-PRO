@@ -346,6 +346,94 @@ bool TestPassthroughPacingAndNoReadAhead() {
     return true;
 }
 
+bool TestTransformUpdateDiscardsPendingWithoutTimelineReset() {
+    FrameEngineState state;
+    CHECK(PrimeState(state));
+
+    LocalVideoReader reader(state);
+    FrameNormalizer normalizer;
+    FrameTransformer transformer;
+    FrameTimelineScheduler scheduler(2'000'000ULL);
+    ReadyFrameQueue queue(4);
+
+    FramePipelinePump pump(
+        state,
+        reader,
+        normalizer,
+        transformer,
+        scheduler,
+        queue,
+        Target());
+
+    FakeTimedSource source(SourceInfo());
+    source.add(MakeFrame(
+        0,
+        state.mediaGeneration(),
+        state.timelineEpoch(),
+        0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30)));
+    source.add(MakeFrame(
+        1,
+        state.mediaGeneration(),
+        state.timelineEpoch(),
+        0,
+        CMTimeMake(1, 30),
+        CMTimeMake(1, 30)));
+    source.add(MakeFrame(
+        2,
+        state.mediaGeneration(),
+        state.timelineEpoch(),
+        0,
+        CMTimeMake(2, 30),
+        CMTimeMake(1, 30)));
+    InstallSource(pump, source);
+
+    constexpr std::uint64_t start =
+        1'000'000'000ULL;
+
+    CHECK(
+        pump.pumpOnceAtHostTime(start).status ==
+        FramePipelinePumpStatus::Published);
+
+    const auto stalePending =
+        pump.pumpOnceAtHostTime(start);
+    CHECK(
+        stalePending.status ==
+        FramePipelinePumpStatus::
+            WaitingForPresentation);
+    CHECK(stalePending.frameIdentity.has_value());
+    CHECK(
+        stalePending.frameIdentity->sequence ==
+            1);
+    CHECK(
+        stalePending.dueHostTimeNs.has_value());
+    CHECK(source.readCalls == 2);
+
+    pump.discardPendingTimedFrameForTransformUpdate();
+
+    const auto afterDiscard =
+        pump.pumpOnceAtHostTime(
+            *stalePending.dueHostTimeNs);
+
+    CHECK(source.readCalls == 3);
+    CHECK(
+        afterDiscard.status ==
+        FramePipelinePumpStatus::
+            WaitingForPresentation);
+    CHECK(afterDiscard.frameIdentity.has_value());
+    CHECK(
+        afterDiscard.frameIdentity->sequence ==
+            2);
+    CHECK(
+        afterDiscard.dueHostTimeNs.has_value());
+    CHECK(
+        *afterDiscard.dueHostTimeNs >
+        *stalePending.dueHostTimeNs);
+
+    return true;
+}
+
 bool TestLateFrameDroppedWithoutPublish() {
     FrameEngineState state;
     CHECK(PrimeState(state));
@@ -902,6 +990,9 @@ int main() {
     Run(
         "passthrough pacing and no read-ahead",
         TestPassthroughPacingAndNoReadAhead);
+    Run(
+        "transform update discards pending without timeline reset",
+        TestTransformUpdateDiscardsPendingWithoutTimelineReset);
     Run(
         "late frame dropped without publish",
         TestLateFrameDroppedWithoutPublish);
