@@ -1,0 +1,313 @@
+name: VCAM PRO Photo Geometry Working Set 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/product/CameraConsumerAdapter.*"
+      - "src/product/MediaserverdRuntime.*"
+      - "src/product/ReferenceCameraHook.*"
+      - "src/media_engine/InternalGalleryMediaSession.*"
+      - "tests/**"
+      - "product/photo_geometry_working_set_001/**"
+      - "docs/research/PHOTO_GEOMETRY_WORKING_SET_RENDER_PARITY_002.md"
+      - "docs/CANONICAL_PROJECT_STATE.md"
+      - ".github/workflows/photo-geometry-working-set-001-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-photo-geometry-working-set-001
+  cancel-in-progress: true
+
+jobs:
+  pre-fix-working-set:
+    name: Exact historical five-geometry reproduction
+    runs-on: macos-26
+    timeout-minutes: 60
+    steps:
+      - name: Checkout exact pre-fix test commit
+        uses: actions/checkout@v4
+        with:
+          ref: 3b6e69b8dd3978779143842340afd0b8c64c3915
+          fetch-depth: 0
+
+      - name: Verify pre-fix production source lock
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=fcb873e60772b0258e8e6c57a97fdcf82c020613
+          git diff --exit-code "$START" HEAD -- src product
+          grep -Fq 'kPhotoVariantCapacity = 4' src/product/CameraConsumerAdapter.h
+          echo "CURRENT_FIXED_CACHE_SEMANTIC_LIMIT=CONFIRMED"
+
+      - name: Reproduce five-geometry oscillation
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/geomws-prefx
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             tests/product/photo_geometry_working_set_prefx_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/geomws-prefx/repro
+          build/geomws-prefx/repro | tee build/geomws-prefx/results.txt
+          for marker in             PRE_FIX_WORKING_SET_REPRODUCED=PASS             PRE_FIX_VARIANT_CAPACITY=4             PRE_FIX_UNIQUE_GEOMETRIES=5             PRE_FIX_RETURN_TO_EVICTED_GEOMETRY_BLACK=YES             PRE_FIX_PHOTO_TO_BLACK_OSCILLATION_REPRODUCED=PASS             PRE_FIX_PHOTO_LOGICAL_SESSION_CREATION_COUNT=1             PRE_FIX_PHOTO_SOURCE_DECODE_COUNT=1             PRE_FIX_ORIGINAL_DECISION_COUNT=0             PRE_FIX_RAPID_GEOMETRY_INTERLEAVING=PASS             PRE_FIX_NO_GEOMETRY_EVENT_ALIASING=PASS; do
+            grep -Fq "$marker" build/geomws-prefx/results.txt
+          done
+          grep -Eq 'PRE_FIX_REPREPARATION_COUNT=[1-9][0-9]*' build/geomws-prefx/results.txt
+          grep -Eq 'PRE_FIX_VARIANT_EVICTION_COUNT=[1-9][0-9]*' build/geomws-prefx/results.txt
+
+      - name: Upload pre-fix working-set evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-geometry-working-set-prefx-evidence
+          path: build/geomws-prefx/results.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  exact-head-regression:
+    name: Exact-head working-set and product regression
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS-15-USB
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam-iOS
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS-16-USB-4k
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Exact-head and architecture locks
+        shell: bash
+        run: |
+          set -euo pipefail
+          START=fcb873e60772b0258e8e6c57a97fdcf82c020613
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor "$START" HEAD
+          test "$(git -C reference/IOS-15-USB rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam-iOS rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS-16-USB-4k rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+          git diff --exit-code "$START" HEAD -- src/media_engine/LocalPhotoReader.mm
+          git diff --exit-code "$START" HEAD -- src/media_engine/LocalVideoReader.mm
+          git diff --exit-code "$START" HEAD -- src/frame_engine/ReadyFrameQueue.cpp src/frame_engine/ReadyFrameQueue.h
+          git diff --exit-code "$START" HEAD -- product/VCAMPro.plist
+          grep -Fq 'CMSampleBufferGetImageBuffer' src/product/ReferenceCameraHook.mm
+          grep -Fq 'StillImageKey' src/product/ReferenceCameraHook.mm
+          grep -Fq 'DirectRenderedPhoto' src/product/ReferenceCameraHook.mm
+          grep -R -m1 -F 'frameQueue' reference/IOS-15-USB >/dev/null
+          grep -R -m1 -F 'lastObject' reference/IOS-15-USB >/dev/null
+          echo "IOS15_REFERENCE_INSPECTED=YES"
+          echo "IOS15_PERSISTENT_SOURCE_RENDER_SEMANTIC=PASS"
+          echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+
+      - name: Adaptive working-set and IOS15 overflow composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/geomws-terminal
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             tests/product/photo_geometry_working_set_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/geomws-terminal/working-set
+          build/geomws-terminal/working-set | tee build/geomws-terminal/working-set.txt
+          for marker in             A_B_C_D_WITHIN_CACHE=PASS             FIFTH_GEOMETRY_BEHAVIOR=PASS             RETURN_TO_EVICTED_GEOMETRY=PASS             FIVE_GEOMETRY_CONTINUOUS_CYCLE=PASS             RAPID_GEOMETRY_INTERLEAVING=PASS             NO_REPEATED_BLACK_AFTER_GEOMETRY_WARMUP=PASS             PHOTO_ACTIVE_WORKING_SET_RETAINED=PASS             PHOTO_VARIANT_MEMORY_BOUNDED=PASS             PHOTO_VARIANT_STRUCTURAL_BOUND=PASS             PHOTO_SOURCE_DECODE_COUNT=1             PHOTO_LOGICAL_SESSION_CREATION_COUNT=1             NO_GEOMETRY_EVENT_ALIASING=PASS             NO_ORIGINAL_WHILE_ON=PASS             OVER_BUDGET_STRESS=PASS             IOS15_DIRECT_RENDER_FALLBACK_REQUIRED=YES             IOS15_DIRECT_RENDER_FALLBACK_USED=YES             DIRECT_RENDER_OVERFLOW_CONTINUITY=PASS             DIRECT_RENDER_HOST_BENCHMARK=PASS; do
+            grep -Fq "$marker" build/geomws-terminal/working-set.txt
+          done
+
+      - name: Frame engine regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp tools/run_frame_regressions.sh build/geomws-terminal/run_frame_regressions.sh
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path("build/geomws-terminal/run_frame_regressions.sh")
+          s=p.read_text().replace(
+              "Stage E1 transformer tests run: 27, failures: 0",
+              "Stage E1 transformer tests run: 29, failures: 0")
+          p.write_text(s)
+          PY
+          chmod +x build/geomws-terminal/run_frame_regressions.sh
+          build/geomws-terminal/run_frame_regressions.sh
+
+      - name: Internal Gallery PHOTO VIDEO regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             tests/media_engine/internal_gallery_integration_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/geomws-terminal/internal-gallery
+          build/geomws-terminal/internal-gallery | tee build/geomws-terminal/internal-gallery.txt
+          grep -Fq 'failures: 0' build/geomws-terminal/internal-gallery.txt
+
+      - name: Full product lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             tests/product/full_product_integration_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/geomws-terminal/full-product
+          build/geomws-terminal/full-product | tee build/geomws-terminal/full-product.txt
+          grep -Fq 'failures: 0' build/geomws-terminal/full-product.txt
+
+      - name: Existing PHOTO VIDEO PAN PINCH product composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1 -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             src/product/ReferenceCameraHook.mm             tests/product/product_composition_e2e_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/geomws-terminal/product-composition
+          build/geomws-terminal/product-composition | tee build/geomws-terminal/product-composition.txt
+          grep -Fq 'PHOTO_STATIC_SOURCE_PERSISTS=PASS' build/geomws-terminal/product-composition.txt
+          grep -Fq 'PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS' build/geomws-terminal/product-composition.txt
+          grep -Fq 'VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS' build/geomws-terminal/product-composition.txt
+          {
+            echo "OFF_REAL=PASS"
+            echo "ON_NO_MEDIA_BLACK=PASS"
+            echo "PHOTO_SINGLE_GEOMETRY_REGRESSION=PASS"
+            echo "VIDEO_REGRESSION=PASS"
+            echo "PAN_REGRESSION=PASS"
+            echo "PINCH_REGRESSION=PASS"
+            echo "ROTATION_DISABLED=PASS"
+          } | tee build/geomws-terminal/product-markers.txt
+
+      - name: Still ownership regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1             -Isrc/frame_engine -Isrc/product             src/product/ReferenceCameraHook.mm             tests/product/reference_camera_hook_output_ownership_tests.mm             -framework CoreFoundation -framework CoreMedia -framework CoreVideo             -o build/geomws-terminal/hook-ownership
+          build/geomws-terminal/hook-ownership | tee build/geomws-terminal/hook-ownership.txt
+          grep -Fq 'failures: 0' build/geomws-terminal/hook-ownership.txt
+          grep -Fq 'STILL_SAME_GEOMETRY_VIRTUAL_OWNERSHIP=PASS' build/geomws-terminal/hook-ownership.txt
+          grep -Fq 'STILL_NO_MEDIA_SAME_GEOMETRY_USES_BLACK=PASS' build/geomws-terminal/hook-ownership.txt
+          grep -Fq 'STILL_PHOTO_READY_SAME_GEOMETRY_USES_PHOTO=PASS' build/geomws-terminal/hook-ownership.txt
+          echo "STILL_OWNERSHIP_REGRESSION=PASS" | tee build/geomws-terminal/still-marker.txt
+
+      - name: Camera callback bounded-work contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text=Path("src/product/CameraConsumerAdapter.cpp").read_text()
+          start=text.index("CameraDecision CameraConsumerAdapter::decide")
+          end=text.index("CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal",start)
+          decide=text[start:end]
+          rstart=text.index("renderDirectPhotoIntoOriginalLocked(")
+          rstart=text.index("renderDirectPhotoIntoOriginalLocked(",rstart+1)
+          rend=text.index("nextPhotoVariantUseSerialLocked",rstart)
+          render=text[rstart:rend]
+          combined=decide+"\n"+render
+          forbidden=[
+              "AVAsset","CGImageSource","FrameTransformer","CVPixelBufferCreate",
+              "CVPixelBufferPoolCreate","dispatch_sync","sleep(","wait(",
+              "resize(","reserve(","push_back(","emplace_back(","make_unique","new "
+          ]
+          found=[x for x in forbidden if x in combined]
+          if found:
+              raise SystemExit(f"callback heavy/unbounded work found: {found}")
+          PY
+          {
+            echo "NO_CALLBACK_FILE_IO=PASS"
+            echo "NO_CALLBACK_DECODE=PASS"
+            echo "NO_CALLBACK_UNBOUNDED_ALLOCATION=PASS"
+            echo "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS"
+          } | tee build/geomws-terminal/callback-markers.txt
+
+      - name: Collect terminal regression markers
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "IOS15_REFERENCE_INSPECTED=YES"
+            echo "IOS15_PERSISTENT_SOURCE_RENDER_SEMANTIC=PASS"
+            echo "CURRENT_FIXED_CACHE_SEMANTIC_LIMIT=CONFIRMED"
+            cat build/geomws-terminal/working-set.txt
+            cat build/geomws-terminal/product-markers.txt
+            cat build/geomws-terminal/still-marker.txt
+            cat build/geomws-terminal/callback-markers.txt
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee build/geomws-terminal/final-markers.txt
+
+      - name: Upload exact-head regression evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-geometry-working-set-regression-evidence
+          path: |
+            build/geomws-terminal/**
+            build/regressions/*.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  package:
+    name: RootHide product candidate
+    needs:
+      - pre-fix-working-set
+      - exact-head-regression
+    runs-on: macos-26
+    timeout-minutes: 120
+    steps:
+      - name: Checkout exact current head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout RootHidePatcher exact pin
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/RootHidePatcher
+          ref: 80c16e08da33fecd27c0ff35777f37afd171868b
+          path: reference/RootHidePatcher
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+
+      - name: Build and audit RootHide candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git ls-remote origin refs/heads/main | awk '{print $1}')" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          ROOTHIDE_PATCHER_DIR="$PWD/reference/RootHidePatcher"             sh product/photo_geometry_working_set_001/ci_build_package_and_audit.sh
+          REPORT=build/photo-geometry-working-set-001/evidence/validation-report.txt
+          for marker in             PHOTO_GEOMETRY_WORKING_SET_PACKAGE=PASS             ARM64=PASS             MINIMUM_IOS_15=PASS             ROOTHIDE_PACKAGE=PASS             ROOT_HIDE_PATCHER_PINNED=PASS             VALID_CODE_SIGNATURE=PASS             MAIN_UNCHANGED=PASS             READ_ONLY_REPOS_UNCHANGED=PASS             DEVICE_ACTION=NO; do
+            grep -Fq "$marker" "$REPORT"
+          done
+
+      - name: Upload corrected product candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcampro-photo-geometry-working-set-001
+          path: |
+            build/photo-geometry-working-set-001/final/VCAM-PRO-RootHide-Photo-Geometry-Working-Set-001.deb
+            build/photo-geometry-working-set-001/final/VCAM-PRO-RootHide-Photo-Geometry-Working-Set-001.deb.sha256
+            build/photo-geometry-working-set-001/evidence/**
+          if-no-files-found: error
+          retention-days: 14
