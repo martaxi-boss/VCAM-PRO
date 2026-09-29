@@ -272,21 +272,24 @@ setMediaTransform(
         }
     } else if (
         playback ==
-        frame_engine::PlaybackState::Paused) {
+        frame_engine::PlaybackState::Paused &&
+        photoSelected) {
         const auto result =
             pump_->pumpOnce();
         if (result.status !=
             FramePipelinePumpStatus::Published) {
             setStatus(
-                photoSelected
-                    ? "Unable to refresh paused photo transform."
-                    : "Unable to refresh paused video transform.");
+                "Unable to refresh paused photo transform.");
             return false;
         }
     }
 
     setStatus(
-        "Media position / zoom updated.");
+        videoSelected &&
+                playback ==
+                    frame_engine::PlaybackState::Paused
+            ? "Video position / zoom queued for resume."
+            : "Media position / zoom updated.");
     return true;
 }
 
