@@ -114,7 +114,8 @@ FramePipelinePump::prepareFrame(
             normalized.status ==
                 NormalizationStatus::TransformRequired;
         const bool forcePreparedPhotoTransform =
-            forceTransform_ &&
+            forceTransform_.load(
+                std::memory_order_acquire) &&
             normalized.status ==
                 NormalizationStatus::ReadyPassthrough &&
             normalized.frame.has_value();
