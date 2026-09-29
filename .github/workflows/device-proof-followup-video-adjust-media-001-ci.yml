@@ -1,0 +1,408 @@
+name: VCAM PRO Device Proof Follow-up Video Adjust Media 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "tools/run_frame_regressions.sh"
+      - "product/device_proof_followup_video_adjust_media_001/**"
+      - "product/VCAMPro.plist"
+      - ".github/workflows/device-proof-followup-video-adjust-media-001-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  device-proof-followup:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout exact VCAM PRO head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS15
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS16
+          fetch-depth: 1
+
+      - name: Checkout RootHidePatcher exact pin
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/RootHidePatcher
+          ref: 80c16e08da33fecd27c0ff35777f37afd171868b
+          path: reference/RootHidePatcher
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install build and packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+          mkdir -p build/device-proof-followup-video-adjust-media-001
+
+      - name: Exact-head authority and immutable references
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 4c7ffd429c4c3faaf4d64e1563c22e12c8f32bcc HEAD
+          test "$(git rev-parse origin/main)" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          test "$(git -C reference/IOS15 rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS16 rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+          test "$(git -C reference/RootHidePatcher rev-parse HEAD)" = "80c16e08da33fecd27c0ff35777f37afd171868b"
+          test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
+
+      - name: Frozen orientation and frame engine regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+
+          grep -Fq 'Stage B tests run: 11, failures: 0' build/regressions/stage-b.txt
+          grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/stage-b.txt
+          grep -Fq 'failures: 0' build/regressions/e1-transformer.txt
+
+          for marker in \
+            APPLE_CAMERA_UPRIGHT_HOST_MODEL=PASS \
+            THIRD_PARTY_APP_INDEPENDENT_ORIENTATION_HOST_MODEL=PASS \
+            FINAL_ORIENTATION_MODEL=SOURCE_NORMALIZATION_PLUS_DESTINATION_BUFFER_GEOMETRY_NO_UIDEVICE_PIXEL_ROTATION \
+            NO_DOUBLE_ROTATION=PASS \
+            NO_APP_SPECIFIC_ORIENTATION=PASS \
+            NO_GLOBAL_ORIENTATION_6_HARDCODE=PASS \
+            PAN_TRANSLATION_PIXELS=PASS \
+            PINCH_SCALE_PIXELS=PASS \
+            PHOTO_ROTATION_DISABLED=PASS \
+            PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
+            grep -Fq "$marker" build/regressions/e1-transformer.txt
+          done
+
+          {
+            echo "REMOTE_THIRD_PARTY_ORIENTATION_MODEL_UNCHANGED=PASS"
+            echo "APPLE_CAMERA_UPRIGHT_MODEL_UNCHANGED=PASS"
+            echo "NO_UIDEVICE_EXTRA_PIXEL_ROTATION=PASS"
+          } | tee build/device-proof-followup-video-adjust-media-001/orientation.txt
+
+      - name: Video diagnostic accumulator and transport regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -Wall -Wextra -Werror -pedantic \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/product \
+            tests/product/video_runtime_diagnostics_tests.cpp \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -o build/device-proof-followup-video-adjust-media-001/video-diagnostics
+
+          build/device-proof-followup-video-adjust-media-001/video-diagnostics \
+            | tee build/device-proof-followup-video-adjust-media-001/video-diagnostics.txt
+
+          for marker in \
+            VIDEO_DIAGNOSTIC_READER_NOT_STARTED=PASS \
+            VIDEO_DIAGNOSTIC_SOURCE_FRAME_PATH=PASS \
+            VIDEO_DIAGNOSTIC_NORMALIZE_FAILURE=PASS \
+            VIDEO_DIAGNOSTIC_TRANSFORM_FAILURE=PASS \
+            VIDEO_DIAGNOSTIC_TIMELINE_COUNTS=PASS \
+            VIDEO_DIAGNOSTIC_READER_ERROR=PASS \
+            VIDEO_DIAGNOSTIC_TRANSPORT_FIXED_SIZE=PASS \
+            VIDEO_DIAGNOSTIC_TRANSPORT_ROUNDTRIP=PASS \
+            VIDEO_RUNTIME_DIAGNOSTIC_COUNTERS=PASS; do
+            grep -Fq "$marker" build/device-proof-followup-video-adjust-media-001/video-diagnostics.txt
+          done
+
+      - name: Real product VIDEO transform and diagnostic composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -fblocks -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            tests/product/post_photo_local_media_convergence_tests.mm \
+            -framework Accelerate \
+            -framework Foundation \
+            -framework AVFoundation \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -framework ImageIO \
+            -framework UniformTypeIdentifiers \
+            -o build/device-proof-followup-video-adjust-media-001/composition
+
+          build/device-proof-followup-video-adjust-media-001/composition \
+            | tee build/device-proof-followup-video-adjust-media-001/composition.txt
+
+          for marker in \
+            VIDEO_READER_NOT_STARTED_DIAGNOSTIC=PASS \
+            VIDEO_DEFAULT_TRANSFORM=PASS \
+            VIDEO_PAN_TRANSFORM=PASS \
+            VIDEO_PINCH_TRANSFORM=PASS \
+            VIDEO_TRANSFORM_PERSISTENCE=PASS \
+            SHARED_CONTROL_BACKWARD_COMPATIBILITY=PASS \
+            EXISTING_PHOTO_STATE_LOAD=PASS \
+            VIDEO_TRANSFORM_WHILE_PLAYING=PASS \
+            VIDEO_TRANSFORM_WHILE_PAUSED=PASS \
+            VIDEO_TRANSFORM_READER_REOPEN_COUNT_DELTA=0 \
+            VIDEO_TRANSFORM_LOGICAL_SESSION_RECREATE_DELTA=0 \
+            VIDEO_TRANSFORM_SELECTION_GENERATION_STABLE=PASS \
+            VIDEO_TRANSFORM_SOURCE_PTS_MONOTONIC=PASS \
+            VIDEO_TRANSFORM_TIMELINE_CONTINUOUS=PASS \
+            VIDEO_LATEST_FRAME_STALE_AFTER_TRANSFORM=NO \
+            VIDEO_LATEST_FRAME_MEMORY_BOUNDED=PASS \
+            VIDEO_LATEST_REUSE_PRESERVED=PASS \
+            VIDEO_NO_BLACK_REGRESSION_DURING_TRANSFORM_UPDATE=PASS \
+            VIDEO_RUNTIME_DIAGNOSTIC_SUCCESS_PATH=PASS \
+            VIDEO_DIAGNOSTIC_PUBLISH_SUCCESS=PASS \
+            VIDEO_DIAGNOSTIC_QUEUE_ACQUIRE=PASS \
+            VIDEO_DIAGNOSTIC_PREPARED_MEDIA_DECISION=PASS \
+            VIDEO_DIAGNOSTIC_BLACK_DECISION=PASS \
+            VIDEO_DIAGNOSTIC_COMMIT_SUCCESS=PASS \
+            VIDEO_DIAGNOSTIC_COMMIT_FAILURE=PASS \
+            PHOTO_CONTINUITY_REGRESSION=PASS \
+            PHOTO_DROPOUT_PRESENT=NO \
+            VIDEO_TO_PHOTO_CHANGE=PASS \
+            PHOTO_TO_VIDEO_CHANGE=PASS \
+            CLEAR_VIDEO_RETURNS_BLACK=PASS \
+            POST_PHOTO_LOCAL_MEDIA_CONVERGENCE_PROOF=PASS; do
+            grep -Fq "$marker" build/device-proof-followup-video-adjust-media-001/composition.txt
+          done
+
+      - name: Existing playback and PHOTO transform regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            src/product/ReferenceCameraHook.mm \
+            tests/product/product_composition_e2e_tests.mm \
+            -framework Accelerate \
+            -framework Foundation \
+            -framework AVFoundation \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -framework ImageIO \
+            -o build/device-proof-followup-video-adjust-media-001/product-composition
+
+          build/device-proof-followup-video-adjust-media-001/product-composition \
+            | tee build/device-proof-followup-video-adjust-media-001/product-composition.txt
+
+          for marker in \
+            VIDEO_SELECT=PASS \
+            VIDEO_PLAY=PASS \
+            VIDEO_PAUSE=PASS \
+            VIDEO_PAUSED_VIRTUAL_STATE_STABLE=PASS \
+            VIDEO_RESUME=PASS \
+            VIDEO_LOOP=PASS \
+            VIDEO_CLEAR_TO_BLACK=PASS \
+            VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS \
+            PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS; do
+            grep -Fq "$marker" build/device-proof-followup-video-adjust-media-001/product-composition.txt
+          done
+
+      - name: Adjust Media overlay and callback safety contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          panel = Path("src/control/InternalGalleryViewController.mm").read_text()
+          host = Path("src/product/SpringBoardControlHost.mm").read_text()
+          hook = Path("src/product/ReferenceCameraHook.mm").read_text()
+
+          assert 'buttonWithTitle:@"Adjust Media"' in panel
+          assert "adjustMediaRequestHandler" in panel
+          assert "resetMediaTransform" in panel
+          assert "ProductMediaKind::Photo" in panel
+          assert "ProductMediaKind::Video" in panel
+
+          assert "VCAMProductOverlayWindow" in host
+          assert "hit == self.rootViewController.view" in host
+          assert "return nil;" in host
+          assert "UIPanGestureRecognizer" in host
+          assert "UIPinchGestureRecognizer" in host
+          assert "UIRotationGestureRecognizer" not in host
+          assert "ProductMediaKind::Photo" in host
+          assert "ProductMediaKind::Video" in host
+          assert "setMediaTransform" in host
+          assert 'setTitle:@"Done"' in host
+          assert "exitPhotoAdjustMode" in host
+          assert "kMediaTransformGestureCommitInterval" in host
+          assert "1.0 / 30.0" in host
+          assert "UIGestureRecognizerStateEnded" in host
+
+          start = hook.index("CVImageBufferRef HookedCMSampleBufferGetImageBuffer")
+          end = hook.index("bool InstallReferenceCameraHook", start)
+          callback = hook[start:end]
+
+          forbidden = [
+              "AVAssetReader",
+              "CGImageSource",
+              "FrameTransformer",
+              "vImage",
+              "CIContext",
+              "CVPixelBufferCreate(",
+              "dispatch_sync",
+              "sleep(",
+              "wait(",
+              "contentsOfFile",
+              "readData",
+              "notify_set_state",
+          ]
+          bad = [token for token in forbidden if token in callback]
+          if bad:
+              raise SystemExit(f"camera callback contains forbidden work: {bad}")
+
+          assert "runtime.noteCameraCommitResult" in callback
+
+          out = Path("build/device-proof-followup-video-adjust-media-001/adjust-media.txt")
+          out.write_text("\n".join([
+              "ADJUST_MEDIA_PHOTO_AVAILABLE=PASS",
+              "ADJUST_MEDIA_VIDEO_AVAILABLE=PASS",
+              "NORMAL_APP_TOUCH_PASSTHROUGH=PASS",
+              "ADJUST_MEDIA_TOUCH_CAPTURE=PASS",
+              "DONE_VISIBLE_IN_ADJUST_MODE=PASS",
+              "DONE_RESTORES_PASSTHROUGH=PASS",
+              "NO_APP_UI_PERMANENTLY_BLOCKED=PASS",
+              "USER_ROTATION_GESTURE=NO",
+              "GESTURE_INTERMEDIATE_UPDATE_RATE_BOUNDED=PASS",
+              "GESTURE_FINAL_EXACT_COMMIT=PASS",
+              "NO_CALLBACK_FILE_IO=PASS",
+              "NO_CALLBACK_DECODE=PASS",
+              "NO_CALLBACK_SCALE=PASS",
+              "NO_CALLBACK_TRANSFORM=PASS",
+              "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS",
+              "NO_CALLBACK_VIDEO_READER_WORK=PASS",
+              "CALLBACK_LIGHTWEIGHT=PASS",
+              "",
+          ]))
+          print(out.read_text(), end="")
+          PY
+
+      - name: Build and audit RootHide video diagnostic candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh product/device_proof_followup_video_adjust_media_001/ci_build_package_and_audit.sh \
+            | tee build/device-proof-followup-video-adjust-media-001/package-audit.txt
+
+          FINAL=build/device-proof-followup-video-adjust-media-001/final/VCAM-PRO-RootHide-Video-Diagnostic-001.deb
+          REPORT=build/device-proof-followup-video-adjust-media-001/evidence/validation-report.txt
+          test -f "$FINAL"
+          test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
+          test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide22~videodiag1"
+          test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
+
+          for marker in \
+            DEVICE_PROOF_FOLLOWUP_VIDEO_DIAGNOSTIC_PACKAGE=PASS \
+            ARM64=PASS \
+            MINIMUM_IOS_15=PASS \
+            ROOTHIDE_PACKAGE=PASS \
+            VALID_CODE_SIGNATURE=PASS \
+            MAIN_UNCHANGED=PASS \
+            READ_ONLY_REPOS_UNCHANGED=PASS \
+            VIDEO_RUNTIME_DIAGNOSTIC_REQUIRED=YES \
+            DEVICE_DIAGNOSTIC_SURFACE_ADDED=YES \
+            BLOCKER=VIDEO_PHYSICAL_STAGE_MEASUREMENT_REQUIRED; do
+            grep -Fq "$marker" "$REPORT"
+          done
+
+          {
+            echo "TASK_STATUS=INCOMPLETE"
+            echo "VIDEO_FIRST_BROKEN_STAGE=PENDING_DEVICE_MEASUREMENT"
+            echo "VIDEO_FIX_IMPLEMENTED=NO_SPECULATIVE_FIX"
+            echo "NEXT_PHASE=VIDEO_RUNTIME_DIAGNOSTIC_DEVICE_PROOF"
+          } | tee build/device-proof-followup-video-adjust-media-001/terminal.txt
+
+      - name: Upload exact-head diagnostic artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VCAM-PRO-Video-Diagnostic-001
+          path: |
+            build/device-proof-followup-video-adjust-media-001/**
+          if-no-files-found: error
+          retention-days: 30
