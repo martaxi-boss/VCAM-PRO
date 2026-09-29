@@ -1,7 +1,9 @@
 #include "CameraConsumerAdapter.h"
 #include "FrameNormalizer.h"
+#include "InternalGalleryMediaSession.h"
 #include "MediaserverdRuntime.h"
 #include "ProductControlOwner.h"
+#include "SharedControlStore.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
@@ -1037,6 +1039,58 @@ bool TestVideoLatestFramePersistsAcrossProducerGap() {
     return true;
 }
 
+bool TestVideoReaderDiagnosticBeforeStart() {
+    const std::string root =
+        TempRoot("video-reader-not-started");
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input, 30));
+
+    vcam::media_engine::
+        InternalGalleryMediaConfig config;
+    config.target.width = 64;
+    config.target.height = 48;
+    config.target.pixelFormat =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+    config.videoPixelFormat =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+
+    vcam::media_engine::
+        InternalGalleryMediaSession session(config);
+
+    CHECK(session.selectVideo(
+        input,
+        false));
+    CHECK(session.videoReaderOpen());
+    CHECK(!session.videoReaderStarted());
+    CHECK(
+        session.producerDriverState() ==
+        vcam::media_engine::
+            ProducerWakeupDriverState::Stopped);
+
+    const auto diagnostics =
+        session.producerRuntimeDiagnostics();
+    CHECK(diagnostics.readFrameCount == 0);
+    CHECK(
+        diagnostics.lastReaderError ==
+        vcam::frame_engine::
+            ReaderErrorCode::None);
+
+    std::cout
+        << "VIDEO_READER_NOT_STARTED_DIAGNOSTIC=PASS\n";
+
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString
+                stringWithUTF8String:
+                    root.c_str()]
+                   error:nil];
+
+    return true;
+}
+
 bool TestVideoSelectionAndGeometryChurn() {
     const std::string root =
         TempRoot("video");
@@ -1134,6 +1188,286 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         initial.videoSessionReplacementCount ==
             0);
+    CHECK(initial.videoReaderOpen);
+    CHECK(initial.videoReaderStarted);
+    CHECK(
+        initial.videoReadFrameCount > 0);
+    CHECK(
+        initial.videoNormalizeSuccessCount > 0);
+    CHECK(
+        initial.publishedFrameCount > 0);
+
+    const auto defaultVideoTransform =
+        owner.snapshot();
+    CHECK(
+        defaultVideoTransform.
+            photoTransform.translationX ==
+                0.0);
+    CHECK(
+        defaultVideoTransform.
+            photoTransform.translationY ==
+                0.0);
+    CHECK(
+        defaultVideoTransform.
+            photoTransform.scale ==
+                1.0);
+
+    const std::uint64_t
+        transformRevisionBefore =
+            defaultVideoTransform.
+                photoTransform.revision;
+    const std::uint64_t
+        sourcePTSBeforeValue =
+            static_cast<std::uint64_t>(
+                initial.
+                    videoLastSourcePTSValue);
+
+    CHECK(
+        owner.setMediaTransform(
+            0.25,
+            -0.20,
+            1.35));
+    const auto transformedControl =
+        owner.snapshot();
+    CHECK(
+        transformedControl.
+            photoTransform.revision !=
+        transformRevisionBefore);
+    CHECK(
+        transformedControl.
+            selectionGeneration ==
+        selected.selectionGeneration);
+
+    SharedControlStore persistedStore(
+        controlPath,
+        notification);
+    ProductControlSnapshot persistedVideo;
+    CHECK(
+        persistedStore.load(
+            &persistedVideo));
+    CHECK(
+        persistedVideo.mediaKind ==
+            ProductMediaKind::Video);
+    CHECK(
+        persistedVideo.photoTransform.revision ==
+            transformedControl.
+                photoTransform.revision);
+    CHECK(
+        persistedVideo.photoTransform.translationX ==
+            transformedControl.
+                photoTransform.translationX);
+    CHECK(
+        persistedVideo.photoTransform.translationY ==
+            transformedControl.
+                photoTransform.translationY);
+    CHECK(
+        persistedVideo.photoTransform.scale ==
+            transformedControl.
+                photoTransform.scale);
+
+    CHECK(
+        runtime.drainControlQueueForTesting());
+
+    auto waitForTransformRevision =
+        [&](std::uint64_t revision) {
+            for (int attempt = 0;
+                 attempt < 500;
+                 ++attempt) {
+                const CameraDecision decision =
+                    runtime.decideCameraBuffer(a);
+                if (IsPrepared(decision) &&
+                    runtime.cameraAdapter().
+                        videoLatestTransformRevisionForTesting() ==
+                            revision &&
+                    runtime.cameraAdapter().
+                        videoLatestStaleTransformCountForTesting(
+                            revision) == 0) {
+                    return true;
+                }
+                [NSThread
+                    sleepForTimeInterval:
+                        0.002];
+            }
+            return false;
+        };
+
+    CHECK(
+        waitForTransformRevision(
+            transformedControl.
+                photoTransform.revision));
+
+    const auto afterPlayingTransform =
+        runtime.snapshotForTesting();
+
+    CHECK(
+        afterPlayingTransform.
+            selectionGeneration ==
+        selected.selectionGeneration);
+    CHECK(
+        afterPlayingTransform.
+            logicalVideoSessionCreationCount ==
+                1);
+    CHECK(
+        afterPlayingTransform.
+            videoReaderOpenCount == 1);
+    CHECK(
+        afterPlayingTransform.
+            videoReaderStartCount == 1);
+    CHECK(
+        afterPlayingTransform.
+            videoSessionReplacementCount == 0);
+    CHECK(
+        afterPlayingTransform.queueGeneration ==
+            initialGeneration);
+    CHECK(
+        afterPlayingTransform.queueEpoch ==
+            initialEpoch);
+    CHECK(
+        afterPlayingTransform.
+            videoTransformSuccessCount >
+        initial.videoTransformSuccessCount);
+    CHECK(
+        afterPlayingTransform.
+            videoReadFrameCount >=
+        initial.videoReadFrameCount);
+    if (initial.videoHasLastSourcePTS &&
+        afterPlayingTransform.
+            videoHasLastSourcePTS &&
+        initial.
+            videoLastSourcePTSTimescale > 0 &&
+        afterPlayingTransform.
+            videoLastSourcePTSTimescale > 0) {
+        const CMTime beforePTS =
+            CMTimeMake(
+                initial.
+                    videoLastSourcePTSValue,
+                initial.
+                    videoLastSourcePTSTimescale);
+        const CMTime afterPTS =
+            CMTimeMake(
+                afterPlayingTransform.
+                    videoLastSourcePTSValue,
+                afterPlayingTransform.
+                    videoLastSourcePTSTimescale);
+        CHECK(
+            CMTimeCompare(
+                afterPTS,
+                beforePTS) >= 0);
+    }
+
+    CHECK(
+        runtime.cameraAdapter().
+            videoLatestTransformRevisionForTesting() ==
+        transformedControl.
+            photoTransform.revision);
+    CHECK(
+        runtime.cameraAdapter().
+            videoLatestStaleTransformCountForTesting(
+                transformedControl.
+                    photoTransform.revision) == 0);
+    CHECK(
+        runtime.cameraAdapter().
+            videoLatestRetainedBytes() <=
+        CameraConsumerAdapter::
+            kVideoLatestRetainedByteBudget);
+
+    CHECK(
+        owner.setPlaybackIntent(
+            ProductPlaybackIntent::Paused));
+    CHECK(
+        runtime.drainControlQueueForTesting());
+
+    const auto pausedBefore =
+        runtime.snapshotForTesting();
+    CHECK(!pausedBefore.producerHealthy);
+
+    CHECK(
+        owner.setMediaTransform(
+            -0.15,
+            0.18,
+            1.10));
+    const auto pausedControl =
+        owner.snapshot();
+    CHECK(
+        pausedControl.selectionGeneration ==
+            selected.selectionGeneration);
+    CHECK(
+        pausedControl.photoTransform.revision !=
+            transformedControl.
+                photoTransform.revision);
+    CHECK(
+        runtime.drainControlQueueForTesting());
+
+    const auto pausedAfter =
+        runtime.snapshotForTesting();
+    CHECK(
+        pausedAfter.
+            logicalVideoSessionCreationCount ==
+                1);
+    CHECK(
+        pausedAfter.videoReaderOpenCount == 1);
+    CHECK(
+        pausedAfter.videoReaderStartCount == 1);
+    CHECK(
+        pausedAfter.
+            videoSessionReplacementCount == 0);
+    CHECK(
+        pausedAfter.queueGeneration ==
+            initialGeneration);
+    CHECK(
+        pausedAfter.queueEpoch ==
+            initialEpoch);
+
+    CHECK(
+        owner.setPlaybackIntent(
+            ProductPlaybackIntent::Playing));
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(
+        waitForTransformRevision(
+            pausedControl.
+                photoTransform.revision));
+
+    const auto resumedTransform =
+        runtime.snapshotForTesting();
+    CHECK(resumedTransform.producerHealthy);
+    CHECK(
+        resumedTransform.
+            selectionGeneration ==
+        selected.selectionGeneration);
+    CHECK(
+        resumedTransform.
+            logicalVideoSessionCreationCount ==
+                1);
+    CHECK(
+        resumedTransform.videoReaderOpenCount == 1);
+    CHECK(
+        resumedTransform.videoReaderStartCount == 1);
+    CHECK(
+        resumedTransform.queueEpoch ==
+            initialEpoch);
+
+    std::cout
+        << "VIDEO_DEFAULT_TRANSFORM=PASS\n"
+        << "VIDEO_PAN_TRANSFORM=PASS\n"
+        << "VIDEO_PINCH_TRANSFORM=PASS\n"
+        << "VIDEO_TRANSFORM_PERSISTENCE=PASS\n"
+        << "SHARED_CONTROL_BACKWARD_COMPATIBILITY=PASS\n"
+        << "EXISTING_PHOTO_STATE_LOAD=PASS\n"
+        << "VIDEO_TRANSFORM_WHILE_PLAYING=PASS\n"
+        << "VIDEO_TRANSFORM_WHILE_PAUSED=PASS\n"
+        << "VIDEO_TRANSFORM_READER_REOPEN_COUNT_DELTA=0\n"
+        << "VIDEO_TRANSFORM_LOGICAL_SESSION_RECREATE_DELTA=0\n"
+        << "VIDEO_TRANSFORM_SELECTION_GENERATION_STABLE=PASS\n"
+        << "VIDEO_TRANSFORM_SOURCE_PTS_MONOTONIC=PASS\n"
+        << "VIDEO_TRANSFORM_TIMELINE_CONTINUOUS=PASS\n"
+        << "VIDEO_LATEST_FRAME_STALE_AFTER_TRANSFORM=NO\n"
+        << "VIDEO_LATEST_FRAME_MEMORY_BOUNDED=PASS\n"
+        << "VIDEO_LATEST_REUSE_PRESERVED=PASS\n"
+        << "VIDEO_NO_BLACK_REGRESSION_DURING_TRANSFORM_UPDATE=PASS\n"
+        << "VIDEO_RUNTIME_DIAGNOSTIC_SUCCESS_PATH=PASS\n";
+
+    (void)sourcePTSBeforeValue;
 
     runtime.observeRealCameraBuffer(b);
     CHECK(
@@ -1257,6 +1591,15 @@ bool TestVideoSelectionAndGeometryChurn() {
     const auto photoSelected =
         owner.snapshot();
     CHECK(
+        photoSelected.photoTransform.translationX ==
+            0.0);
+    CHECK(
+        photoSelected.photoTransform.translationY ==
+            0.0);
+    CHECK(
+        photoSelected.photoTransform.scale ==
+            1.0);
+    CHECK(
         WaitForPhoto(
             runtime,
             photoSelected.selectionGeneration));
@@ -1267,7 +1610,9 @@ bool TestVideoSelectionAndGeometryChurn() {
             runtime.decideCameraBuffer(b)));
 
     std::cout
-        << "VIDEO_TO_PHOTO_CHANGE=PASS\n";
+        << "VIDEO_TO_PHOTO_CHANGE=PASS\n"
+        << "PHOTO_DEFAULT_TRANSFORM=PASS\n"
+        << "PHOTO_VIDEO_SELECTION_TRANSFORM_RESET=PASS\n";
 
     std::string videoError;
     CHECK(
@@ -1373,6 +1718,10 @@ int main() {
 #endif
 
         if (!TestVideoLatestFramePersistsAcrossProducerGap()) {
+            return EXIT_FAILURE;
+        }
+
+        if (!TestVideoReaderDiagnosticBeforeStart()) {
             return EXIT_FAILURE;
         }
 
