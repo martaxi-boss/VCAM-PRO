@@ -154,12 +154,12 @@ using vcam::product::ProductPlaybackIntent;
         UIStackViewDistributionEqualSpacing;
 
     self.adjustPhotoButton =
-        [self buttonWithTitle:@"Adjust Photo"
+        [self buttonWithTitle:@"Adjust Media"
                        action:@selector(adjustPhotoTapped:)];
 
     self.resetPhotoTransformButton =
         [self buttonWithTitle:
-            @"Reset Photo Position / Zoom"
+            @"Reset Media Position / Zoom"
                        action:
             @selector(resetPhotoTransformTapped:)];
 
@@ -608,14 +608,18 @@ using vcam::product::ProductPlaybackIntent;
 
     const auto snapshot =
         _productOwner->snapshot();
-    if (snapshot.mediaKind !=
-            ProductMediaKind::Photo ||
-        !snapshot.hasMedia()) {
+    const BOOL adjustableMedia =
+        snapshot.hasMedia() &&
+        (snapshot.mediaKind ==
+             ProductMediaKind::Photo ||
+         snapshot.mediaKind ==
+             ProductMediaKind::Video);
+    if (!adjustableMedia) {
         return;
     }
 
-    VCAMAdjustPhotoRequestHandler handler =
-        self.adjustPhotoRequestHandler;
+    VCAMAdjustMediaRequestHandler handler =
+        self.adjustMediaRequestHandler;
     if (handler != nil) {
         handler();
     }
@@ -626,7 +630,7 @@ using vcam::product::ProductPlaybackIntent;
 
     if (_productOwner != nullptr) {
         (void)_productOwner
-            ->resetPhotoTransform();
+            ->resetMediaTransform();
     }
 
     [self refreshControls];
@@ -796,16 +800,18 @@ using vcam::product::ProductPlaybackIntent;
         self.loopSwitch.on =
             snapshot.loopEnabled;
 
-        const BOOL photoSelected =
+        const BOOL adjustableMedia =
             hasMedia &&
-            snapshot.mediaKind ==
-                ProductMediaKind::Photo;
+            (snapshot.mediaKind ==
+                 ProductMediaKind::Photo ||
+             snapshot.mediaKind ==
+                 ProductMediaKind::Video);
         self.resetPhotoTransformButton.hidden =
-            !photoSelected;
+            !adjustableMedia;
         self.adjustPhotoButton.hidden =
-            !photoSelected;
+            !adjustableMedia;
         self.adjustPhotoButton.enabled =
-            photoSelected &&
+            adjustableMedia &&
             _productOwner != nullptr;
 
         [self.playbackButton
