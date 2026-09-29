@@ -151,7 +151,7 @@ jobs:
           store = Path("src/product/SharedControlStore.mm").read_text()
 
           assert "preferredTransform" in video
-          assert "preferredTransform = CGAffineTransformIdentity" in photo
+          assert "sourceInfo.preferredTransform" in photo and "CGAffineTransformIdentity" in photo
           assert "StreamOrientationForSnapshot" in runtime
           assert "ProductStreamOrientation" in state
           assert "streamOrientationRevision" in store
