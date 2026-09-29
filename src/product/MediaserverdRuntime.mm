@@ -126,6 +126,54 @@ bool SameMediaIdentity(
             b.selectionGeneration;
 }
 
+media_engine::OrientationRequirement
+StreamOrientationForSnapshot(
+    const ProductControlSnapshot& snapshot) noexcept {
+    switch (snapshot.streamOrientation) {
+        case ProductStreamOrientation::Portrait:
+            return media_engine::OrientationRequirement::StreamPortrait;
+        case ProductStreamOrientation::PortraitUpsideDown:
+            return media_engine::OrientationRequirement::StreamPortraitUpsideDown;
+        case ProductStreamOrientation::LandscapeLeft:
+            return media_engine::OrientationRequirement::StreamLandscapeLeft;
+        case ProductStreamOrientation::LandscapeRight:
+            return media_engine::OrientationRequirement::StreamLandscapeRight;
+        case ProductStreamOrientation::Unknown:
+            return media_engine::OrientationRequirement::UprightIdentityTransform;
+    }
+    return media_engine::OrientationRequirement::UprightIdentityTransform;
+}
+
+std::uint64_t PhotoPresentationRevision(
+    const ProductControlSnapshot& snapshot) noexcept {
+    if (snapshot.streamOrientation ==
+            ProductStreamOrientation::Unknown &&
+        snapshot.streamOrientationRevision == 0) {
+        return snapshot.photoTransform.revision;
+    }
+
+    std::uint64_t value =
+        UINT64_C(1469598103934665603);
+    const auto mix =
+        [&value](std::uint64_t input) {
+            for (unsigned shift = 0;
+                 shift < 64;
+                 shift += 8) {
+                value ^=
+                    static_cast<std::uint8_t>(
+                        input >> shift);
+                value *=
+                    UINT64_C(1099511628211);
+            }
+        };
+
+    mix(snapshot.photoTransform.revision);
+    mix(snapshot.streamOrientationRevision);
+    mix(static_cast<std::uint64_t>(
+        snapshot.streamOrientation));
+    return value;
+}
+
 }  // namespace
 
 struct MediaserverdRuntime::Impl {
@@ -1060,7 +1108,8 @@ struct MediaserverdRuntime::Impl {
             session_->state().
                 timelineEpoch();
         const std::uint64_t revision =
-            snapshot.photoTransform.revision;
+            PhotoPresentationRevision(
+                snapshot);
 
         adapter_.notePhotoGeometryObserved(
             width,
@@ -1086,9 +1135,8 @@ struct MediaserverdRuntime::Impl {
         target.pixelFormat =
             pixelFormat;
         target.orientation =
-            media_engine::
-                OrientationRequirement::
-                    UprightIdentityTransform;
+            StreamOrientationForSnapshot(
+                snapshot);
         target.colorMetadata =
             media_engine::
                 ColorMetadataPolicy::
@@ -1137,9 +1185,8 @@ struct MediaserverdRuntime::Impl {
         target.height = height;
         target.pixelFormat = pixelFormat;
         target.orientation =
-            media_engine::
-                OrientationRequirement::
-                    UprightIdentityTransform;
+            StreamOrientationForSnapshot(
+                snapshot);
         target.colorMetadata =
             media_engine::
                 ColorMetadataPolicy::
@@ -1253,8 +1300,49 @@ struct MediaserverdRuntime::Impl {
             SameMediaIdentity(
                 snapshot,
                 applied_)) {
+            const bool orientationChanged =
+                snapshot.streamOrientationRevision !=
+                    applied_.streamOrientationRevision ||
+                snapshot.streamOrientation !=
+                    applied_.streamOrientation;
+
             applyMutableControls(
                 snapshot);
+
+            if (orientationChanged) {
+                const std::uint64_t currentGeometry =
+                    observedGeometry_.load(
+                        std::memory_order_acquire);
+
+                if (snapshot.mediaKind ==
+                        ProductMediaKind::Photo) {
+                    adapter_.unbindQueue();
+                    if (session_->
+                            invalidatePhotoPreparedOutputs()) {
+                        (void)
+                            preparePhotoVariantForGeometry(
+                                snapshot,
+                                currentGeometry);
+                        bindCurrentSession(
+                            session_->playbackState() ==
+                                frame_engine::
+                                    PlaybackState::Playing);
+                    }
+                } else if (
+                    snapshot.mediaKind ==
+                        ProductMediaKind::Video) {
+                    adapter_.unbindQueue();
+                    if (retargetVideoForGeometry(
+                            snapshot,
+                            currentGeometry)) {
+                        bindCurrentSession(
+                            session_->playbackState() ==
+                                frame_engine::
+                                    PlaybackState::Playing);
+                    }
+                }
+            }
+
             applied_ = snapshot;
             return;
         }
@@ -1622,8 +1710,8 @@ struct MediaserverdRuntime::Impl {
             producerHealthy,
             reusableStaticMedia,
             reusableStaticMedia
-                ? bindingSnapshot.
-                      photoTransform.revision
+                ? PhotoPresentationRevision(
+                      bindingSnapshot)
                 : 0);
 
         if (reusableStaticMedia) {
@@ -1648,8 +1736,8 @@ struct MediaserverdRuntime::Impl {
                     pixelFormat,
                     queueGeneration,
                     queueEpoch,
-                    bindingSnapshot.
-                        photoTransform.revision);
+                    PhotoPresentationRevision(
+                        bindingSnapshot));
             }
         }
 

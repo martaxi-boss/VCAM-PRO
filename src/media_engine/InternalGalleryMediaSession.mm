@@ -307,6 +307,22 @@ preparePhotoVariant(
 }
 
 bool InternalGalleryMediaSession::
+invalidatePhotoPreparedOutputs() {
+    if (selected_.kind !=
+            SelectedMediaKind::Photo ||
+        photoReader_ == nullptr ||
+        pump_ == nullptr ||
+        driver_ == nullptr) {
+        return false;
+    }
+
+    driver_->stop();
+    queue_.clear();
+    scheduler_.reset();
+    return true;
+}
+
+bool InternalGalleryMediaSession::
 hasQueuedPhotoVariant(
     const NormalizationTarget& target) const {
     if (selected_.kind !=

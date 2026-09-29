@@ -73,6 +73,7 @@ public:
         const PhotoTransformState& transform);
     bool preparePhotoVariant(
         const NormalizationTarget& target);
+    bool invalidatePhotoPreparedOutputs();
     bool hasQueuedPhotoVariant(
         const NormalizationTarget& target) const;
     void clearMedia();
