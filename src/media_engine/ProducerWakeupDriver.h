@@ -29,6 +29,12 @@ struct ProducerRuntimeDiagnosticsSnapshot {
     std::uint64_t publishCount = 0;
 };
 
+#if defined(VCAM_TESTING)
+void ObserveProducerRuntimeDiagnosticsForTesting(
+    ProducerRuntimeDiagnosticsSnapshot* snapshot,
+    const FramePipelinePumpResult& result) noexcept;
+#endif
+
 struct ProducerWakeupDriverConfig {
     // Explicit retry delay used only when the pump reports NotReady while
     // playback remains Playing. Zero means remain idle until an explicit
