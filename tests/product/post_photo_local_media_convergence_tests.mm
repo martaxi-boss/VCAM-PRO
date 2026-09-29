@@ -621,7 +621,10 @@ bool TestVideoSelectionAndGeometryChurn() {
 
     const std::string input =
         root + "/input.mov";
+    const std::string photoInput =
+        root + "/input.png";
     CHECK(CreateVideo(input, 240));
+    CHECK(CreatePhoto(photoInput));
 
     const std::string controlPath =
         root + "/control.plist";
@@ -756,11 +759,18 @@ bool TestVideoSelectionAndGeometryChurn() {
             enabledSupportedOriginalDecisionCount() ==
                 0);
 
+    const std::uint64_t publishedAfterGeometry =
+        after.totalVideoPublishedFrameCount;
+    const std::uint64_t videoCameraDecisions =
+        runtime.cameraAdapter().
+            mediaVirtualDecisionCount();
+
     std::cout
         << "VIDEO_STAGING=PASS\n"
         << "VIDEO_CONTROL_COMMIT=PASS\n"
         << "VIDEO_MEDIA_KIND=VIDEO\n"
         << "VIDEO_PLAYBACK_INTENT_AFTER_SELECTION=PLAYING\n"
+        << "VIDEO_RUNTIME_SELECT=PASS\n"
         << "VIDEO_LOOP_UI_ENABLED_WHEN_VIDEO_SNAPSHOT_ACTIVE=PASS\n"
         << "VIDEO_LOOP_OFF_DOES_NOT_BLOCK_START=PASS\n"
         << "VIDEO_REQUIRES_LOOP_TO_START=NO\n"
@@ -777,7 +787,88 @@ bool TestVideoSelectionAndGeometryChurn() {
         << "VIDEO_GEOMETRY_B_OUTPUT=PASS\n"
         << "VIDEO_NO_RESTART_ON_GEOMETRY_SWITCH=PASS\n"
         << "VIDEO_GEOMETRY_SESSION_FINDING=RETARGET_WITHOUT_READER_REOPEN\n"
+        << "VIDEO_PUBLISHED_FRAME_COUNT="
+        << publishedAfterGeometry << "\n"
+        << "VIDEO_CAMERA_DECISIONS="
+        << videoCameraDecisions << "\n"
         << "VCAM_ON_SUPPORTED_ORIGINAL_DECISIONS=ZERO\n";
+
+    std::string photoError;
+    CHECK(
+        owner.selectFromTemporaryPath(
+            photoInput,
+            ProductMediaKind::Photo,
+            &photoError));
+    CHECK(photoError.empty());
+    const auto photoSelected =
+        owner.snapshot();
+    CHECK(
+        WaitForPhoto(
+            runtime,
+            photoSelected.selectionGeneration));
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(a)));
+
+    std::cout
+        << "VIDEO_TO_PHOTO_CHANGE=PASS\n";
+
+    std::string videoError;
+    CHECK(
+        owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Video,
+            &videoError));
+    CHECK(videoError.empty());
+    const auto videoReselected =
+        owner.snapshot();
+    CHECK(
+        WaitForVideo(
+            runtime,
+            videoReselected.selectionGeneration,
+            2));
+    CHECK(
+        WaitForPreparedGeometry(
+            runtime,
+            a,
+            videoReselected.selectionGeneration));
+
+    std::cout
+        << "PHOTO_TO_VIDEO_CHANGE=PASS\n";
+
+    CHECK(owner.setEnabled(false));
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    const CameraDecision offDecision =
+        runtime.decideCameraBuffer(a);
+    CHECK(
+        offDecision.kind ==
+            CameraDecisionKind::Original);
+    CHECK(
+        offDecision.source ==
+            CameraDecisionSource::Original);
+
+    std::cout
+        << "VCAM_OFF_FROM_VIDEO_RETURNS_REAL=PASS\n";
+
+    CHECK(owner.setEnabled(true));
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(owner.clearMedia());
+    CHECK(
+        runtime.drainControlQueueForTesting());
+
+    const CameraDecision clearDecision =
+        runtime.decideCameraBuffer(a);
+    CHECK(
+        clearDecision.kind ==
+            CameraDecisionKind::Virtual);
+    CHECK(
+        clearDecision.source !=
+            CameraDecisionSource::Original);
+
+    std::cout
+        << "CLEAR_VIDEO_RETURNS_BLACK=PASS\n";
 
     CVPixelBufferRelease(a);
     CVPixelBufferRelease(b);
