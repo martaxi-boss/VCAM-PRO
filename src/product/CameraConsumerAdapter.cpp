@@ -2,6 +2,9 @@
 
 #include <algorithm>
 #include <cmath>
+#if defined(VCAM_TESTING)
+#include <cstdio>
+#endif
 #include <cstring>
 #include <limits>
 #include <new>
@@ -2303,6 +2306,35 @@ renderDirectPhotoIntoOriginalLocked(
                 directPhotoSource_,
                 1) * 2;
 
+#if defined(VCAM_TESTING)
+        if (!plan->ySourceRows.empty() &&
+            !plan->ySourceColumns.empty()) {
+            const std::size_t debugRow =
+                plan->ySourceRows[0];
+            const std::size_t debugColumn =
+                plan->ySourceColumns[0];
+            const auto* debugSource =
+                sourceYBase +
+                debugRow *
+                    sourceYStride;
+            std::fprintf(
+                stderr,
+                "DIRECT_PLAN_DEBUG row=%zu col=%zu source=%u mapped=%u destHeight=%zu destWidth=%zu sourceRows=%zu sourceCols=%zu\n",
+                debugRow,
+                debugColumn,
+                static_cast<unsigned>(
+                    debugSource[debugColumn]),
+                static_cast<unsigned>(
+                    plan->yValueMap[
+                        debugSource[
+                            debugColumn]]),
+                plan->destinationHeight,
+                plan->destinationWidth,
+                plan->ySourceRows.size(),
+                plan->ySourceColumns.size());
+        }
+#endif
+
         for (std::size_t y = 0;
              y < plan->destinationHeight &&
              success;
@@ -2340,6 +2372,20 @@ renderDirectPhotoIntoOriginalLocked(
                         sourceRow[sourceX]];
             }
         }
+
+#if defined(VCAM_TESTING)
+        if (plan->destinationHeight != 0 &&
+            plan->destinationWidth != 0) {
+            std::fprintf(
+                stderr,
+                "DIRECT_PLAN_DEST_AFTER=%u\n",
+                static_cast<unsigned>(
+                    destinationYBase[
+                        plan->destinationY *
+                            destinationYStride +
+                        plan->destinationX]));
+        }
+#endif
 
         for (std::size_t y = 0;
              y < plan->destinationHeight / 2 &&
