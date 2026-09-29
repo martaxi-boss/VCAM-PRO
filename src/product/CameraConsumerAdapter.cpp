@@ -1623,6 +1623,13 @@ directPhotoTestDestinationLuma() const {
     std::lock_guard<std::mutex> lock(mutex_);
     return directPhotoTestDestinationLuma_;
 }
+
+bool CameraConsumerAdapter::
+directPhotoSourceMatchesForTesting(
+    CVPixelBufferRef expected) const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoSource_ == expected;
+}
 #endif
 
 bool CameraConsumerAdapter::

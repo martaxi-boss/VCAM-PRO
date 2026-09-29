@@ -187,6 +187,8 @@ public:
     std::uint8_t directPhotoTestSourceLuma() const;
     std::uint8_t directPhotoTestMappedLuma() const;
     std::uint8_t directPhotoTestDestinationLuma() const;
+    bool directPhotoSourceMatchesForTesting(
+        CVPixelBufferRef expected) const;
 #endif
     std::size_t blackFallbackCacheCount() const;
 

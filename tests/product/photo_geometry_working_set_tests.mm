@@ -387,6 +387,13 @@ bool TestDirectRendererSyntheticSource() {
         1,
         1,
         0));
+    CHECK(source != destination);
+    CHECK(adapter.
+              directPhotoSourceMatchesForTesting(
+                  source));
+    CHECK(SampleLuma(source, 0, 12) == 120);
+    std::cout
+        << "DIRECT_RENDER_SOURCE_IDENTITY=PASS\n";
 
     const CameraDecision decision =
         adapter.decide(destination);
