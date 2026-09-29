@@ -1,0 +1,6 @@
+Package: com.vcampro.camera
+Name: VCAM PRO Photo Geometry Working Set 002
+Version: 0.1.0+roothide19~geomws2
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: Corrected VCAM PRO product candidate with adaptive bounded PHOTO geometry working-set retention, camera-critical-path-safe BLACK overflow ownership, central iOS15 hook semantics and unchanged VIDEO behavior.

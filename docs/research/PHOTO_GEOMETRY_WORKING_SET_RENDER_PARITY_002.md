@@ -188,3 +188,19 @@ Host/CI can certify the working-set mechanism, source decode count, session life
 Only the physical iPhone can certify continuous Apple Camera preview/still/flash behavior under real mediaserverd geometry interleaving and A9 performance.
 
 NEXT_PHASE=PHOTO_CONTINUOUS_PRESENTATION_DEVICE_PROOF
+
+## Supervisor camera-critical-path audit addendum - remediation 003
+
+The d71c3ecdf2860ed078d1c7a42a020a366c7b0328 candidate was CI-green for the working-set/render-parity task but is rejected for device certification because CameraConsumerAdapter::decide() synchronously called renderDirectPhotoIntoOriginalLocked() from the CMSampleBufferGetImageBuffer camera-critical path.
+
+That overflow fallback performed destination BLACK initialization, source-row/source-column remapping, per-pixel Y and CbCr writes, and range conversion in the callback. Exact-head run 36544809862 measured DIRECT_RENDER_HOST_AVERAGE_NS=19030941 (about 19 ms per host callback), but the benchmark had no acceptance threshold and therefore did not certify A9 performance.
+
+The same exact-head E2E run 36544809835 reported NO_CALLBACK_SCALE_OR_TRANSFORM=PASS using a validator that inspected only the literal HookedCMSampleBufferGetImageBuffer body. It did not inspect the synchronously reachable chain HookedCMSampleBufferGetImageBuffer -> MediaserverdRuntime::decideCameraBuffer -> Impl::decide -> CameraConsumerAdapter::decide -> renderDirectPhotoIntoOriginalLocked. That marker was a false negative.
+
+Remediation 003 removes DirectRenderedPhoto, the callback-side direct renderer, source snapshots, render plans, mapping vectors and direct-render counters. The product path is one logical PHOTO -> producer-side bounded geometry preparation -> compatible PreparedMedia selection in callback.
+
+If the bounded prepared working set is under pressure, the callback keeps virtual ownership with BLACK / InPlaceBlackOwnershipGuard while producer/control work prepares the requested geometry. It never scales, transforms, range-converts or decodes PHOTO content in the camera callback merely to preserve an artificial over-budget stress case.
+
+The corrected E2E validator audits the full synchronous decision chain plus the adapter source that implements its helpers, and rejects direct-render machinery or callback-side scaling/transform/color-conversion/media-allocation/blocking tokens.
+
+Historical working-set evidence and the five-geometry root cause remain unchanged.
