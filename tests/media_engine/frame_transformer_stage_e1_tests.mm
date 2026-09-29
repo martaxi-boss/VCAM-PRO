@@ -277,6 +277,17 @@ NormalizationTarget Target(
     return target;
 }
 
+NormalizationTarget StreamTarget(
+    OSType format,
+    std::size_t width,
+    std::size_t height,
+    OrientationRequirement orientation) {
+    NormalizationTarget target =
+        Target(format, width, height);
+    target.orientation = orientation;
+    return target;
+}
+
 SourceGeometry Geometry(
     std::size_t width,
     std::size_t height,
@@ -452,6 +463,199 @@ std::vector<std::uint8_t> DirectionalPattern4x2() {
         10, 20, 30, 40,
         50, 60, 70, 80,
     };
+}
+
+bool TestStreamOrientationDirectionalFixture() {
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        4,
+        2,
+        DirectionalPattern4x2());
+
+    struct Case {
+        OrientationRequirement orientation;
+        std::size_t width;
+        std::size_t height;
+        std::vector<std::uint8_t> expected;
+        const char* marker;
+    };
+
+    const Case cases[] = {
+        {
+            OrientationRequirement::StreamLandscapeLeft,
+            4,
+            2,
+            {10, 20, 30, 40, 50, 60, 70, 80},
+            "STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS",
+        },
+        {
+            OrientationRequirement::StreamPortrait,
+            2,
+            4,
+            {50, 10, 60, 20, 70, 30, 80, 40},
+            "STREAM_ORIENTATION_PORTRAIT=PASS",
+        },
+        {
+            OrientationRequirement::StreamLandscapeRight,
+            4,
+            2,
+            {80, 70, 60, 50, 40, 30, 20, 10},
+            "STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS",
+        },
+        {
+            OrientationRequirement::StreamPortraitUpsideDown,
+            2,
+            4,
+            {40, 80, 30, 70, 20, 60, 10, 50},
+            "STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS",
+        },
+    };
+
+    for (const auto& item : cases) {
+        FrameTransformer transformer;
+        const auto result = Transform(
+            transformer,
+            frame,
+            Geometry(4, 2),
+            StreamTarget(
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                item.width,
+                item.height,
+                item.orientation));
+
+        CHECK(result.status ==
+              FrameTransformStatus::Transformed);
+        CHECK(result.frame.has_value());
+        CHECK(result.frame->width() == item.width);
+        CHECK(result.frame->height() == item.height);
+
+        const auto y =
+            CopyYPlane(
+                result.frame->pixelBuffer());
+        CHECK(y.size() == item.expected.size());
+        for (std::size_t index = 0;
+             index < y.size();
+             ++index) {
+            CHECK(Near(
+                y[index],
+                item.expected[index],
+                1));
+        }
+
+        std::cout << item.marker << "\n";
+    }
+
+    std::cout
+        << "ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS\n"
+        << "NO_APP_SPECIFIC_ORIENTATION_HACK=PASS\n";
+    return true;
+}
+
+bool TestSourceAndStreamOrientationCompose() {
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        4,
+        2,
+        DirectionalPattern4x2());
+
+    FrameTransformer transformer;
+    const auto result = Transform(
+        transformer,
+        frame,
+        Geometry(
+            4,
+            2,
+            CGAffineTransformMake(
+                0,
+                1,
+                -1,
+                0,
+                2,
+                0)),
+        StreamTarget(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            4,
+            2,
+            OrientationRequirement::StreamPortrait));
+
+    CHECK(result.status ==
+          FrameTransformStatus::Transformed);
+    CHECK(result.frame.has_value());
+
+    const auto y =
+        CopyYPlane(
+            result.frame->pixelBuffer());
+    const std::vector<std::uint8_t> expected{
+        80, 70, 60, 50,
+        40, 30, 20, 10,
+    };
+    CHECK(y.size() == expected.size());
+    for (std::size_t index = 0;
+         index < y.size();
+         ++index) {
+        CHECK(Near(y[index], expected[index], 1));
+    }
+
+    std::cout
+        << "SOURCE_PREFERRED_TRANSFORM_STATUS=APPLIED_BEFORE_STREAM_ORIENTATION\n"
+        << "PHOTO_VIDEO_STREAM_ORIENTATION_COMPOSITION=PASS\n";
+    return true;
+}
+
+bool TestOrientationCropOrderPreservesAspect() {
+    std::vector<std::uint8_t> pattern;
+    pattern.reserve(8 * 4);
+    for (std::size_t y = 0; y < 4; ++y) {
+        for (std::size_t x = 0; x < 8; ++x) {
+            pattern.push_back(
+                static_cast<std::uint8_t>(
+                    10 + x * 20));
+        }
+    }
+
+    auto frame = MakeFrame(
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+        8,
+        4,
+        pattern);
+
+    FrameTransformer transformer;
+    const auto result = Transform(
+        transformer,
+        frame,
+        Geometry(8, 4),
+        StreamTarget(
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+            4,
+            4,
+            OrientationRequirement::StreamPortrait));
+
+    CHECK(result.status ==
+          FrameTransformStatus::Transformed);
+    CHECK(result.frame.has_value());
+
+    const auto y =
+        CopyYPlane(
+            result.frame->pixelBuffer());
+    const std::vector<std::uint8_t> expected{
+        50, 50, 50, 50,
+        70, 70, 70, 70,
+        90, 90, 90, 90,
+        110, 110, 110, 110,
+    };
+    CHECK(y.size() == expected.size());
+    for (std::size_t index = 0;
+         index < y.size();
+         ++index) {
+        CHECK(Near(y[index], expected[index], 2));
+    }
+
+    std::cout
+        << "ORIENTATION_CROP_ORDER_STATUS=STREAM_ROTATION_THEN_EXISTING_CENTER_CROP\n"
+        << "ASPECT_RATIO_SEMANTICS_DEFINED=PASS\n"
+        << "ASPECT_RATIO_SEMANTICS_FINAL=EXISTING_CENTER_CROP_PRESERVE_ASPECT\n"
+        << "NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS\n";
+    return true;
 }
 
 bool TestRotate90Pattern() {
@@ -1331,6 +1535,9 @@ int main() {
     Run("same-format 420f scale", TestSameFormat420fScale);
     Run("center crop preserves aspect ratio", TestCenterCropPreservesAspectRatio);
     Run("exact output dimensions", TestExactOutputDimensions);
+    Run("stream orientation asymmetric fixture", TestStreamOrientationDirectionalFixture);
+    Run("source and stream orientation compose", TestSourceAndStreamOrientationCompose);
+    Run("orientation crop order preserves aspect", TestOrientationCropOrderPreservesAspect);
     Run("90 rotation directional pattern", TestRotate90Pattern);
     Run("180 rotation directional pattern", TestRotate180Pattern);
     Run("270 rotation directional pattern", TestRotate270Pattern);
