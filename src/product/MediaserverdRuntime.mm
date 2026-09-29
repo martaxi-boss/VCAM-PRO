@@ -1307,6 +1307,12 @@ struct MediaserverdRuntime::Impl {
             testTotalPhotoDecodeCount_ +=
                 candidate->photoDecodeCount();
         }
+        if (selected &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Video) {
+            ++testLogicalVideoSessionCreationCount_;
+            ++testVideoReaderOpenCount_;
+        }
 #endif
 
         if (!selected) {
@@ -1338,6 +1344,13 @@ struct MediaserverdRuntime::Impl {
 #endif
             producerHealthy =
                 candidate->start();
+#if defined(VCAM_TESTING)
+            if (producerHealthy &&
+                snapshot.mediaKind ==
+                    ProductMediaKind::Video) {
+                ++testVideoReaderStartCount_;
+            }
+#endif
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
             if (activationRemediationActive_ &&
                 activationRemediationGeneration_ ==
@@ -1367,6 +1380,27 @@ struct MediaserverdRuntime::Impl {
 
         auto old =
             std::move(session_);
+#if defined(VCAM_TESTING)
+        if (old != nullptr &&
+            snapshot.mediaKind ==
+                ProductMediaKind::Video &&
+            applied_.mediaKind ==
+                ProductMediaKind::Video &&
+            snapshot.selectionGeneration ==
+                applied_.selectionGeneration) {
+            if (testVideoSessionReplacementCount_ != UINT64_MAX) {
+                ++testVideoSessionReplacementCount_;
+            }
+            const std::uint64_t retiredPublished =
+                old->publishedFrameCount();
+            if (UINT64_MAX - testRetiredVideoPublishedFrameCount_ <
+                retiredPublished) {
+                testRetiredVideoPublishedFrameCount_ = UINT64_MAX;
+            } else {
+                testRetiredVideoPublishedFrameCount_ += retiredPublished;
+            }
+        }
+#endif
         session_ =
             std::move(candidate);
 
@@ -3721,6 +3755,11 @@ struct MediaserverdRuntime::Impl {
     bool testControlQueueSuspended_ = false;
     std::uint64_t testLogicalPhotoSessionCreationCount_ = 0;
     std::uint64_t testTotalPhotoDecodeCount_ = 0;
+    std::uint64_t testLogicalVideoSessionCreationCount_ = 0;
+    std::uint64_t testVideoReaderOpenCount_ = 0;
+    std::uint64_t testVideoReaderStartCount_ = 0;
+    std::uint64_t testVideoSessionReplacementCount_ = 0;
+    std::uint64_t testRetiredVideoPublishedFrameCount_ = 0;
     std::array<std::uint64_t, 8>
         testAppliedGeometryHistory_{};
     std::size_t testAppliedGeometryHistoryCount_ = 0;
@@ -3873,6 +3912,27 @@ MediaserverdRuntime::snapshotForTesting() {
                 impl_->testLogicalPhotoSessionCreationCount_;
             result.totalPhotoDecodeCount =
                 impl_->testTotalPhotoDecodeCount_;
+            result.logicalVideoSessionCreationCount =
+                impl_->testLogicalVideoSessionCreationCount_;
+            result.videoReaderOpenCount =
+                impl_->testVideoReaderOpenCount_;
+            result.videoReaderStartCount =
+                impl_->testVideoReaderStartCount_;
+            result.videoSessionReplacementCount =
+                impl_->testVideoSessionReplacementCount_;
+            result.totalVideoPublishedFrameCount =
+                impl_->testRetiredVideoPublishedFrameCount_;
+            if (impl_->session_ != nullptr &&
+                control.mediaKind == ProductMediaKind::Video) {
+                const std::uint64_t currentPublished =
+                    impl_->session_->publishedFrameCount();
+                if (UINT64_MAX - result.totalVideoPublishedFrameCount <
+                    currentPublished) {
+                    result.totalVideoPublishedFrameCount = UINT64_MAX;
+                } else {
+                    result.totalVideoPublishedFrameCount += currentPublished;
+                }
+            }
             result.appliedGeometryHistoryCount =
                 impl_->testAppliedGeometryHistoryCount_;
             result.appliedGeometryHistory =

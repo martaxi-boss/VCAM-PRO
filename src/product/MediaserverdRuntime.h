@@ -29,6 +29,11 @@ struct MediaserverdRuntimeTestSnapshot {
     std::uint64_t loopIteration = 0;
     std::uint64_t logicalPhotoSessionCreationCount = 0;
     std::uint64_t totalPhotoDecodeCount = 0;
+    std::uint64_t logicalVideoSessionCreationCount = 0;
+    std::uint64_t videoReaderOpenCount = 0;
+    std::uint64_t videoReaderStartCount = 0;
+    std::uint64_t videoSessionReplacementCount = 0;
+    std::uint64_t totalVideoPublishedFrameCount = 0;
     std::uint64_t photoVariantPreparationCount = 0;
     std::size_t photoVariantRetainedBytes = 0;
     std::size_t photoVariantWorkingSetCount = 0;
