@@ -1387,10 +1387,12 @@ struct MediaserverdRuntime::Impl {
 #endif
 
         if (selected &&
-            snapshot.mediaKind ==
-                ProductMediaKind::Photo) {
+            (snapshot.mediaKind ==
+                 ProductMediaKind::Photo ||
+             snapshot.mediaKind ==
+                 ProductMediaKind::Video)) {
             selected =
-                candidate->setPhotoTransform(
+                candidate->setMediaTransform(
                     PhotoTransformForSnapshot(
                         snapshot));
         }
@@ -1528,13 +1530,18 @@ struct MediaserverdRuntime::Impl {
             return;
         }
 
-        if (snapshot.mediaKind ==
-                ProductMediaKind::Photo &&
+        if ((snapshot.mediaKind ==
+                 ProductMediaKind::Photo ||
+             snapshot.mediaKind ==
+                 ProductMediaKind::Video) &&
             snapshot.photoTransform.revision !=
                 applied_.photoTransform.revision) {
-            adapter_.unbindQueue();
+            if (snapshot.mediaKind ==
+                ProductMediaKind::Photo) {
+                adapter_.unbindQueue();
+            }
 
-            if (!session_->setPhotoTransform(
+            if (!session_->setMediaTransform(
                     PhotoTransformForSnapshot(
                         snapshot))) {
                 return;
@@ -1645,7 +1652,8 @@ struct MediaserverdRuntime::Impl {
             reusableStaticMedia
                 ? PhotoPresentationRevision(
                       bindingSnapshot)
-                : 0);
+                : 0,
+            bindingSnapshot.photoTransform.revision);
 
         if (reusableStaticMedia) {
             const std::uint64_t geometry =
