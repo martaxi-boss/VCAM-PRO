@@ -54,7 +54,7 @@ grep -q 'Stage F1 scheduler tests run: 13, failures: 0' build/regressions/f1-sch
 
 $CXX $OBJC $INC   src/frame_engine/PreparedFrame.cpp src/frame_engine/FrameEngineState.cpp   src/frame_engine/ReadyFrameQueue.cpp src/frame_engine/FrameTimelineScheduler.cpp   src/media_engine/LocalVideoReader.mm src/media_engine/FrameNormalizer.cpp   src/media_engine/FrameTransformer.mm src/media_engine/FramePipelinePump.cpp   src/media_engine/FramePipelinePumpTimed.cpp   tests/media_engine/frame_pipeline_stage_f1_tests.mm   -framework Accelerate -framework Foundation -framework AVFoundation   -framework CoreFoundation -framework CoreGraphics -framework CoreMedia   -framework CoreVideo -o build/regressions/f1p
 build/regressions/f1p | tee build/regressions/f1-pipeline.txt
-grep -q 'Stage F1 timed pipeline tests run: 12, failures: 0' build/regressions/f1-pipeline.txt
+grep -q 'Stage F1 timed pipeline tests run: 13, failures: 0' build/regressions/f1-pipeline.txt
 
 $CXX $BASE $INC   src/media_engine/ProducerWakeupController.cpp   tests/media_engine/producer_wakeup_driver_stage_f2_tests.cpp   -framework CoreFoundation -framework CoreGraphics -framework CoreMedia   -framework CoreVideo -o build/regressions/f2
 build/regressions/f2 | tee build/regressions/f2-driver.txt
