@@ -19,6 +19,14 @@ enum class ProductPlaybackIntent : std::uint8_t {
     Paused,
 };
 
+enum class ProductStreamOrientation : std::uint8_t {
+    Unknown = 0,
+    Portrait,
+    PortraitUpsideDown,
+    LandscapeLeft,
+    LandscapeRight,
+};
+
 inline constexpr double kProductPhotoTransformMaxTranslation = 1.0;
 inline constexpr double kProductPhotoTransformMinScale = 0.25;
 inline constexpr double kProductPhotoTransformMaxScale = 4.0;
@@ -67,6 +75,9 @@ struct ProductControlSnapshot {
     ProductPlaybackIntent playbackIntent =
         ProductPlaybackIntent::Stopped;
     ProductPhotoTransform photoTransform{};
+    ProductStreamOrientation streamOrientation =
+        ProductStreamOrientation::Unknown;
+    std::uint64_t streamOrientationRevision = 0;
 
     bool hasMedia() const noexcept {
         return mediaKind != ProductMediaKind::None &&

@@ -62,6 +62,9 @@ public:
 
     bool resetPhotoTransform();
 
+    bool setStreamOrientation(
+        ProductStreamOrientation orientation);
+
     std::string
     lastStatus() const;
 

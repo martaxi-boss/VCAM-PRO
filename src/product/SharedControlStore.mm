@@ -169,6 +169,67 @@ NSString* PlaybackString(
     return @"stopped";
 }
 
+ProductStreamOrientation ParseStreamOrientation(
+    id value,
+    bool* typeConfused,
+    bool* recognized) {
+    if (recognized != nullptr) {
+        *recognized = true;
+    }
+
+    if (value == nil) {
+        return ProductStreamOrientation::Unknown;
+    }
+
+    if (!IsString(value)) {
+        if (typeConfused != nullptr) {
+            *typeConfused = true;
+        }
+        return ProductStreamOrientation::Unknown;
+    }
+
+    NSString* string =
+        (NSString*)value;
+
+    if ([string isEqualToString:@"portrait"]) {
+        return ProductStreamOrientation::Portrait;
+    }
+    if ([string isEqualToString:@"portraitUpsideDown"]) {
+        return ProductStreamOrientation::PortraitUpsideDown;
+    }
+    if ([string isEqualToString:@"landscapeLeft"]) {
+        return ProductStreamOrientation::LandscapeLeft;
+    }
+    if ([string isEqualToString:@"landscapeRight"]) {
+        return ProductStreamOrientation::LandscapeRight;
+    }
+    if ([string isEqualToString:@"unknown"]) {
+        return ProductStreamOrientation::Unknown;
+    }
+
+    if (recognized != nullptr) {
+        *recognized = false;
+    }
+    return ProductStreamOrientation::Unknown;
+}
+
+NSString* StreamOrientationString(
+    ProductStreamOrientation orientation) {
+    switch (orientation) {
+        case ProductStreamOrientation::Portrait:
+            return @"portrait";
+        case ProductStreamOrientation::PortraitUpsideDown:
+            return @"portraitUpsideDown";
+        case ProductStreamOrientation::LandscapeLeft:
+            return @"landscapeLeft";
+        case ProductStreamOrientation::LandscapeRight:
+            return @"landscapeRight";
+        case ProductStreamOrientation::Unknown:
+            return @"unknown";
+    }
+    return @"unknown";
+}
+
 std::string ParseStringField(
     id value,
     bool* typeConfused) {
@@ -542,6 +603,7 @@ SharedControlStore::loadWithProvenance(
         bool typeConfused = false;
         bool mediaKindRecognized = true;
         bool playbackRecognized = true;
+        bool orientationRecognized = true;
 
         ProductControlSnapshot result;
 
@@ -578,6 +640,20 @@ SharedControlStore::loadWithProvenance(
                 &typeConfused,
                 &playbackRecognized);
 
+        result.streamOrientation =
+            ParseStreamOrientation(
+                dict[@"streamOrientation"],
+                &typeConfused,
+                &orientationRecognized);
+        const bool streamOrientationRevisionValid =
+            ParseUnsignedGeneration(
+                dict[@"streamOrientationRevision"],
+                &result.streamOrientationRevision,
+                &typeConfused);
+        if (!orientationRecognized) {
+            typeConfused = true;
+        }
+
         const bool transformXValid =
             ParseOptionalFiniteDouble(
                 dict[@"photoTranslationX"],
@@ -612,7 +688,8 @@ SharedControlStore::loadWithProvenance(
                     transformXValid &&
                     transformYValid &&
                     transformScaleValid &&
-                    transformRevisionValid,
+                    transformRevisionValid &&
+                    streamOrientationRevisionValid,
                 HasCompleteSchema(dict));
 
         NormalizeSnapshot(
@@ -681,6 +758,11 @@ bool SharedControlStore::save(
                 @(snapshot.photoTransform.scale),
             @"photoTransformRevision" :
                 @(snapshot.photoTransform.revision),
+            @"streamOrientation" :
+                StreamOrientationString(
+                    snapshot.streamOrientation),
+            @"streamOrientationRevision" :
+                @(snapshot.streamOrientationRevision),
         };
 
         if (![dict writeToFile:path

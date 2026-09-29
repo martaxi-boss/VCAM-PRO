@@ -540,6 +540,38 @@ bool ProductControlOwner::resetPhotoTransform() {
         1.0);
 }
 
+bool ProductControlOwner::
+setStreamOrientation(
+    ProductStreamOrientation orientation) {
+    std::lock_guard<std::mutex>
+        lock(mutex_);
+
+    if (current_.streamOrientation ==
+        orientation) {
+        return true;
+    }
+
+    ProductControlSnapshot next =
+        current_;
+    next.streamOrientation =
+        orientation;
+    next.streamOrientationRevision =
+        nextGeneration(
+            current_.
+                streamOrientationRevision);
+
+    if (!store_.save(next)) {
+        lastStatus_ =
+            "Unable to persist stream orientation.";
+        return false;
+    }
+
+    current_ = next;
+    lastStatus_ =
+        "Camera stream orientation updated.";
+    return true;
+}
+
 std::string
 ProductControlOwner::lastStatus() const {
     std::lock_guard<std::mutex>
