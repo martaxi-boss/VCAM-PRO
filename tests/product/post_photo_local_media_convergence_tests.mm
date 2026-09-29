@@ -370,7 +370,8 @@ bool WaitForVideo(
 bool WaitForPreparedGeometry(
     MediaserverdRuntime& runtime,
     CVPixelBufferRef geometry,
-    std::uint64_t generation) {
+    std::uint64_t generation,
+    std::uint64_t expectedVideoSessions = 1) {
     for (int attempt = 0;
          attempt < 5000;
          ++attempt) {
@@ -383,9 +384,11 @@ bool WaitForPreparedGeometry(
         if (snapshot.selectionGeneration ==
                 generation &&
             snapshot.logicalVideoSessionCreationCount ==
-                1 &&
-            snapshot.videoReaderOpenCount == 1 &&
-            snapshot.videoReaderStartCount == 1) {
+                expectedVideoSessions &&
+            snapshot.videoReaderOpenCount ==
+                expectedVideoSessions &&
+            snapshot.videoReaderStartCount ==
+                expectedVideoSessions) {
             const CameraDecision decision =
                 runtime.decideCameraBuffer(
                     geometry);
@@ -831,7 +834,8 @@ bool TestVideoSelectionAndGeometryChurn() {
         WaitForPreparedGeometry(
             runtime,
             a,
-            videoReselected.selectionGeneration));
+            videoReselected.selectionGeneration,
+            2));
 
     std::cout
         << "PHOTO_TO_VIDEO_CHANGE=PASS\n";
