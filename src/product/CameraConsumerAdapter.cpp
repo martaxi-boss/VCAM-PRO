@@ -737,26 +737,180 @@ bool CameraConsumerAdapter::bindDirectPhotoSource(
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(mutex_);
+    const double normalizedTranslationX =
+        std::clamp(
+            translationX,
+            -1.0,
+            1.0);
+    const double normalizedTranslationY =
+        std::clamp(
+            translationY,
+            -1.0,
+            1.0);
+    const double normalizedScale =
+        std::clamp(
+            (!std::isfinite(scale) ||
+             scale <= 0.0)
+                ? 1.0
+                : scale,
+            0.25,
+            4.0);
 
-    const bool unchanged =
-        directPhotoSource_ == source &&
-        directPhotoGeneration_ ==
-            mediaGeneration &&
-        directPhotoEpoch_ ==
-            timelineEpoch &&
-        directPhotoRevision_ ==
-            transformRevision &&
-        directPhotoTranslationX_ ==
-            translationX &&
-        directPhotoTranslationY_ ==
-            translationY &&
-        directPhotoScale_ ==
-            scale;
-
-    if (unchanged) {
-        return true;
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        const bool unchanged =
+            directPhotoSource_ == source &&
+            directPhotoGeneration_ ==
+                mediaGeneration &&
+            directPhotoEpoch_ ==
+                timelineEpoch &&
+            directPhotoRevision_ ==
+                transformRevision &&
+            directPhotoTranslationX_ ==
+                normalizedTranslationX &&
+            directPhotoTranslationY_ ==
+                normalizedTranslationY &&
+            directPhotoScale_ ==
+                normalizedScale &&
+            !directPhotoSourceY_.empty() &&
+            !directPhotoSourceCbCr_.empty();
+        if (unchanged) {
+            return true;
+        }
     }
+
+    const std::size_t width =
+        CVPixelBufferGetWidth(source);
+    const std::size_t height =
+        CVPixelBufferGetHeight(source);
+    const OSType format =
+        CVPixelBufferGetPixelFormatType(source);
+
+    if (width < 2 ||
+        height < 2 ||
+        (width % 2) != 0 ||
+        (height % 2) != 0 ||
+        width >
+            std::numeric_limits<std::size_t>::max() /
+                height) {
+        return false;
+    }
+
+    const std::size_t yBytes =
+        width * height;
+    const std::size_t cbCrRows =
+        height / 2;
+    if (cbCrRows != 0 &&
+        width >
+            std::numeric_limits<std::size_t>::max() /
+                cbCrRows) {
+        return false;
+    }
+    const std::size_t cbCrBytes =
+        width * cbCrRows;
+    if (yBytes >
+            kDirectPhotoSourceByteBudget ||
+        cbCrBytes >
+            kDirectPhotoSourceByteBudget -
+                yBytes) {
+        return false;
+    }
+
+    std::vector<std::uint8_t> ySnapshot;
+    std::vector<std::uint8_t> cbCrSnapshot;
+    try {
+        ySnapshot.resize(yBytes);
+        cbCrSnapshot.resize(cbCrBytes);
+    } catch (const std::bad_alloc&) {
+        return false;
+    }
+
+    if (CVPixelBufferLockBaseAddress(
+            source,
+            kCVPixelBufferLock_ReadOnly) !=
+        kCVReturnSuccess) {
+        return false;
+    }
+
+    bool copied = true;
+    const auto* sourceY =
+        static_cast<const std::uint8_t*>(
+            CVPixelBufferGetBaseAddressOfPlane(
+                source,
+                0));
+    const auto* sourceCbCr =
+        static_cast<const std::uint8_t*>(
+            CVPixelBufferGetBaseAddressOfPlane(
+                source,
+                1));
+    const std::size_t yStride =
+        CVPixelBufferGetBytesPerRowOfPlane(
+            source,
+            0);
+    const std::size_t cbCrStride =
+        CVPixelBufferGetBytesPerRowOfPlane(
+            source,
+            1);
+    const std::size_t sourceYRows =
+        CVPixelBufferGetHeightOfPlane(
+            source,
+            0);
+    const std::size_t sourceCbCrRows =
+        CVPixelBufferGetHeightOfPlane(
+            source,
+            1);
+    const std::size_t sourceYColumns =
+        CVPixelBufferGetWidthOfPlane(
+            source,
+            0);
+    const std::size_t sourceCbCrColumns =
+        CVPixelBufferGetWidthOfPlane(
+            source,
+            1);
+
+    if (sourceY == nullptr ||
+        sourceCbCr == nullptr ||
+        sourceYRows < height ||
+        sourceCbCrRows < cbCrRows ||
+        sourceYColumns < width ||
+        sourceCbCrColumns < width / 2 ||
+        yStride < width ||
+        cbCrStride < width) {
+        copied = false;
+    }
+
+    if (copied) {
+        for (std::size_t row = 0;
+             row < height;
+             ++row) {
+            std::memcpy(
+                ySnapshot.data() +
+                    row * width,
+                sourceY +
+                    row * yStride,
+                width);
+        }
+        for (std::size_t row = 0;
+             row < cbCrRows;
+             ++row) {
+            std::memcpy(
+                cbCrSnapshot.data() +
+                    row * width,
+                sourceCbCr +
+                    row * cbCrStride,
+                width);
+        }
+    }
+
+    CVPixelBufferUnlockBaseAddress(
+        source,
+        kCVPixelBufferLock_ReadOnly);
+
+    if (!copied) {
+        return false;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
 
     if (directPhotoSource_ != source) {
         CVPixelBufferRetain(source);
@@ -767,6 +921,13 @@ bool CameraConsumerAdapter::bindDirectPhotoSource(
         directPhotoSource_ = source;
     }
 
+    directPhotoSourceFormat_ = format;
+    directPhotoSourceWidth_ = width;
+    directPhotoSourceHeight_ = height;
+    directPhotoSourceY_ =
+        std::move(ySnapshot);
+    directPhotoSourceCbCr_ =
+        std::move(cbCrSnapshot);
     directPhotoGeneration_ =
         mediaGeneration;
     directPhotoEpoch_ =
@@ -774,23 +935,11 @@ bool CameraConsumerAdapter::bindDirectPhotoSource(
     directPhotoRevision_ =
         transformRevision;
     directPhotoTranslationX_ =
-        std::clamp(
-            translationX,
-            -1.0,
-            1.0);
+        normalizedTranslationX;
     directPhotoTranslationY_ =
-        std::clamp(
-            translationY,
-            -1.0,
-            1.0);
+        normalizedTranslationY;
     directPhotoScale_ =
-        std::clamp(
-            (!std::isfinite(scale) ||
-             scale <= 0.0)
-                ? 1.0
-                : scale,
-            0.25,
-            4.0);
+        normalizedScale;
 
     for (auto& plan : directPhotoPlans_) {
         plan = {};
@@ -835,10 +984,8 @@ prepareDirectPhotoGeometry(
 
     DirectRegions regions;
     if (!ComputeDirectRegions(
-            CVPixelBufferGetWidth(
-                directPhotoSource_),
-            CVPixelBufferGetHeight(
-                directPhotoSource_),
+            directPhotoSourceWidth_,
+            directPhotoSourceHeight_,
             width,
             height,
             directPhotoTranslationX_,
@@ -1038,8 +1185,7 @@ prepareDirectPhotoGeometry(
     }
 
     const OSType sourceFormat =
-        CVPixelBufferGetPixelFormatType(
-            directPhotoSource_);
+        directPhotoSourceFormat_;
     for (std::size_t value = 0;
          value < 256;
          ++value) {
@@ -1602,6 +1748,15 @@ directPhotoScratchBytes() const {
     return total;
 }
 
+std::size_t
+CameraConsumerAdapter::
+directPhotoSourceBytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return
+        directPhotoSourceY_.size() +
+        directPhotoSourceCbCr_.size();
+}
+
 #if defined(VCAM_TESTING)
 std::uint8_t
 CameraConsumerAdapter::
@@ -2149,6 +2304,11 @@ clearDirectPhotoSourceLocked() noexcept {
         directPhotoSource_ = nullptr;
     }
 
+    directPhotoSourceFormat_ = 0;
+    directPhotoSourceWidth_ = 0;
+    directPhotoSourceHeight_ = 0;
+    directPhotoSourceY_.clear();
+    directPhotoSourceCbCr_.clear();
     directPhotoGeneration_ = 0;
     directPhotoEpoch_ = 0;
     directPhotoRevision_ = 0;
@@ -2195,6 +2355,10 @@ renderDirectPhotoIntoOriginalLocked(
     CVPixelBufferRef original) noexcept {
     if (original == nullptr ||
         directPhotoSource_ == nullptr ||
+        directPhotoSourceY_.empty() ||
+        directPhotoSourceCbCr_.empty() ||
+        directPhotoSourceWidth_ == 0 ||
+        directPhotoSourceHeight_ == 0 ||
         context_.currentMediaGeneration !=
             directPhotoGeneration_ ||
         context_.currentTimelineEpoch !=
@@ -2202,9 +2366,7 @@ renderDirectPhotoIntoOriginalLocked(
         reusableStaticRevision_ !=
             directPhotoRevision_ ||
         !SupportsInPlaceBlackOwnership(
-            original) ||
-        !SupportsInPlaceBlackOwnership(
-            directPhotoSource_)) {
+            original)) {
         return false;
     }
 
@@ -2234,19 +2396,8 @@ renderDirectPhotoIntoOriginalLocked(
     }
 
     if (CVPixelBufferLockBaseAddress(
-            directPhotoSource_,
-            kCVPixelBufferLock_ReadOnly) !=
-        kCVReturnSuccess) {
-        ++directPhotoRenderFailureCount_;
-        return false;
-    }
-
-    if (CVPixelBufferLockBaseAddress(
             original,
             0) != kCVReturnSuccess) {
-        CVPixelBufferUnlockBaseAddress(
-            directPhotoSource_,
-            kCVPixelBufferLock_ReadOnly);
         ++directPhotoRenderFailureCount_;
         return false;
     }
@@ -2291,15 +2442,9 @@ renderDirectPhotoIntoOriginalLocked(
     }
 
     const auto* sourceYBase =
-        static_cast<const std::uint8_t*>(
-            CVPixelBufferGetBaseAddressOfPlane(
-                directPhotoSource_,
-                0));
+        directPhotoSourceY_.data();
     const auto* sourceCbCrBase =
-        static_cast<const std::uint8_t*>(
-            CVPixelBufferGetBaseAddressOfPlane(
-                directPhotoSource_,
-                1));
+        directPhotoSourceCbCr_.data();
     auto* destinationYBase =
         static_cast<std::uint8_t*>(
             CVPixelBufferGetBaseAddressOfPlane(
@@ -2321,13 +2466,9 @@ renderDirectPhotoIntoOriginalLocked(
 
     if (success) {
         const std::size_t sourceYStride =
-            CVPixelBufferGetBytesPerRowOfPlane(
-                directPhotoSource_,
-                0);
+            directPhotoSourceWidth_;
         const std::size_t sourceCbCrStride =
-            CVPixelBufferGetBytesPerRowOfPlane(
-                directPhotoSource_,
-                1);
+            directPhotoSourceWidth_;
         const std::size_t destinationYStride =
             CVPixelBufferGetBytesPerRowOfPlane(
                 original,
@@ -2338,21 +2479,13 @@ renderDirectPhotoIntoOriginalLocked(
                 1);
 
         const std::size_t sourceYRows =
-            CVPixelBufferGetHeightOfPlane(
-                directPhotoSource_,
-                0);
+            directPhotoSourceHeight_;
         const std::size_t sourceYColumns =
-            CVPixelBufferGetWidthOfPlane(
-                directPhotoSource_,
-                0);
+            directPhotoSourceWidth_;
         const std::size_t sourceCbCrRows =
-            CVPixelBufferGetHeightOfPlane(
-                directPhotoSource_,
-                1);
+            directPhotoSourceHeight_ / 2;
         const std::size_t sourceCbCrBytes =
-            CVPixelBufferGetWidthOfPlane(
-                directPhotoSource_,
-                1) * 2;
+            directPhotoSourceWidth_;
 
 #if defined(VCAM_TESTING)
         if (!plan->ySourceRows.empty() &&
@@ -2478,9 +2611,6 @@ renderDirectPhotoIntoOriginalLocked(
     CVPixelBufferUnlockBaseAddress(
         original,
         0);
-    CVPixelBufferUnlockBaseAddress(
-        directPhotoSource_,
-        kCVPixelBufferLock_ReadOnly);
 
     if (!success) {
         ++directPhotoRenderFailureCount_;

@@ -137,6 +137,12 @@ public:
     static constexpr std::size_t
         kDirectRenderScratchByteBudget =
             16U * 1024U * 1024U;
+    // Producer-side compact snapshot of the already-decoded PHOTO. A
+    // 4032x3024 NV12 source is about 18.3 MiB, so 24 MiB covers the A9
+    // 12 MP source class while remaining explicitly bounded.
+    static constexpr std::size_t
+        kDirectPhotoSourceByteBudget =
+            24U * 1024U * 1024U;
     static constexpr std::size_t
         kBlackFallbackCapacity = 4;
 
@@ -183,6 +189,7 @@ public:
     std::uint64_t directPhotoRenderCount() const;
     std::uint64_t directPhotoRenderFailureCount() const;
     std::size_t directPhotoScratchBytes() const;
+    std::size_t directPhotoSourceBytes() const;
 #if defined(VCAM_TESTING)
     std::uint8_t directPhotoTestSourceLuma() const;
     std::uint8_t directPhotoTestMappedLuma() const;
@@ -385,6 +392,11 @@ private:
     std::uint64_t photoVariantReprepareCount_ = 0;
 
     CVPixelBufferRef directPhotoSource_ = nullptr;
+    OSType directPhotoSourceFormat_ = 0;
+    std::size_t directPhotoSourceWidth_ = 0;
+    std::size_t directPhotoSourceHeight_ = 0;
+    std::vector<std::uint8_t> directPhotoSourceY_{};
+    std::vector<std::uint8_t> directPhotoSourceCbCr_{};
     std::uint64_t directPhotoGeneration_ = 0;
     std::uint64_t directPhotoEpoch_ = 0;
     std::uint64_t directPhotoRevision_ = 0;
