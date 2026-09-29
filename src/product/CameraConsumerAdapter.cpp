@@ -1117,6 +1117,9 @@ CameraDecision CameraConsumerAdapter::decide(
                         PreparedMedia;
                 decision.pixelBuffer =
                     retained->pixelBuffer;
+                decision.pixelBufferLease.
+                    retain(
+                        decision.pixelBuffer);
                 return decision;
             }
         }
@@ -1215,6 +1218,11 @@ CameraDecision CameraConsumerAdapter::decide(
                             CameraFailOpenReason::None;
                         decision.pixelBuffer =
                             selected;
+                        if (reusableStaticMedia_) {
+                            decision.pixelBufferLease.
+                                retain(
+                                    decision.pixelBuffer);
+                        }
                         return decision;
                     }
                 }

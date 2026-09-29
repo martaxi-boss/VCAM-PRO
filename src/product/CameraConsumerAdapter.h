@@ -39,6 +39,69 @@ enum class CameraFailOpenReason : std::uint8_t {
     UnsupportedPixelFormat,
 };
 
+class CameraDecisionPixelBufferLease final {
+public:
+    CameraDecisionPixelBufferLease() = default;
+
+    CameraDecisionPixelBufferLease(
+        const CameraDecisionPixelBufferLease& other) noexcept {
+        retain(other.pixelBuffer_);
+    }
+
+    CameraDecisionPixelBufferLease&
+    operator=(
+        const CameraDecisionPixelBufferLease& other) noexcept {
+        if (this != &other) {
+            retain(other.pixelBuffer_);
+        }
+        return *this;
+    }
+
+    CameraDecisionPixelBufferLease(
+        CameraDecisionPixelBufferLease&& other) noexcept
+        : pixelBuffer_(other.pixelBuffer_) {
+        other.pixelBuffer_ = nullptr;
+    }
+
+    CameraDecisionPixelBufferLease&
+    operator=(
+        CameraDecisionPixelBufferLease&& other) noexcept {
+        if (this != &other) {
+            reset();
+            pixelBuffer_ = other.pixelBuffer_;
+            other.pixelBuffer_ = nullptr;
+        }
+        return *this;
+    }
+
+    ~CameraDecisionPixelBufferLease() {
+        reset();
+    }
+
+    void retain(
+        CVPixelBufferRef pixelBuffer) noexcept {
+        if (pixelBuffer_ == pixelBuffer) {
+            return;
+        }
+        if (pixelBuffer != nullptr) {
+            CVPixelBufferRetain(pixelBuffer);
+        }
+        reset();
+        pixelBuffer_ = pixelBuffer;
+    }
+
+    void reset() noexcept {
+        if (pixelBuffer_ != nullptr) {
+            CVPixelBufferRelease(
+                pixelBuffer_);
+            pixelBuffer_ = nullptr;
+        }
+    }
+
+private:
+    CVPixelBufferRef pixelBuffer_ = nullptr;
+};
+
 struct CameraDecision {
     CameraDecisionKind kind =
         CameraDecisionKind::Original;
@@ -49,6 +112,8 @@ struct CameraDecision {
     CameraFailOpenReason mediaFailureReason =
         CameraFailOpenReason::None;
     CVPixelBufferRef pixelBuffer = nullptr;
+    CameraDecisionPixelBufferLease
+        pixelBufferLease{};
 };
 
 class CameraConsumerAdapter final {
