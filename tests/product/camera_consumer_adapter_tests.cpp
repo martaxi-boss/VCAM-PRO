@@ -244,7 +244,9 @@ bool TestEligibleFramePrefersPreparedMedia() {
     CHECK(result.pixelBuffer != original);
     CHECK(adapter.mediaVirtualDecisionCount() == 1);
     CHECK(adapter.blackVirtualDecisionCount() == 0);
-    CHECK(adapter.pinnedLeaseCount() == 1);
+    CHECK(adapter.pinnedLeaseCount() == 0);
+    CHECK(adapter.videoLatestFrameCount() == 1);
+    CHECK(adapter.videoLatestRetainedBytes() > 0);
 
     CVPixelBufferRelease(original);
     return true;
@@ -777,85 +779,112 @@ bool TestStaticPhotoVariantsBoundedAndEvictSafely() {
     return true;
 }
 
-bool TestPinnedLeaseSurvivesQueueDestruction() {
+bool TestLatestVideoFrameSurvivesQueueConsumption() {
+    ReadyFrameQueue queue(4);
+    CHECK(Publish(queue, 0, 1, 1));
+
     CameraConsumerAdapter adapter;
     adapter.setEnabled(true);
     CHECK(BindBlack(adapter));
+    adapter.bindQueue(
+        &queue,
+        1,
+        1,
+        true);
 
     CVPixelBufferRef original =
         MakeBuffer();
     CHECK(original != nullptr);
 
-    CVPixelBufferRef selected = nullptr;
-    {
-        ReadyFrameQueue queue(4);
-        CHECK(Publish(queue, 0, 1, 1));
-        adapter.bindQueue(
-            &queue,
-            1,
-            1,
-            true);
+    const auto first =
+        adapter.decide(original);
+    CHECK(first.source ==
+          CameraDecisionSource::PreparedMedia);
+    CHECK(adapter.videoLatestFrameCount() == 1);
+    CHECK(adapter.videoLatestRetainedBytes() > 0);
 
-        const auto result =
-            adapter.decide(original);
-        CHECK(result.source ==
-              CameraDecisionSource::PreparedMedia);
-
-        selected = result.pixelBuffer;
-        CHECK(selected != nullptr);
-        CHECK(CVPixelBufferGetWidth(
-                  selected) == 64);
-
-        adapter.unbindQueue();
-    }
-
-    CHECK(adapter.pinnedLeaseCount() == 1);
-    CHECK(CVPixelBufferGetHeight(
-              selected) == 48);
+    const auto reuseBefore =
+        adapter.videoLatestReuseDecisionCount();
+    const auto second =
+        adapter.decide(original);
+    CHECK(second.source ==
+          CameraDecisionSource::PreparedMedia);
+    CHECK(second.pixelBuffer != nullptr);
+    CHECK(adapter.videoLatestReuseDecisionCount() ==
+          reuseBefore + 1);
+    CHECK(adapter.blackVirtualDecisionCount() == 0);
+    CHECK(adapter.inPlaceBlackGuardDecisionCount() == 0);
 
     CVPixelBufferRelease(original);
     return true;
 }
 
-bool TestPinnedStorageBounded() {
-    CameraConsumerAdapter adapter;
-    adapter.setEnabled(true);
-    CHECK(BindBlack(adapter));
+bool TestLatestVideoStorageBounded() {
+    ReadyFrameQueue queue(
+        CameraConsumerAdapter::
+            kVideoLatestFrameCapacity);
 
-    CVPixelBufferRef original =
-        MakeBuffer();
-    CHECK(original != nullptr);
+    constexpr std::uint64_t generation = 9;
+    constexpr std::uint64_t epoch = 3;
 
-    for (std::uint64_t i = 0;
-         i < 12;
-         ++i) {
-        ReadyFrameQueue queue(2);
+    for (std::size_t index = 0;
+         index < CameraConsumerAdapter::
+                     kVideoLatestFrameCapacity;
+         ++index) {
+        const std::size_t width =
+            64 + index * 2;
+        const std::size_t height =
+            48 + index * 2;
         CHECK(Publish(
             queue,
-            i,
-            i + 1,
-            1));
-
-        adapter.bindQueue(
-            &queue,
-            i + 1,
-            1,
-            true);
-
-        CHECK(adapter.decide(original).source ==
-              CameraDecisionSource::PreparedMedia);
-
-        adapter.unbindQueue();
-        CHECK(adapter.pinnedLeaseCount() <=
-              CameraConsumerAdapter::
-                  kPinnedLeaseCapacity);
+            index,
+            generation,
+            epoch,
+            width,
+            height));
     }
 
-    CHECK(adapter.pinnedLeaseCount() ==
-          CameraConsumerAdapter::
-              kPinnedLeaseCapacity);
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+    adapter.bindQueue(
+        &queue,
+        generation,
+        epoch,
+        true);
 
-    CVPixelBufferRelease(original);
+    for (std::size_t index = 0;
+         index < CameraConsumerAdapter::
+                     kVideoLatestFrameCapacity;
+         ++index) {
+        CVPixelBufferRef original =
+            MakeBuffer(
+                64 + index * 2,
+                48 + index * 2);
+        CHECK(original != nullptr);
+        CHECK(adapter.decide(original).source ==
+              CameraDecisionSource::PreparedMedia);
+        CVPixelBufferRelease(original);
+    }
+
+    CHECK(adapter.videoLatestFrameCount() ==
+          CameraConsumerAdapter::
+              kVideoLatestFrameCapacity);
+    CHECK(adapter.videoLatestRetainedBytes() > 0);
+    CHECK(adapter.videoLatestRetainedBytes() <=
+          CameraConsumerAdapter::
+              kVideoLatestRetainedByteBudget);
+
+    CVPixelBufferRef existing =
+        MakeBuffer(64, 48);
+    CHECK(existing != nullptr);
+    const auto reuseBefore =
+        adapter.videoLatestReuseDecisionCount();
+    CHECK(adapter.decide(existing).source ==
+          CameraDecisionSource::PreparedMedia);
+    CHECK(adapter.videoLatestReuseDecisionCount() >
+          reuseBefore);
+    CVPixelBufferRelease(existing);
+
     return true;
 }
 
@@ -972,10 +1001,10 @@ int main() {
         TestStaticPhotoLeasePersistsAcrossCallbacks);
     Run("static photo variants bounded and evict safely",
         TestStaticPhotoVariantsBoundedAndEvictSafely);
-    Run("pinned lease survives queue destruction",
-        TestPinnedLeaseSurvivesQueueDestruction);
-    Run("pinned storage remains bounded",
-        TestPinnedStorageBounded);
+    Run("latest video survives queue consumption",
+        TestLatestVideoFrameSurvivesQueueConsumption);
+    Run("latest video storage remains bounded",
+        TestLatestVideoStorageBounded);
     Run("black fallback cache remains bounded",
         TestBlackFallbackCacheBounded);
     Run("control cache refresh",
