@@ -10,6 +10,25 @@
 
 namespace vcam::media_engine {
 
+struct ProducerRuntimeDiagnosticsSnapshot {
+    std::uint64_t readFrameCount = 0;
+    ReadResultKind lastReadResult =
+        ReadResultKind::NotReady;
+    frame_engine::ReaderErrorCode lastReaderError =
+        frame_engine::ReaderErrorCode::None;
+    bool hasLastSourcePTS = false;
+    std::int64_t lastSourcePTSValue = 0;
+    std::int32_t lastSourcePTSTimescale = 0;
+    std::uint64_t normalizeSuccessCount = 0;
+    std::uint64_t normalizeFailureCount = 0;
+    std::uint64_t transformSuccessCount = 0;
+    std::uint64_t transformFailureCount = 0;
+    std::uint64_t timelineReadyCount = 0;
+    std::uint64_t timelineWaitCount = 0;
+    std::uint64_t timelineDropCount = 0;
+    std::uint64_t publishCount = 0;
+};
+
 struct ProducerWakeupDriverConfig {
     // Explicit retry delay used only when the pump reports NotReady while
     // playback remains Playing. Zero means remain idle until an explicit
@@ -57,6 +76,8 @@ public:
     std::uint64_t lifecycleToken() const;
     std::optional<FramePipelinePumpStatus> lastPumpStatus() const;
     std::uint64_t publishedFrameCount() const;
+    ProducerRuntimeDiagnosticsSnapshot
+    runtimeDiagnostics() const;
 
 private:
     struct Impl;
