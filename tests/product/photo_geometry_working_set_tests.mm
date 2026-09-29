@@ -422,6 +422,7 @@ bool TestDirectRendererSyntheticSource() {
         1,
         1,
         0));
+    CHECK(adapter.directPhotoScratchBytes() > 0);
     CHECK(source != destination);
     CHECK(adapter.
               directPhotoSourceMatchesForTesting(

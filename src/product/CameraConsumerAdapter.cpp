@@ -412,11 +412,15 @@ bool ComputeDirectRegions(
         };
     }
 
-    return
-        result.source.width >= 2 &&
-        result.source.height >= 2 &&
-        result.destination.width >= 2 &&
-        result.destination.height >= 2;
+    if (result.source.width < 2 ||
+        result.source.height < 2 ||
+        result.destination.width < 2 ||
+        result.destination.height < 2) {
+        return false;
+    }
+
+    *regions = result;
+    return true;
 }
 
 std::size_t PixelBufferFootprint(
