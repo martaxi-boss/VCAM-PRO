@@ -1189,6 +1189,7 @@ struct MediaserverdRuntime::Impl {
             videoDiagnosticLastReaderOpen_;
         bool readerStarted =
             videoDiagnosticLastReaderStarted_;
+        bool runtimePlaying = false;
         frame_engine::ReaderErrorCode readerError =
             videoDiagnosticLastReaderError_;
         media_engine::ProducerRuntimeDiagnosticsSnapshot
@@ -1212,6 +1213,10 @@ struct MediaserverdRuntime::Impl {
                 session_->videoReaderOpen();
             readerStarted =
                 session_->videoReaderStarted();
+            runtimePlaying =
+                session_->playbackState() ==
+                    frame_engine::
+                        PlaybackState::Playing;
             readerError =
                 session_->videoReaderErrorCode();
             producer =
@@ -1228,8 +1233,7 @@ struct MediaserverdRuntime::Impl {
 
         std::uint64_t state = 0;
         state |= video_diagnostics::kSelected;
-        if (snapshot.playbackIntent ==
-            ProductPlaybackIntent::Playing) {
+        if (runtimePlaying) {
             state |=
                 video_diagnostics::kPlaying;
         }
