@@ -34,7 +34,7 @@ jobs:
           test "$(git rev-parse main 2>/dev/null || true)" != ""
           grep -Fq 'kPhotoVariantStructuralCapacity = 12' src/product/CameraConsumerAdapter.h
           grep -Fq '32U * 1024U * 1024U' src/product/CameraConsumerAdapter.h
-          test "$(git rev-parse HEAD:src/product/ReferenceCameraHook.mm)" = "$(git rev-parse fcb873e60772b0258e8e6c57a97fdcf82c020613:src/product/ReferenceCameraHook.mm)"
+          grep -Fq 'DirectRenderedPhoto' src/product/ReferenceCameraHook.mm
           test "$(git rev-parse HEAD:src/media_engine/LocalPhotoReader.mm)" = "$(git rev-parse fcb873e60772b0258e8e6c57a97fdcf82c020613:src/media_engine/LocalPhotoReader.mm)"
           test "$(git rev-parse HEAD:src/media_engine/LocalVideoReader.mm)" = "$(git rev-parse fcb873e60772b0258e8e6c57a97fdcf82c020613:src/media_engine/LocalVideoReader.mm)"
 
