@@ -394,8 +394,12 @@ bool TestMediaGeometryMismatchUsesBlack() {
           CameraDecisionKind::Virtual);
     CHECK(result.source ==
           CameraDecisionSource::BlackFallback);
+    // Geometry-aware acquisition no longer consumes an otherwise
+    // valid frame for a different destination size merely to discover the
+    // mismatch. No compatible entry is therefore reported as an eligible
+    // media miss and ownership remains virtual BLACK.
     CHECK(result.mediaFailureReason ==
-          CameraFailOpenReason::GeometryMismatch);
+          CameraFailOpenReason::EmptyOrNoEligibleFrame);
 
     CVPixelBufferRelease(original);
     return true;
