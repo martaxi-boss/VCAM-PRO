@@ -22,7 +22,7 @@ jobs:
       - name: Checkout exact current head
         uses: actions/checkout@v4
         with:
-          ref: \${{ github.sha }}
+          ref: ${{ github.sha }}
           fetch-depth: 0
 
       - name: Verify exact baseline ancestry
