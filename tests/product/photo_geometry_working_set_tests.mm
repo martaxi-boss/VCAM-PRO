@@ -254,6 +254,100 @@ struct GeometryFixture {
     OSType format = 0;
 };
 
+bool FillVisibleNV12(
+    CVPixelBufferRef buffer) {
+    if (buffer == nullptr ||
+        !CVPixelBufferIsPlanar(buffer) ||
+        CVPixelBufferGetPlaneCount(buffer) != 2 ||
+        CVPixelBufferLockBaseAddress(
+            buffer,
+            0) != kCVReturnSuccess) {
+        return false;
+    }
+
+    bool ok = true;
+    for (std::size_t plane = 0; plane < 2; ++plane) {
+        auto* base =
+            static_cast<std::uint8_t*>(
+                CVPixelBufferGetBaseAddressOfPlane(
+                    buffer,
+                    plane));
+        const std::size_t stride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                buffer,
+                plane);
+        const std::size_t rows =
+            CVPixelBufferGetHeightOfPlane(
+                buffer,
+                plane);
+        if (base == nullptr || stride == 0 || rows == 0) {
+            ok = false;
+            break;
+        }
+        std::memset(
+            base,
+            plane == 0 ? 120 : 128,
+            stride * rows);
+    }
+
+    CVPixelBufferUnlockBaseAddress(
+        buffer,
+        0);
+    return ok;
+}
+
+bool TestDirectRendererSyntheticSource() {
+    const OSType full =
+        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+
+    CVPixelBufferRef source =
+        MakeBuffer(128, 96, full);
+    CVPixelBufferRef destination =
+        MakeBuffer(640, 360, full);
+    CHECK(source != nullptr);
+    CHECK(destination != nullptr);
+    CHECK(FillVisibleNV12(source));
+
+    vcam::frame_engine::ReadyFrameQueue queue(1);
+    CameraConsumerAdapter adapter;
+    adapter.setEnabled(true);
+    adapter.bindQueue(
+        &queue,
+        1,
+        1,
+        true,
+        true,
+        0);
+    CHECK(adapter.bindDirectPhotoSource(
+        source,
+        1,
+        1,
+        0,
+        0.0,
+        0.0,
+        1.0));
+    CHECK(adapter.prepareDirectPhotoGeometry(
+        640,
+        360,
+        full,
+        1,
+        1,
+        0));
+
+    const CameraDecision decision =
+        adapter.decide(destination);
+    CHECK(IsDirect(decision));
+    CHECK(HasNonBlackLuma(
+        decision.pixelBuffer));
+
+    std::cout
+        << "DIRECT_RENDER_SYNTHETIC_SOURCE=PASS\n";
+
+    CVPixelBufferRelease(destination);
+    CVPixelBufferRelease(source);
+    return true;
+}
+
 bool ObserveDrainAndPhoto(
     MediaserverdRuntime& runtime,
     const GeometryFixture& geometry) {
@@ -734,6 +828,9 @@ bool TestOverflowGate() {
 
 int main() {
     @autoreleasepool {
+        if (!TestDirectRendererSyntheticSource()) {
+            return EXIT_FAILURE;
+        }
         if (!TestFiveGeometryWorkingSet()) {
             return EXIT_FAILURE;
         }
