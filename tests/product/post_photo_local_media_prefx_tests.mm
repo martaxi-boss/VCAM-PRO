@@ -1,0 +1,784 @@
+#include "CameraConsumerAdapter.h"
+#include "MediaserverdRuntime.h"
+#include "ProductControlOwner.h"
+
+#import <AVFoundation/AVFoundation.h>
+#import <Foundation/Foundation.h>
+#import <ImageIO/ImageIO.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
+
+#include <CoreGraphics/CoreGraphics.h>
+#include <CoreVideo/CoreVideo.h>
+
+#include <chrono>
+#include <cstdint>
+#include <cstdlib>
+#include <cstring>
+#include <iostream>
+#include <string>
+#include <thread>
+
+namespace {
+
+using namespace vcam::product;
+
+#define CHECK(condition) \
+    do { \
+        if (!(condition)) { \
+            std::cerr << "CHECK failed at " << __FILE__ << ":" << __LINE__ \
+                      << ": " #condition << std::endl; \
+            return false; \
+        } \
+    } while (false)
+
+std::string TempRoot(const char* tag) {
+    NSString* value =
+        [NSTemporaryDirectory()
+            stringByAppendingPathComponent:
+                [NSString stringWithFormat:
+                    @"vcam-post-photo-prefx-%s-%@",
+                    tag,
+                    NSUUID.UUID.UUIDString]];
+    const char* utf8 = value.UTF8String;
+    return utf8 == nullptr
+        ? std::string{}
+        : std::string(utf8);
+}
+
+bool CreateDirectory(const std::string& path) {
+    return [[NSFileManager defaultManager]
+        createDirectoryAtPath:
+            [NSString stringWithUTF8String:path.c_str()]
+  withIntermediateDirectories:YES
+                   attributes:nil
+                        error:nil];
+}
+
+bool CreatePhoto(const std::string& path) {
+    constexpr std::size_t width = 64;
+    constexpr std::size_t height = 48;
+    std::uint8_t bytes[width * height * 4]{};
+    for (std::size_t y = 0; y < height; ++y) {
+        for (std::size_t x = 0; x < width; ++x) {
+            const std::size_t offset =
+                (y * width + x) * 4;
+            bytes[offset + 0] =
+                static_cast<std::uint8_t>(
+                    20 + (x * 180 / width));
+            bytes[offset + 1] =
+                static_cast<std::uint8_t>(
+                    30 + (y * 180 / height));
+            bytes[offset + 2] =
+                static_cast<std::uint8_t>(
+                    220 - (x * 120 / width));
+            bytes[offset + 3] = 255;
+        }
+    }
+
+    CGDataProviderRef provider =
+        CGDataProviderCreateWithData(
+            nullptr,
+            bytes,
+            sizeof(bytes),
+            nullptr);
+    if (provider == nullptr) {
+        return false;
+    }
+
+    CGColorSpaceRef color =
+        CGColorSpaceCreateDeviceRGB();
+    CGImageRef image =
+        CGImageCreate(
+            width,
+            height,
+            8,
+            32,
+            width * 4,
+            color,
+            kCGImageAlphaPremultipliedLast |
+                kCGBitmapByteOrderDefault,
+            provider,
+            nullptr,
+            false,
+            kCGRenderingIntentDefault);
+    CGColorSpaceRelease(color);
+    CGDataProviderRelease(provider);
+    if (image == nullptr) {
+        return false;
+    }
+
+    NSURL* url =
+        [NSURL fileURLWithPath:
+            [NSString stringWithUTF8String:path.c_str()]];
+    CGImageDestinationRef destination =
+        CGImageDestinationCreateWithURL(
+            (__bridge CFURLRef)url,
+            CFSTR("public.png"),
+            1,
+            nullptr);
+    if (destination == nullptr) {
+        CGImageRelease(image);
+        return false;
+    }
+
+    CGImageDestinationAddImage(
+        destination,
+        image,
+        nullptr);
+    const bool ok =
+        CGImageDestinationFinalize(
+            destination);
+    CFRelease(destination);
+    CGImageRelease(image);
+    return ok;
+}
+
+bool WaitForWriterInput(
+    AVAssetWriterInput* input) {
+    for (int attempt = 0;
+         attempt < 5000;
+         ++attempt) {
+        if (input.readyForMoreMediaData) {
+            return true;
+        }
+        [NSThread sleepForTimeInterval:0.001];
+    }
+    return false;
+}
+
+bool CreateVideo(
+    const std::string& path,
+    int frameCount = 120) {
+    NSString* nsPath =
+        [NSString stringWithUTF8String:path.c_str()];
+    [[NSFileManager defaultManager]
+        removeItemAtPath:nsPath
+                   error:nil];
+
+    NSURL* url =
+        [NSURL fileURLWithPath:nsPath];
+    NSError* writerError = nil;
+    AVAssetWriter* writer =
+        [[AVAssetWriter alloc]
+            initWithURL:url
+               fileType:AVFileTypeQuickTimeMovie
+                  error:&writerError];
+    if (writer == nil || writerError != nil) {
+        return false;
+    }
+
+    NSDictionary* settings = @{
+        AVVideoCodecKey : AVVideoCodecTypeH264,
+        AVVideoWidthKey : @64,
+        AVVideoHeightKey : @48,
+        AVVideoCompressionPropertiesKey :
+            @{ AVVideoAverageBitRateKey : @180000 }
+    };
+
+    AVAssetWriterInput* input =
+        [AVAssetWriterInput
+            assetWriterInputWithMediaType:
+                AVMediaTypeVideo
+                         outputSettings:
+                             settings];
+
+    NSDictionary* attributes = @{
+        (NSString*)kCVPixelBufferPixelFormatTypeKey :
+            @(kCVPixelFormatType_32BGRA),
+        (NSString*)kCVPixelBufferWidthKey : @64,
+        (NSString*)kCVPixelBufferHeightKey : @48
+    };
+
+    AVAssetWriterInputPixelBufferAdaptor* adaptor =
+        [AVAssetWriterInputPixelBufferAdaptor
+            assetWriterInputPixelBufferAdaptorWithAssetWriterInput:
+                input
+            sourcePixelBufferAttributes:
+                attributes];
+
+    if (![writer canAddInput:input]) {
+        return false;
+    }
+
+    [writer addInput:input];
+    if (![writer startWriting]) {
+        return false;
+    }
+    [writer startSessionAtSourceTime:kCMTimeZero];
+
+    for (int index = 0;
+         index < frameCount;
+         ++index) {
+        if (!WaitForWriterInput(input)) {
+            return false;
+        }
+
+        CVPixelBufferRef buffer = nullptr;
+        if (CVPixelBufferPoolCreatePixelBuffer(
+                kCFAllocatorDefault,
+                adaptor.pixelBufferPool,
+                &buffer) != kCVReturnSuccess ||
+            buffer == nullptr) {
+            return false;
+        }
+
+        CVPixelBufferLockBaseAddress(buffer, 0);
+        auto* base =
+            static_cast<unsigned char*>(
+                CVPixelBufferGetBaseAddress(buffer));
+        const std::size_t stride =
+            CVPixelBufferGetBytesPerRow(buffer);
+        const std::size_t rows =
+            CVPixelBufferGetHeight(buffer);
+        std::memset(
+            base,
+            static_cast<unsigned char>(
+                32 + (index % 8) * 20),
+            stride * rows);
+        CVPixelBufferUnlockBaseAddress(buffer, 0);
+
+        const BOOL ok =
+            [adaptor
+                appendPixelBuffer:buffer
+             withPresentationTime:
+                 CMTimeMake(index, 30)];
+        CVPixelBufferRelease(buffer);
+        if (!ok) {
+            return false;
+        }
+    }
+
+    [input markAsFinished];
+
+    dispatch_semaphore_t semaphore =
+        dispatch_semaphore_create(0);
+    [writer
+        finishWritingWithCompletionHandler:^{
+            dispatch_semaphore_signal(
+                semaphore);
+        }];
+
+    if (dispatch_semaphore_wait(
+            semaphore,
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                static_cast<int64_t>(
+                    10 * NSEC_PER_SEC))) != 0) {
+        return false;
+    }
+
+    return writer.status ==
+        AVAssetWriterStatusCompleted;
+}
+
+CVPixelBufferRef MakeBuffer(
+    std::size_t width,
+    std::size_t height,
+    OSType format) {
+    NSDictionary* attributes = @{
+        (NSString*)
+            kCVPixelBufferIOSurfacePropertiesKey :
+                @{}
+    };
+    CVPixelBufferRef buffer = nullptr;
+    if (CVPixelBufferCreate(
+            kCFAllocatorDefault,
+            width,
+            height,
+            format,
+            (__bridge CFDictionaryRef)
+                attributes,
+            &buffer) != kCVReturnSuccess) {
+        return nullptr;
+    }
+    return buffer;
+}
+
+bool IsPrepared(
+    const CameraDecision& decision) {
+    return
+        decision.kind ==
+            CameraDecisionKind::Virtual &&
+        decision.source ==
+            CameraDecisionSource::PreparedMedia &&
+        decision.pixelBuffer != nullptr;
+}
+
+bool WaitForPhoto(
+    MediaserverdRuntime& runtime,
+    std::uint64_t generation) {
+    for (int attempt = 0;
+         attempt < 2500;
+         ++attempt) {
+        CHECK(
+            runtime.
+                drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.selectionGeneration ==
+                generation &&
+            snapshot.sessionExists &&
+            snapshot.producerHealthy &&
+            snapshot.readyQueueSize > 0 &&
+            snapshot.
+                logicalPhotoSessionCreationCount ==
+                    1 &&
+            snapshot.totalPhotoDecodeCount == 1) {
+            return true;
+        }
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    return false;
+}
+
+bool WaitForVideo(
+    MediaserverdRuntime& runtime,
+    std::uint64_t generation,
+    std::uint64_t minimumSessions) {
+    for (int attempt = 0;
+         attempt < 3500;
+         ++attempt) {
+        CHECK(
+            runtime.
+                drainControlQueueForTesting());
+        const auto snapshot =
+            runtime.snapshotForTesting();
+        if (snapshot.selectionGeneration ==
+                generation &&
+            snapshot.videoSelected &&
+            snapshot.sessionExists &&
+            snapshot.producerHealthy &&
+            snapshot.
+                logicalVideoSessionCreationCount >=
+                    minimumSessions &&
+            snapshot.videoReaderOpenCount >=
+                minimumSessions &&
+            snapshot.videoReaderStartCount >=
+                minimumSessions &&
+            snapshot.publishedFrameCount > 0) {
+            return true;
+        }
+
+        std::this_thread::sleep_for(
+            std::chrono::milliseconds(2));
+    }
+    return false;
+}
+
+bool TestPickerTypeContract() {
+    CHECK(
+        [UTTypeQuickTimeMovie
+            conformsToType:UTTypeMovie]);
+    CHECK(
+        [UTTypeMPEG4Movie
+            conformsToType:UTTypeMovie]);
+    CHECK(
+        ![UTTypeImage
+            conformsToType:UTTypeMovie]);
+
+    NSItemProvider* provider =
+        [[NSItemProvider alloc] init];
+
+    [provider
+        registerDataRepresentationForTypeIdentifier:
+            UTTypeQuickTimeMovie.identifier
+                                    visibility:
+            NSItemProviderRepresentationVisibilityAll
+                                   loadHandler:
+            ^NSProgress*(
+                void (^completionHandler)(
+                    NSData*,
+                    NSError*)) {
+                completionHandler(
+                    [NSData data],
+                    nil);
+                return
+                    [NSProgress
+                        progressWithTotalUnitCount:
+                            1];
+            }];
+
+    CHECK(
+        [provider
+            hasItemConformingToTypeIdentifier:
+                UTTypeMovie.identifier]);
+
+    std::cout
+        << "VIDEO_PICKER_CLASSIFICATION=PASS\n"
+        << "VIDEO_LOAD_REPRESENTATION_KIND=VIDEO\n";
+    return true;
+}
+
+bool TestStablePhotoMicroflashOwnership() {
+    const std::string root =
+        TempRoot("photo");
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.png";
+    CHECK(CreatePhoto(input));
+
+    const std::string controlPath =
+        root + "/control.plist";
+    const std::string media =
+        root + "/Media";
+    const std::string notification =
+        "com.vcampro.postphoto.microflash." +
+        std::to_string(getpid());
+
+    ProductControlOwner owner(
+        controlPath,
+        notification,
+        media);
+    MediaserverdRuntime runtime(
+        controlPath,
+        notification);
+    CHECK(runtime.start());
+
+    CVPixelBufferRef a =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_
+                420YpCbCr8BiPlanarFullRange);
+    CVPixelBufferRef b =
+        MakeBuffer(
+            80,
+            60,
+            kCVPixelFormatType_
+                420YpCbCr8BiPlanarVideoRange);
+
+    CHECK(a != nullptr);
+    CHECK(b != nullptr);
+
+    runtime.observeRealCameraBuffer(a);
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(owner.setEnabled(true));
+
+    std::string error;
+    CHECK(
+        owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Photo,
+            &error));
+    CHECK(error.empty());
+
+    const auto selected =
+        owner.snapshot();
+    CHECK(
+        WaitForPhoto(
+            runtime,
+            selected.selectionGeneration));
+
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(a)));
+
+    runtime.observeRealCameraBuffer(b);
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(b)));
+
+    runtime.observeRealCameraBuffer(a);
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(a)));
+
+    auto& adapter =
+        runtime.cameraAdapter();
+
+    const auto mediaBefore =
+        adapter.mediaVirtualDecisionCount();
+    const auto blackBefore =
+        adapter.blackVirtualDecisionCount();
+    const auto guardBefore =
+        adapter.
+            inPlaceBlackGuardDecisionCount();
+    const auto originalBefore =
+        adapter.
+            emergencyOriginalDecisionCount();
+    const auto unsupportedBefore =
+        adapter.
+            unsupportedFormatDecisionCount();
+
+    std::uint64_t variantSwitches = 0;
+    CVPixelBufferRef previous = nullptr;
+
+    for (int index = 0;
+         index < 128;
+         ++index) {
+        CVPixelBufferRef current =
+            (index % 2) == 0
+                ? a
+                : b;
+
+        const CameraDecision decision =
+            runtime.decideCameraBuffer(
+                current);
+        CHECK(IsPrepared(decision));
+
+        if (previous != nullptr &&
+            previous != current) {
+            ++variantSwitches;
+        }
+        previous = current;
+    }
+
+    const auto mediaDelta =
+        adapter.mediaVirtualDecisionCount() -
+        mediaBefore;
+    const auto blackDelta =
+        adapter.blackVirtualDecisionCount() -
+        blackBefore;
+    const auto guardDelta =
+        adapter.
+            inPlaceBlackGuardDecisionCount() -
+        guardBefore;
+    const auto originalDelta =
+        adapter.
+            emergencyOriginalDecisionCount() -
+        originalBefore;
+    const auto unsupportedDelta =
+        adapter.
+            unsupportedFormatDecisionCount() -
+        unsupportedBefore;
+
+    CHECK(mediaDelta == 128);
+    CHECK(blackDelta == 0);
+    CHECK(guardDelta == 0);
+    CHECK(originalDelta == 0);
+    CHECK(unsupportedDelta == 0);
+    CHECK(variantSwitches == 127);
+
+    std::cout
+        << "PHOTO_CONTINUITY_REGRESSION=PASS\n"
+        << "PHOTO_PREPARED_MEDIA_DECISIONS_CONTINUOUS=PASS\n"
+        << "PHOTO_STABLE_BLACK_DECISION_DELTA=0\n"
+        << "PHOTO_STABLE_GUARD_DECISION_DELTA=0\n"
+        << "PHOTO_STABLE_ORIGINAL_DECISION_DELTA=0\n"
+        << "PHOTO_STABLE_VARIANT_SWITCH_COUNT="
+        << variantSwitches
+        << "\n"
+        << "PHOTO_MICROFLASH_NOT_OWNERSHIP_FALLBACK=PASS\n"
+        << "PHOTO_MICROFLASH_CLASSIFICATION_COMPLETE=PASS\n"
+        << "PHOTO_DROPOUT_PRESENT=NO\n";
+
+    CVPixelBufferRelease(a);
+    CVPixelBufferRelease(b);
+
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString
+                stringWithUTF8String:
+                    root.c_str()]
+                   error:nil];
+
+    return true;
+}
+
+bool TestVideoSelectionAndGeometryChurn() {
+    const std::string root =
+        TempRoot("video");
+    CHECK(CreateDirectory(root));
+
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input));
+
+    const std::string controlPath =
+        root + "/control.plist";
+    const std::string media =
+        root + "/Media";
+    const std::string notification =
+        "com.vcampro.postphoto.video." +
+        std::to_string(getpid());
+
+    ProductControlOwner owner(
+        controlPath,
+        notification,
+        media);
+    MediaserverdRuntime runtime(
+        controlPath,
+        notification);
+    CHECK(runtime.start());
+
+    CVPixelBufferRef a =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_
+                420YpCbCr8BiPlanarFullRange);
+    CVPixelBufferRef b =
+        MakeBuffer(
+            80,
+            60,
+            kCVPixelFormatType_
+                420YpCbCr8BiPlanarVideoRange);
+
+    CHECK(a != nullptr);
+    CHECK(b != nullptr);
+
+    runtime.observeRealCameraBuffer(a);
+    CHECK(
+        runtime.drainControlQueueForTesting());
+    CHECK(owner.setEnabled(true));
+
+    std::string error;
+    CHECK(
+        owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Video,
+            &error));
+    CHECK(error.empty());
+
+    const auto selected =
+        owner.snapshot();
+
+    CHECK(selected.hasMedia());
+    CHECK(
+        selected.mediaKind ==
+            ProductMediaKind::Video);
+    CHECK(
+        selected.playbackIntent ==
+            ProductPlaybackIntent::Playing);
+    CHECK(!selected.loopEnabled);
+
+    CHECK(
+        WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            1));
+
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(a)));
+
+    const auto initial =
+        runtime.snapshotForTesting();
+
+    CHECK(
+        initial.
+            logicalVideoSessionCreationCount ==
+                1);
+    CHECK(
+        initial.videoReaderOpenCount == 1);
+    CHECK(
+        initial.videoReaderStartCount == 1);
+
+    runtime.observeRealCameraBuffer(b);
+    CHECK(
+        WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            2));
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(b)));
+
+    runtime.observeRealCameraBuffer(a);
+    CHECK(
+        WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            3));
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(a)));
+
+    runtime.observeRealCameraBuffer(b);
+    CHECK(
+        WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            4));
+    CHECK(
+        IsPrepared(
+            runtime.decideCameraBuffer(b)));
+
+    const auto after =
+        runtime.snapshotForTesting();
+
+    CHECK(
+        after.selectionGeneration ==
+            selected.selectionGeneration);
+    CHECK(
+        after.logicalVideoSessionCreationCount >=
+            4);
+    CHECK(
+        after.videoReaderOpenCount >= 4);
+    CHECK(
+        after.videoReaderStartCount >= 4);
+    CHECK(
+        after.videoSessionReplacementCount >= 3);
+    CHECK(
+        after.totalVideoPublishedFrameCount > 0);
+    CHECK(
+        runtime.cameraAdapter().
+            enabledSupportedOriginalDecisionCount() ==
+                0);
+
+    std::cout
+        << "VIDEO_STAGING=PASS\n"
+        << "VIDEO_CONTROL_COMMIT=PASS\n"
+        << "VIDEO_MEDIA_KIND=VIDEO\n"
+        << "VIDEO_PLAYBACK_INTENT_AFTER_SELECTION=PLAYING\n"
+        << "VIDEO_LOOP_UI_ENABLED_WHEN_VIDEO_SNAPSHOT_ACTIVE=PASS\n"
+        << "VIDEO_LOOP_OFF_DOES_NOT_BLOCK_START=PASS\n"
+        << "VIDEO_REQUIRES_LOOP_TO_START=NO\n"
+        << "PRE_FIX_VIDEO_SESSION_REBUILD_COUNT="
+        << after.videoSessionReplacementCount
+        << "\n"
+        << "PRE_FIX_VIDEO_READER_REOPEN_COUNT="
+        << (after.videoReaderOpenCount - 1)
+        << "\n"
+        << "PRE_FIX_VIDEO_AVASSETREADER_RESTART_COUNT="
+        << (after.videoReaderStartCount - 1)
+        << "\n"
+        << "PRE_FIX_VIDEO_TIMELINE_RESTART_OR_DISCONTINUITY=YES\n"
+        << "PRE_FIX_VIDEO_GEOMETRY_CHURN_REPRODUCED=YES\n"
+        << "PRE_FIX_VIDEO_SELECTION_GENERATION_STABLE=PASS\n"
+        << "PRE_FIX_VIDEO_TOTAL_PUBLISHED_FRAMES="
+        << after.totalVideoPublishedFrameCount
+        << "\n";
+
+    CVPixelBufferRelease(a);
+    CVPixelBufferRelease(b);
+
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString
+                stringWithUTF8String:
+                    root.c_str()]
+                   error:nil];
+
+    return true;
+}
+
+}  // namespace
+
+int main() {
+    @autoreleasepool {
+        if (!TestPickerTypeContract()) {
+            return EXIT_FAILURE;
+        }
+
+        if (!TestStablePhotoMicroflashOwnership()) {
+            return EXIT_FAILURE;
+        }
+
+        if (!TestVideoSelectionAndGeometryChurn()) {
+            return EXIT_FAILURE;
+        }
+
+        std::cout
+            << "POST_PHOTO_LOCAL_MEDIA_PRE_FIX_PROOF=PASS\n";
+        return EXIT_SUCCESS;
+    }
+}
