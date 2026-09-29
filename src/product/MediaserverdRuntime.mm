@@ -1070,8 +1070,8 @@ struct MediaserverdRuntime::Impl {
             epoch,
             revision);
 
-        (void)adapter_.
-            prepareDirectPhotoGeometry(
+        const bool directReady =
+            adapter_.prepareDirectPhotoGeometry(
                 width,
                 height,
                 pixelFormat,
@@ -1108,8 +1108,16 @@ struct MediaserverdRuntime::Impl {
             return true;
         }
 
-        return session_->preparePhotoVariant(
-            target);
+        const bool variantPrepared =
+            session_->preparePhotoVariant(
+                target);
+
+        // The direct IOS15-style plan is a complete PHOTO presentation path.
+        // Do not rebuild the logical media session merely because a large
+        // pre-rendered variant could not be produced.
+        return
+            variantPrepared ||
+            directReady;
     }
 
     void handleGeometryRequest(
