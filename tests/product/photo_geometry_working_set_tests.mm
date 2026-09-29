@@ -617,12 +617,36 @@ bool TestOverflowGate() {
           CameraConsumerAdapter::
               kDirectRenderScratchByteBudget);
 
+    const auto current =
+        runtime.snapshotForTesting();
+    std::size_t overflowGeometryIndex = 12;
+    for (std::size_t index = 0;
+         index < 12;
+         ++index) {
+        if (!runtime.cameraAdapter().
+                hasReusablePhotoVariant(
+                    geometries[index].width,
+                    geometries[index].height,
+                    geometries[index].format,
+                    current.queueGeneration,
+                    current.queueEpoch,
+                    selected.photoTransform.revision)) {
+            overflowGeometryIndex = index;
+            break;
+        }
+    }
+    CHECK(overflowGeometryIndex < 12);
+
     CHECK(runtime.suspendControlQueueForTesting());
     runtime.observeRealCameraBuffer(
-        geometries[0].buffer);
+        geometries[
+            overflowGeometryIndex].
+            buffer);
     const CameraDecision overflowReturn =
         runtime.decideCameraBuffer(
-            geometries[0].buffer);
+            geometries[
+                overflowGeometryIndex].
+                buffer);
     CHECK(IsDirect(overflowReturn));
     CHECK(!IsSafeBlack(overflowReturn));
     CHECK(HasNonBlackLuma(
@@ -635,10 +659,15 @@ bool TestOverflowGate() {
          ++iteration) {
         const CameraDecision decision =
             runtime.decideCameraBuffer(
-                geometries[0].buffer);
+                geometries[
+                    overflowGeometryIndex].
+                    buffer);
         CHECK(IsDirect(decision));
-        CHECK(decision.pixelBuffer ==
-              geometries[0].buffer);
+        CHECK(
+            decision.pixelBuffer ==
+            geometries[
+                overflowGeometryIndex].
+                buffer);
     }
     const auto benchmarkEnd =
         std::chrono::steady_clock::now();
@@ -665,6 +694,9 @@ bool TestOverflowGate() {
         << "\n"
         << "OVER_BUDGET_FIRST_DIRECT_INDEX="
         << directRenderIndex
+        << "\n"
+        << "OVER_BUDGET_BENCHMARK_DIRECT_INDEX="
+        << overflowGeometryIndex
         << "\n"
         << "OVER_BUDGET_RETAINED_BYTES="
         << stressed.photoVariantRetainedBytes
