@@ -532,10 +532,12 @@ bool TestOverflowGate() {
     const OSType video =
         kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange;
 
-    GeometryFixture geometries[12];
-    for (std::size_t index = 0; index < 12; ++index) {
-        const std::size_t width = 1920 - index * 2;
-        const std::size_t height = 1080;
+    constexpr std::size_t geometryCount =
+        CameraConsumerAdapter::kPhotoVariantStructuralCapacity + 1;
+    GeometryFixture geometries[geometryCount];
+    for (std::size_t index = 0; index < geometryCount; ++index) {
+        const std::size_t width = 128 + index * 16;
+        const std::size_t height = 96 + index * 8;
         const OSType format = (index % 2) == 0 ? full : video;
         geometries[index] = {
             MakeBuffer(width, height, format), width, height, format};
@@ -557,7 +559,7 @@ bool TestOverflowGate() {
     std::size_t peakRetainedBytes =
         runtime.snapshotForTesting().photoVariantRetainedBytes;
 
-    for (std::size_t index = 1; index < 12; ++index) {
+    for (std::size_t index = 1; index < geometryCount; ++index) {
         runtime.observeRealCameraBuffer(geometries[index].buffer);
         CHECK(runtime.drainControlQueueForTesting());
         const CameraDecision decision =
@@ -579,8 +581,8 @@ bool TestOverflowGate() {
     CHECK(peakRetainedBytes <=
           CameraConsumerAdapter::kPhotoVariantRetainedByteBudget);
 
-    std::size_t overflowGeometryIndex = 12;
-    for (std::size_t index = 0; index < 12; ++index) {
+    std::size_t overflowGeometryIndex = geometryCount;
+    for (std::size_t index = 0; index < geometryCount; ++index) {
         if (!runtime.cameraAdapter().hasReusablePhotoVariant(
                 geometries[index].width,
                 geometries[index].height,
@@ -592,7 +594,7 @@ bool TestOverflowGate() {
             break;
         }
     }
-    CHECK(overflowGeometryIndex < 12);
+    CHECK(overflowGeometryIndex < geometryCount);
 
     const std::uint64_t preparationsBefore =
         stressed.photoVariantPreparationCount;
