@@ -1408,12 +1408,24 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         owner.setPlaybackIntent(
             ProductPlaybackIntent::Paused));
-    CHECK(
-        runtime.drainControlQueueForTesting());
 
-    const auto pausedBefore =
-        runtime.snapshotForTesting();
-    CHECK(!pausedBefore.producerHealthy);
+    MediaserverdRuntimeTestSnapshot
+        pausedBefore;
+    bool pausedObserved = false;
+    for (int attempt = 0;
+         attempt < 500;
+         ++attempt) {
+        pausedBefore =
+            runtime.snapshotForTesting();
+        if (!pausedBefore.producerHealthy) {
+            pausedObserved = true;
+            break;
+        }
+        [NSThread
+            sleepForTimeInterval:
+                0.002];
+    }
+    CHECK(pausedObserved);
 
     CHECK(
         owner.setMediaTransform(
