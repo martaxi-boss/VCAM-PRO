@@ -510,7 +510,7 @@ bool ProductControlOwner::setMediaTransform(
         requested.scale ==
             current_.photoTransform.scale) {
         lastStatus_ =
-            "Photo transform unchanged.";
+            "Media transform unchanged.";
         return true;
     }
 
@@ -524,7 +524,7 @@ bool ProductControlOwner::setMediaTransform(
 
     if (!store_.save(next)) {
         lastStatus_ =
-            "Unable to persist photo transform.";
+            "Unable to persist media transform.";
         return false;
     }
 
