@@ -14,7 +14,7 @@ grep -q 'Tests run: 13, failures: 0' build/regressions/stage-a.txt
 
 $CXX $OBJC $INC   src/frame_engine/PreparedFrame.cpp src/frame_engine/FrameEngineState.cpp   src/media_engine/LocalVideoReader.mm   tests/media_engine/local_video_reader_stage_b_tests.mm   -framework Foundation -framework AVFoundation -framework CoreFoundation   -framework CoreMedia -framework CoreVideo -framework CoreGraphics   -o build/regressions/b
 build/regressions/b | tee build/regressions/stage-b.txt
-grep -q 'Stage B tests run: 10, failures: 0' build/regressions/stage-b.txt
+grep -q 'Stage B tests run: 11, failures: 0' build/regressions/stage-b.txt
 
 $CXX $BASE -pthread -Isrc/frame_engine   src/frame_engine/PreparedFrame.cpp src/frame_engine/ReadyFrameQueue.cpp   tests/frame_engine/ready_frame_queue_stage_c1_tests.cpp   -framework CoreFoundation -framework CoreMedia -framework CoreVideo   -o build/regressions/c1q
 build/regressions/c1q | tee build/regressions/c1-queue.txt
