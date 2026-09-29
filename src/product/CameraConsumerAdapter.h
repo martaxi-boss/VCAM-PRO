@@ -137,6 +137,8 @@ public:
     static constexpr std::size_t
         kVideoLatestRetainedByteBudget =
             16U * 1024U * 1024U;
+    static constexpr std::uint32_t
+        kVideoTransformTransitionReuseBudget = 60;
 
     CameraConsumerAdapter() = default;
     ~CameraConsumerAdapter();
@@ -154,14 +156,16 @@ public:
         std::uint64_t timelineEpoch,
         bool producerHealthy,
         bool reusableStaticMedia = false,
-        std::uint64_t reusableStaticRevision = 0);
+        std::uint64_t reusableStaticRevision = 0,
+        std::uint64_t mediaTransformRevision = 0);
 
     void updateContext(
         std::uint64_t mediaGeneration,
         std::uint64_t timelineEpoch,
         bool producerHealthy,
         bool reusableStaticMedia = false,
-        std::uint64_t reusableStaticRevision = 0);
+        std::uint64_t reusableStaticRevision = 0,
+        std::uint64_t mediaTransformRevision = 0);
 
     void unbindQueue();
 
@@ -228,6 +232,7 @@ private:
         CVPixelBufferRef pixelBuffer = nullptr;
         std::uint64_t mediaGeneration = 0;
         std::uint64_t timelineEpoch = 0;
+        std::uint64_t transformRevision = 0;
         std::size_t width = 0;
         std::size_t height = 0;
         OSType pixelFormat = 0;
@@ -267,7 +272,8 @@ private:
     CVPixelBufferRef retainVideoLatestFrameLocked(
         CVPixelBufferRef pixelBuffer,
         std::uint64_t mediaGeneration,
-        std::uint64_t timelineEpoch) noexcept;
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) noexcept;
     std::uint64_t nextVideoLatestUseSerialLocked() noexcept;
     PhotoVariantSlot* findPhotoVariantLocked(
         CVPixelBufferRef original) noexcept;
@@ -322,6 +328,8 @@ private:
     bool producerHealthy_ = false;
     bool reusableStaticMedia_ = false;
     std::uint64_t reusableStaticRevision_ = 0;
+    std::uint64_t mediaTransformRevision_ = 0;
+    std::uint32_t videoStaleTransformReuseBudget_ = 0;
     std::array<
         PhotoVariantSlot,
         kPhotoVariantStructuralCapacity>
