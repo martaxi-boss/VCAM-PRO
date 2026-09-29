@@ -1412,6 +1412,16 @@ bool TestVideoSelectionAndGeometryChurn() {
         CameraConsumerAdapter::
             kVideoLatestRetainedByteBudget);
 
+    const std::uint64_t
+        transformBlackAfterPlaying =
+            runtime.cameraAdapter().
+                blackVirtualDecisionCount() +
+            runtime.cameraAdapter().
+                inPlaceBlackGuardDecisionCount();
+    CHECK(
+        transformBlackAfterPlaying ==
+        transformBlackBefore);
+
     CHECK(
         owner.setPlaybackIntent(
             ProductPlaybackIntent::Paused));
@@ -1553,16 +1563,6 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         resumedTransform.queueEpoch >
             pausedAfter.queueEpoch);
-
-    const std::uint64_t
-        transformBlackAfter =
-            runtime.cameraAdapter().
-                blackVirtualDecisionCount() +
-            runtime.cameraAdapter().
-                inPlaceBlackGuardDecisionCount();
-    CHECK(
-        transformBlackAfter ==
-        transformBlackBefore);
 
     std::cout
         << "VIDEO_DEFAULT_TRANSFORM=PASS\n"
