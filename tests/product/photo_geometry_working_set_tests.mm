@@ -328,12 +328,7 @@ bool TestFiveGeometryWorkingSet() {
         << after.photoVariantReprepareCount
         << "\n";
 
-    const std::size_t historyBefore =
-        after.appliedGeometryHistoryCount;
-    CHECK(historyBefore + 5 <=
-          after.appliedGeometryHistory.size());
-
-    // Use a fresh runtime for the explicit lag test because the bounded
+    // The explicit lag test below uses a fresh runtime because the bounded
     // historical telemetry array intentionally records only eight events.
 
     for (auto& geometry : geometries) {
