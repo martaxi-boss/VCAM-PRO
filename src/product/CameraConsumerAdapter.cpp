@@ -811,6 +811,13 @@ videoLatestTransformRevisionForTesting() const {
         : 0;
 }
 
+std::uint64_t
+CameraConsumerAdapter::
+videoBoundTransformRevisionForTesting() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return mediaTransformRevision_;
+}
+
 std::size_t
 CameraConsumerAdapter::
 videoLatestStaleTransformCountForTesting(
