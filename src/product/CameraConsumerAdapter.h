@@ -188,6 +188,7 @@ public:
     std::uint64_t videoAcquireCount() const noexcept;
 #if defined(VCAM_TESTING)
     std::uint64_t videoLatestTransformRevisionForTesting() const;
+    std::uint64_t videoBoundTransformRevisionForTesting() const;
     std::size_t videoLatestStaleTransformCountForTesting(
         std::uint64_t expectedRevision) const;
 #endif
