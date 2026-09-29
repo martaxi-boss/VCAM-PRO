@@ -1432,6 +1432,22 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         runtime.drainControlQueueForTesting());
 
+    bool pausedRevisionApplied = false;
+    for (int attempt = 0;
+         attempt < 500;
+         ++attempt) {
+        if (runtime.cameraAdapter().
+                videoBoundTransformRevisionForTesting() ==
+            pausedControl.photoTransform.revision) {
+            pausedRevisionApplied = true;
+            break;
+        }
+        [NSThread
+            sleepForTimeInterval:
+                0.002];
+    }
+    CHECK(pausedRevisionApplied);
+
     const auto pausedAfter =
         runtime.snapshotForTesting();
     CHECK(
