@@ -1078,8 +1078,21 @@ bool TestVideoReaderDiagnosticBeforeStart() {
         vcam::frame_engine::
             ReaderErrorCode::None);
 
+    vcam::media_engine::
+        InternalGalleryMediaSession failed(config);
+    CHECK(!failed.selectVideo(
+        root + "/missing.mov",
+        false));
+    CHECK(!failed.videoReaderOpen());
+    CHECK(!failed.videoReaderStarted());
+    CHECK(
+        failed.videoReaderErrorCode() !=
+        vcam::frame_engine::
+            ReaderErrorCode::None);
+
     std::cout
-        << "VIDEO_READER_NOT_STARTED_DIAGNOSTIC=PASS\n";
+        << "VIDEO_READER_NOT_STARTED_DIAGNOSTIC=PASS\n"
+        << "VIDEO_READER_OPEN_ERROR_DIAGNOSTIC=PASS\n";
 
     [[NSFileManager defaultManager]
         removeItemAtPath:
