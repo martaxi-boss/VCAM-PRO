@@ -5,6 +5,7 @@
 #include "SpringBoardFloatingButtonGeometry.h"
 
 #import <UIKit/UIKit.h>
+#import <QuartzCore/QuartzCore.h>
 
 #include <memory>
 
@@ -18,6 +19,9 @@ static constexpr CGFloat
     kFloatingButtonSize = 56.0;
 static constexpr CGFloat
     kFloatingButtonEdgeMargin = 10.0;
+static constexpr CFTimeInterval
+    kMediaTransformGestureCommitInterval =
+        1.0 / 30.0;
 
 @interface VCAMProductOverlayWindow : UIWindow
 @end
@@ -61,6 +65,8 @@ static constexpr CGFloat
     double _photoPanStartX;
     double _photoPanStartY;
     double _photoPinchStartScale;
+    CFTimeInterval _photoPanLastCommitTime;
+    CFTimeInterval _photoPinchLastCommitTime;
 }
 
 - (void)viewDidLoad {
@@ -243,6 +249,24 @@ static constexpr CGFloat
             snapshot.photoTransform.translationX;
         _photoPanStartY =
             snapshot.photoTransform.translationY;
+        _photoPanLastCommitTime = 0;
+    }
+
+    const BOOL finalCommit =
+        gesture.state ==
+            UIGestureRecognizerStateEnded;
+    if (gesture.state ==
+            UIGestureRecognizerStateChanged ||
+        finalCommit) {
+        const CFTimeInterval now =
+            CACurrentMediaTime();
+        if (!finalCommit &&
+            _photoPanLastCommitTime > 0 &&
+            now - _photoPanLastCommitTime <
+                kMediaTransformGestureCommitInterval) {
+            return;
+        }
+        _photoPanLastCommitTime = now;
     }
 
     const CGPoint translation =
@@ -290,6 +314,24 @@ static constexpr CGFloat
         UIGestureRecognizerStateBegan) {
         _photoPinchStartScale =
             snapshot.photoTransform.scale;
+        _photoPinchLastCommitTime = 0;
+    }
+
+    const BOOL finalCommit =
+        gesture.state ==
+            UIGestureRecognizerStateEnded;
+    if (gesture.state ==
+            UIGestureRecognizerStateChanged ||
+        finalCommit) {
+        const CFTimeInterval now =
+            CACurrentMediaTime();
+        if (!finalCommit &&
+            _photoPinchLastCommitTime > 0 &&
+            now - _photoPinchLastCommitTime <
+                kMediaTransformGestureCommitInterval) {
+            return;
+        }
+        _photoPinchLastCommitTime = now;
     }
 
     (void)_owner->setMediaTransform(
