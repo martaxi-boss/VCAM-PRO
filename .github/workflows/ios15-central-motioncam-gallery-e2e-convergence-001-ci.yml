@@ -198,7 +198,7 @@ jobs:
 
           ! grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
           ! grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
-          grep -Fq 'Adjust Photo' src/control/InternalGalleryViewController.mm
+          grep -Fq 'Adjust Media' src/control/InternalGalleryViewController.mm
           grep -Fq 'UIPanGestureRecognizer' src/product/SpringBoardControlHost.mm
           grep -Fq 'UIPinchGestureRecognizer' src/product/SpringBoardControlHost.mm
           if grep -RInF 'UIRotationGestureRecognizer' src/control/InternalGalleryViewController.mm src/product/SpringBoardControlHost.mm; then
@@ -454,12 +454,12 @@ jobs:
             echo "FLASH_DOES_NOT_EXPOSE_ORIGINAL_CODE_PATH=PASS"
           } | tee -a build/e2e-convergence/markers.txt
 
-      - name: Static photo manipulation UI contract
+      - name: Static selected-media manipulation UI contract
         shell: bash
         run: |
           set -euo pipefail
-          grep -Fq 'Adjust Photo' src/control/InternalGalleryViewController.mm
-          grep -Fq 'adjustPhotoRequestHandler' src/control/InternalGalleryViewController.mm
+          grep -Fq 'Adjust Media' src/control/InternalGalleryViewController.mm
+          grep -Fq 'adjustMediaRequestHandler' src/control/InternalGalleryViewController.mm
           ! grep -Fq 'UIPanGestureRecognizer' src/control/InternalGalleryViewController.mm
           ! grep -Fq 'UIPinchGestureRecognizer' src/control/InternalGalleryViewController.mm
           grep -Fq 'UIPanGestureRecognizer' src/product/SpringBoardControlHost.mm
@@ -467,8 +467,8 @@ jobs:
           grep -Fq 'photoAdjustPan:' src/product/SpringBoardControlHost.mm
           grep -Fq 'photoAdjustPinch:' src/product/SpringBoardControlHost.mm
           grep -Fq 'exitPhotoAdjustMode' src/product/SpringBoardControlHost.mm
-          grep -Fq 'setPhotoTransform' src/product/SpringBoardControlHost.mm
-          grep -Fq 'resetPhotoTransform' src/control/InternalGalleryViewController.mm
+          grep -Fq 'setMediaTransform' src/product/SpringBoardControlHost.mm
+          grep -Fq 'resetMediaTransform' src/control/InternalGalleryViewController.mm
           ! grep -R -Fq 'UIRotationGestureRecognizer' src/control src/product
 
           {
