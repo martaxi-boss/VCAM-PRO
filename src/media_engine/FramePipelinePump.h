@@ -120,7 +120,9 @@ public:
         const NormalizationTarget& target) noexcept;
 
     void setForceTransform(bool enabled) noexcept {
-        forceTransform_ = enabled;
+        forceTransform_.store(
+            enabled,
+            std::memory_order_release);
     }
 
 private:
@@ -199,7 +201,7 @@ private:
     std::optional<frame_engine::PreparedFrame> pendingTimedFrame_;
     FramePipelinePumpResult pendingPreparedResult_{};
 
-    bool forceTransform_ = false;
+    std::atomic<bool> forceTransform_{false};
     bool timedContextInitialized_ = false;
     std::uint64_t timedMediaGeneration_ = 0;
     std::uint64_t timedTimelineEpoch_ = 0;
