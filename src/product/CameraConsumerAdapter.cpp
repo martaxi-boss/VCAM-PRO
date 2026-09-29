@@ -904,7 +904,7 @@ CameraConsumerAdapter::findPhotoVariantLocked(
     return nullptr;
 }
 
-PhotoWorkingSetEntry*
+CameraConsumerAdapter::PhotoWorkingSetEntry*
 CameraConsumerAdapter::
 findPhotoWorkingSetEntryLocked(
     std::size_t width,
