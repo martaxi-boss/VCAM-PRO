@@ -575,9 +575,14 @@ bool TestOverflowGate() {
     CHECK(WaitForInitialPhoto(
         runtime,
         selected.selectionGeneration));
-    CHECK(IsPrepared(
+    const CameraDecision initialPrepared =
         runtime.decideCameraBuffer(
-            geometries[0].buffer)));
+            geometries[0].buffer);
+    CHECK(IsPrepared(initialPrepared));
+    CHECK(HasNonBlackLuma(
+        initialPrepared.pixelBuffer));
+    std::cout
+        << "PREPARED_PHOTO_LUMA_VISIBLE=PASS\n";
 
     std::size_t directRenderIndex = 12;
 
