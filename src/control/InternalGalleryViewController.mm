@@ -3,11 +3,13 @@
 #include "InternalGalleryMediaSession.h"
 #include "ProductControlOwner.h"
 #include "SelectionCompletionGate.h"
+#include "VideoRuntimeDiagnostics.h"
 
 #import <PhotosUI/PhotosUI.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
 #include <cstdint>
+#include <memory>
 #include <string>
 
 using vcam::control::SelectionCompletionGate;
@@ -17,6 +19,8 @@ using vcam::media_engine::SelectedMediaKind;
 using vcam::product::ProductControlOwner;
 using vcam::product::ProductMediaKind;
 using vcam::product::ProductPlaybackIntent;
+namespace video_diagnostics =
+    vcam::product::video_diagnostics;
 
 @interface VCAMInternalGalleryViewController ()
     <PHPickerViewControllerDelegate>
@@ -28,6 +32,7 @@ using vcam::product::ProductPlaybackIntent;
 @property(nonatomic, strong) UISwitch* vcamSwitch;
 @property(nonatomic, strong) UILabel* selectedLabel;
 @property(nonatomic, strong) UILabel* statusLabel;
+@property(nonatomic, strong) UILabel* videoDiagnosticsLabel;
 @property(nonatomic, strong) UIButton* resetPhotoTransformButton;
 @property(nonatomic, strong) UIButton* adjustPhotoButton;
 @property(nonatomic, strong, nullable) NSURL* ownedMediaURL;
@@ -40,6 +45,10 @@ using vcam::product::ProductPlaybackIntent;
     ProductControlOwner* _productOwner;
     SelectionCompletionGate _selectionGate;
     std::uint64_t _presentedSelectionToken;
+    std::unique_ptr<
+        video_diagnostics::Transport>
+        _videoDiagnosticTransport;
+    NSTimer* _videoDiagnosticTimer;
 }
 
 - (instancetype)initWithMediaSession:
@@ -65,6 +74,10 @@ using vcam::product::ProductPlaybackIntent;
 }
 
 - (void)dealloc {
+    [_videoDiagnosticTimer invalidate];
+    _videoDiagnosticTimer = nil;
+    _videoDiagnosticTransport.reset();
+
     if (_productOwner == nullptr &&
         _mediaSession != nullptr) {
         _mediaSession->clearMedia();
@@ -111,6 +124,22 @@ using vcam::product::ProductPlaybackIntent;
     self.statusLabel.numberOfLines = 3;
     self.statusLabel.textColor =
         [UIColor secondaryLabelColor];
+
+    self.videoDiagnosticsLabel =
+        [[UILabel alloc] init];
+    self.videoDiagnosticsLabel.numberOfLines = 0;
+    self.videoDiagnosticsLabel.textColor =
+        [UIColor secondaryLabelColor];
+    self.videoDiagnosticsLabel.font =
+        [UIFont monospacedSystemFontOfSize:11.0
+                                   weight:UIFontWeightRegular];
+    self.videoDiagnosticsLabel.hidden = YES;
+
+    if (_productOwner != nullptr) {
+        _videoDiagnosticTransport =
+            std::make_unique<
+                video_diagnostics::Transport>();
+    }
 
     self.selectButton =
         [self buttonWithTitle:@"Select Media"
@@ -195,6 +224,7 @@ using vcam::product::ProductPlaybackIntent;
                 vcamRow,
                 self.selectedLabel,
                 self.statusLabel,
+                self.videoDiagnosticsLabel,
                 self.selectButton,
                 self.changeButton,
                 self.clearButton,
@@ -234,6 +264,204 @@ using vcam::product::ProductPlaybackIntent;
         ]];
 
     [self refreshControls];
+}
+
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+
+    if (_productOwner != nullptr) {
+        __weak
+        VCAMInternalGalleryViewController*
+            weakSelf = self;
+        [_videoDiagnosticTimer invalidate];
+        _videoDiagnosticTimer =
+            [NSTimer
+                scheduledTimerWithTimeInterval:0.5
+                repeats:YES
+                block:^(NSTimer* timer) {
+                    (void)timer;
+                    [weakSelf
+                        refreshVideoDiagnostics];
+                }];
+        [self refreshVideoDiagnostics];
+    }
+}
+
+- (void)viewWillDisappear:(BOOL)animated {
+    [_videoDiagnosticTimer invalidate];
+    _videoDiagnosticTimer = nil;
+    [super viewWillDisappear:animated];
+}
+
+- (void)refreshVideoDiagnostics {
+    if (_productOwner == nullptr ||
+        _videoDiagnosticTransport == nullptr) {
+        self.videoDiagnosticsLabel.hidden = YES;
+        return;
+    }
+
+    const auto control =
+        _productOwner->snapshot();
+    if (!control.hasMedia() ||
+        control.mediaKind !=
+            ProductMediaKind::Video) {
+        self.videoDiagnosticsLabel.hidden = YES;
+        return;
+    }
+
+    video_diagnostics::Snapshot diagnostic;
+    if (!_videoDiagnosticTransport->read(
+            &diagnostic)) {
+        self.videoDiagnosticsLabel.hidden = NO;
+        self.videoDiagnosticsLabel.text =
+            @"VIDEO DIAG unavailable";
+        return;
+    }
+
+    const std::uint64_t state =
+        diagnostic.value(
+            video_diagnostics::Field::State);
+    const BOOL selected =
+        (state &
+         video_diagnostics::kSelected) != 0;
+    const BOOL playing =
+        (state &
+         video_diagnostics::kPlaying) != 0;
+    const BOOL readerOpen =
+        (state &
+         video_diagnostics::kReaderOpen) != 0;
+    const BOOL readerStarted =
+        (state &
+         video_diagnostics::kReaderStarted) != 0;
+    const BOOL driverRunning =
+        (state &
+         video_diagnostics::kDriverRunning) != 0;
+    const BOOL hasPTS =
+        (state &
+         video_diagnostics::kHasSourcePTS) != 0;
+
+    const unsigned readerError =
+        static_cast<unsigned>(
+            (state >>
+             video_diagnostics::
+                 kReaderErrorShift) &
+            UINT64_C(0xff));
+    const unsigned lastRead =
+        static_cast<unsigned>(
+            (state >>
+             video_diagnostics::
+                 kLastReadResultShift) &
+            UINT64_C(0xff));
+    const unsigned driverState =
+        static_cast<unsigned>(
+            (state >>
+             video_diagnostics::
+                 kDriverStateShift) &
+            UINT64_C(0xff));
+
+    const std::uint64_t pts =
+        diagnostic.value(
+            video_diagnostics::Field::
+                LastSourcePTS);
+    const std::int32_t ptsValue =
+        static_cast<std::int32_t>(
+            video_diagnostics::Low32(pts));
+    const std::int32_t ptsScale =
+        static_cast<std::int32_t>(
+            video_diagnostics::High32(pts));
+
+    const std::uint64_t normalize =
+        diagnostic.value(
+            video_diagnostics::Field::
+                NormalizeCounts);
+    const std::uint64_t transform =
+        diagnostic.value(
+            video_diagnostics::Field::
+                TransformCounts);
+    const std::uint64_t decisions =
+        diagnostic.value(
+            video_diagnostics::Field::
+                DecisionCounts);
+    const std::uint64_t commits =
+        diagnostic.value(
+            video_diagnostics::Field::
+                CommitCounts);
+
+    self.videoDiagnosticsLabel.hidden = NO;
+    self.videoDiagnosticsLabel.text =
+        [NSString
+            stringWithFormat:
+                @"VIDEO DIAG\n"
+                 "sel=%d play=%d reader=%d/%d err=%u "
+                 "read=%llu last=%u pts=%@\n"
+                 "norm=%u/%u xform=%u/%u "
+                 "time=%llu/%llu/%llu "
+                 "drv=%d(%u)\n"
+                 "pub=%llu q=%llu acq=%llu reuse=%llu\n"
+                 "prepared=%u black=%u commit=%u/%u",
+                selected,
+                playing,
+                readerOpen,
+                readerStarted,
+                readerError,
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            ReadFrameCount)),
+                lastRead,
+                hasPTS
+                    ? [NSString
+                          stringWithFormat:
+                              @"%d/%d",
+                              ptsValue,
+                              ptsScale]
+                    : @"-",
+                video_diagnostics::Low32(
+                    normalize),
+                video_diagnostics::High32(
+                    normalize),
+                video_diagnostics::Low32(
+                    transform),
+                video_diagnostics::High32(
+                    transform),
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            TimelineReadyCount)),
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            TimelineWaitCount)),
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            TimelineDropCount)),
+                driverRunning,
+                driverState,
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            PublishCount)),
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            QueueDepth)),
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            AcquireCount)),
+                static_cast<unsigned long long>(
+                    diagnostic.value(
+                        video_diagnostics::Field::
+                            LatestReuseCount)),
+                video_diagnostics::Low32(
+                    decisions),
+                video_diagnostics::High32(
+                    decisions),
+                video_diagnostics::Low32(
+                    commits),
+                video_diagnostics::High32(
+                    commits)];
 }
 
 - (BOOL)claimFileCompletionForRequestToken:
@@ -822,6 +1050,8 @@ using vcam::product::ProductPlaybackIntent;
                     : @"Start / Resume"
             forState:
                 UIControlStateNormal];
+
+        [self refreshVideoDiagnostics];
         return;
     }
 
@@ -909,6 +1139,7 @@ using vcam::product::ProductPlaybackIntent;
             SelectedMediaKind::Video;
     self.adjustPhotoButton.hidden = YES;
     self.resetPhotoTransformButton.hidden = YES;
+    self.videoDiagnosticsLabel.hidden = YES;
 }
 
 @end
