@@ -1,7 +1,5 @@
 #include "CameraConsumerAdapter.h"
 
-#include <Accelerate/Accelerate.h>
-
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -850,77 +848,15 @@ prepareDirectPhotoGeometry(
         return false;
     }
 
-    vImage_Buffer sourceY{
-        nullptr,
-        regions.source.height,
-        regions.source.width,
-        regions.source.width,
-    };
-    vImage_Buffer destinationY{
-        nullptr,
-        regions.destination.height,
-        regions.destination.width,
-        regions.destination.width,
-    };
-    vImage_Buffer sourceCbCr{
-        nullptr,
-        regions.source.height / 2,
-        regions.source.width / 2,
-        regions.source.width,
-    };
-    vImage_Buffer destinationCbCr{
-        nullptr,
-        regions.destination.height / 2,
-        regions.destination.width / 2,
-        regions.destination.width,
-    };
-
-    const vImage_Flags queryFlags =
-        kvImageHighQualityResampling |
-        kvImageGetTempBufferSize;
-    const vImage_Error yRequired =
-        vImageScale_Planar8(
-            &sourceY,
-            &destinationY,
-            nullptr,
-            queryFlags);
-    const vImage_Error cbCrRequired =
-        vImageScale_CbCr8(
-            &sourceCbCr,
-            &destinationCbCr,
-            nullptr,
-            queryFlags);
-
-    if (yRequired < 0 ||
-        cbCrRequired < 0) {
+    if ((regions.source.x % 2) != 0 ||
+        (regions.source.y % 2) != 0 ||
+        (regions.source.width % 2) != 0 ||
+        (regions.source.height % 2) != 0 ||
+        (regions.destination.x % 2) != 0 ||
+        (regions.destination.y % 2) != 0 ||
+        (regions.destination.width % 2) != 0 ||
+        (regions.destination.height % 2) != 0) {
         return false;
-    }
-
-    const std::size_t yScratch =
-        static_cast<std::size_t>(
-            yRequired);
-    const std::size_t cbCrScratch =
-        static_cast<std::size_t>(
-            cbCrRequired);
-
-    if (yScratch >
-            kDirectRenderScratchByteBudget ||
-        cbCrScratch >
-            kDirectRenderScratchByteBudget -
-                yScratch) {
-        return false;
-    }
-
-    const std::size_t required =
-        yScratch + cbCrScratch;
-    if (directPhotoScaleScratch_.size() <
-        required) {
-        try {
-            directPhotoScaleScratch_.resize(
-                required);
-        } catch (const std::bad_alloc&) {
-            return false;
-        }
     }
 
     DirectPhotoPlan* plan =
@@ -953,6 +889,217 @@ prepareDirectPhotoGeometry(
         }
     }
 
+    const std::size_t yColumnCount =
+        regions.destination.width;
+    const std::size_t yRowCount =
+        regions.destination.height;
+    const std::size_t cbCrColumnCount =
+        regions.destination.width / 2;
+    const std::size_t cbCrRowCount =
+        regions.destination.height / 2;
+
+    if (yColumnCount >
+            std::numeric_limits<std::size_t>::max() -
+                yRowCount ||
+        yColumnCount + yRowCount >
+            std::numeric_limits<std::size_t>::max() -
+                cbCrColumnCount ||
+        yColumnCount + yRowCount +
+                cbCrColumnCount >
+            std::numeric_limits<std::size_t>::max() -
+                cbCrRowCount) {
+        return false;
+    }
+
+    const std::size_t mapEntryCount =
+        yColumnCount +
+        yRowCount +
+        cbCrColumnCount +
+        cbCrRowCount;
+    if (mapEntryCount >
+        kDirectRenderScratchByteBudget /
+            sizeof(std::uint32_t)) {
+        return false;
+    }
+    const std::size_t mappingBytes =
+        mapEntryCount *
+        sizeof(std::uint32_t);
+
+    std::size_t retainedMapBytes = 0;
+    for (const auto& candidate :
+         directPhotoPlans_) {
+        if (&candidate != plan &&
+            candidate.valid) {
+            if (retainedMapBytes >
+                kDirectRenderScratchByteBudget -
+                    candidate.mappingBytes) {
+                return false;
+            }
+            retainedMapBytes +=
+                candidate.mappingBytes;
+        }
+    }
+    if (mappingBytes >
+        kDirectRenderScratchByteBudget -
+            retainedMapBytes) {
+        return false;
+    }
+
+    // Replacing/refreshing a plan is producer-side. Drop its old vectors
+    // before allocating the new immutable coordinate maps so transient memory
+    // stays inside the declared mapping budget.
+    *plan = {};
+
+    try {
+        plan->ySourceColumns.resize(
+            yColumnCount);
+        plan->ySourceRows.resize(
+            yRowCount);
+        plan->cbCrSourceByteColumns.resize(
+            cbCrColumnCount);
+        plan->cbCrSourceRows.resize(
+            cbCrRowCount);
+    } catch (const std::bad_alloc&) {
+        *plan = {};
+        return false;
+    }
+
+    const std::size_t sourceWidth =
+        regions.source.width;
+    const std::size_t sourceHeight =
+        regions.source.height;
+    const std::size_t sourceCbCrWidth =
+        sourceWidth / 2;
+    const std::size_t sourceCbCrHeight =
+        sourceHeight / 2;
+
+    for (std::size_t x = 0;
+         x < yColumnCount;
+         ++x) {
+        const std::size_t relative =
+            std::min(
+                sourceWidth - 1,
+                static_cast<std::size_t>(
+                    (static_cast<std::uint64_t>(x) *
+                     sourceWidth) /
+                    yColumnCount));
+        plan->ySourceColumns[x] =
+            static_cast<std::uint32_t>(
+                regions.source.x +
+                relative);
+    }
+
+    for (std::size_t y = 0;
+         y < yRowCount;
+         ++y) {
+        const std::size_t relative =
+            std::min(
+                sourceHeight - 1,
+                static_cast<std::size_t>(
+                    (static_cast<std::uint64_t>(y) *
+                     sourceHeight) /
+                    yRowCount));
+        plan->ySourceRows[y] =
+            static_cast<std::uint32_t>(
+                regions.source.y +
+                relative);
+    }
+
+    for (std::size_t x = 0;
+         x < cbCrColumnCount;
+         ++x) {
+        const std::size_t relative =
+            std::min(
+                sourceCbCrWidth - 1,
+                static_cast<std::size_t>(
+                    (static_cast<std::uint64_t>(x) *
+                     sourceCbCrWidth) /
+                    cbCrColumnCount));
+        plan->cbCrSourceByteColumns[x] =
+            static_cast<std::uint32_t>(
+                regions.source.x +
+                relative * 2);
+    }
+
+    for (std::size_t y = 0;
+         y < cbCrRowCount;
+         ++y) {
+        const std::size_t relative =
+            std::min(
+                sourceCbCrHeight - 1,
+                static_cast<std::size_t>(
+                    (static_cast<std::uint64_t>(y) *
+                     sourceCbCrHeight) /
+                    cbCrRowCount));
+        plan->cbCrSourceRows[y] =
+            static_cast<std::uint32_t>(
+                regions.source.y / 2 +
+                relative);
+    }
+
+    const OSType sourceFormat =
+        CVPixelBufferGetPixelFormatType(
+            directPhotoSource_);
+    for (std::size_t value = 0;
+         value < 256;
+         ++value) {
+        std::uint8_t yValue =
+            static_cast<std::uint8_t>(value);
+        std::uint8_t cbCrValue =
+            static_cast<std::uint8_t>(value);
+
+        if (sourceFormat !=
+            pixelFormat) {
+            if (sourceFormat ==
+                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
+                yValue =
+                    static_cast<std::uint8_t>(
+                        16U +
+                        (value * 219U +
+                         127U) /
+                            255U);
+                cbCrValue =
+                    static_cast<std::uint8_t>(
+                        16U +
+                        (value * 224U +
+                         127U) /
+                            255U);
+            } else {
+                const unsigned yClamped =
+                    std::min(
+                        235U,
+                        std::max(
+                            16U,
+                            static_cast<unsigned>(
+                                value)));
+                const unsigned cbCrClamped =
+                    std::min(
+                        240U,
+                        std::max(
+                            16U,
+                            static_cast<unsigned>(
+                                value)));
+                yValue =
+                    static_cast<std::uint8_t>(
+                        ((yClamped - 16U) *
+                             255U +
+                         109U) /
+                        219U);
+                cbCrValue =
+                    static_cast<std::uint8_t>(
+                        ((cbCrClamped - 16U) *
+                             255U +
+                         112U) /
+                        224U);
+            }
+        }
+
+        plan->yValueMap[value] =
+            yValue;
+        plan->cbCrValueMap[value] =
+            cbCrValue;
+    }
+
     if (directPhotoPlanSerial_ ==
         UINT64_MAX) {
         std::uint64_t serial = 1;
@@ -968,7 +1115,6 @@ prepareDirectPhotoGeometry(
         ++directPhotoPlanSerial_;
     }
 
-    *plan = {};
     plan->valid = true;
     plan->mediaGeneration =
         mediaGeneration;
@@ -996,10 +1142,8 @@ prepareDirectPhotoGeometry(
         regions.destination.width;
     plan->destinationHeight =
         regions.destination.height;
-    plan->yScratchBytes =
-        yScratch;
-    plan->cbCrScratchBytes =
-        cbCrScratch;
+    plan->mappingBytes =
+        mappingBytes;
     plan->preparedSerial =
         directPhotoPlanSerial_;
     return true;
@@ -1440,7 +1584,22 @@ std::size_t
 CameraConsumerAdapter::
 directPhotoScratchBytes() const {
     std::lock_guard<std::mutex> lock(mutex_);
-    return directPhotoScaleScratch_.size();
+
+    std::size_t total = 0;
+    for (const auto& plan :
+         directPhotoPlans_) {
+        if (!plan.valid) {
+            continue;
+        }
+        if (total >
+            kDirectRenderScratchByteBudget -
+                plan.mappingBytes) {
+            return
+                kDirectRenderScratchByteBudget;
+        }
+        total += plan.mappingBytes;
+    }
+    return total;
 }
 
 bool CameraConsumerAdapter::
@@ -1949,7 +2108,6 @@ clearDirectPhotoSourceLocked() noexcept {
         plan = {};
     }
     directPhotoPlanSerial_ = 0;
-    directPhotoScaleScratch_.clear();
     directPhotoRenderCount_ = 0;
     directPhotoRenderFailureCount_ = 0;
 }
@@ -2012,11 +2170,15 @@ renderDirectPhotoIntoOriginalLocked(
             directPhotoRevision_);
 
     if (plan == nullptr ||
-        plan->yScratchBytes >
-            directPhotoScaleScratch_.size() ||
-        plan->cbCrScratchBytes >
-            directPhotoScaleScratch_.size() -
-                plan->yScratchBytes) {
+        !plan->valid ||
+        plan->ySourceColumns.size() !=
+            plan->destinationWidth ||
+        plan->ySourceRows.size() !=
+            plan->destinationHeight ||
+        plan->cbCrSourceByteColumns.size() !=
+            plan->destinationWidth / 2 ||
+        plan->cbCrSourceRows.size() !=
+            plan->destinationHeight / 2) {
         return false;
     }
 
@@ -2040,9 +2202,6 @@ renderDirectPhotoIntoOriginalLocked(
 
     bool success = true;
 
-    const OSType sourceFormat =
-        CVPixelBufferGetPixelFormatType(
-            directPhotoSource_);
     const OSType destinationFormat =
         CVPixelBufferGetPixelFormatType(
             original);
@@ -2080,13 +2239,13 @@ renderDirectPhotoIntoOriginalLocked(
             stride * rows);
     }
 
-    auto* sourceYBase =
-        static_cast<std::uint8_t*>(
+    const auto* sourceYBase =
+        static_cast<const std::uint8_t*>(
             CVPixelBufferGetBaseAddressOfPlane(
                 directPhotoSource_,
                 0));
-    auto* sourceCbCrBase =
-        static_cast<std::uint8_t*>(
+    const auto* sourceCbCrBase =
+        static_cast<const std::uint8_t*>(
             CVPixelBufferGetBaseAddressOfPlane(
                 directPhotoSource_,
                 1));
@@ -2127,158 +2286,103 @@ renderDirectPhotoIntoOriginalLocked(
                 original,
                 1);
 
-        vImage_Buffer sourceY{
-            sourceYBase +
-                plan->sourceY *
-                    sourceYStride +
-                plan->sourceX,
-            plan->sourceHeight,
-            plan->sourceWidth,
-            sourceYStride,
-        };
-        vImage_Buffer destinationY{
-            destinationYBase +
-                plan->destinationY *
-                    destinationYStride +
-                plan->destinationX,
-            plan->destinationHeight,
-            plan->destinationWidth,
-            destinationYStride,
-        };
-        vImage_Buffer sourceCbCr{
-            sourceCbCrBase +
-                (plan->sourceY / 2) *
-                    sourceCbCrStride +
-                plan->sourceX,
-            plan->sourceHeight / 2,
-            plan->sourceWidth / 2,
-            sourceCbCrStride,
-        };
-        vImage_Buffer destinationCbCr{
-            destinationCbCrBase +
-                (plan->destinationY / 2) *
-                    destinationCbCrStride +
-                plan->destinationX,
-            plan->destinationHeight / 2,
-            plan->destinationWidth / 2,
-            destinationCbCrStride,
-        };
+        const std::size_t sourceYRows =
+            CVPixelBufferGetHeightOfPlane(
+                directPhotoSource_,
+                0);
+        const std::size_t sourceYColumns =
+            CVPixelBufferGetWidthOfPlane(
+                directPhotoSource_,
+                0);
+        const std::size_t sourceCbCrRows =
+            CVPixelBufferGetHeightOfPlane(
+                directPhotoSource_,
+                1);
+        const std::size_t sourceCbCrBytes =
+            CVPixelBufferGetWidthOfPlane(
+                directPhotoSource_,
+                1) * 2;
 
-        void* yScratch =
-            plan->yScratchBytes == 0
-                ? nullptr
-                : directPhotoScaleScratch_.
-                      data();
-        void* cbCrScratch =
-            plan->cbCrScratchBytes == 0
-                ? nullptr
-                : directPhotoScaleScratch_.
-                      data() +
-                      plan->yScratchBytes;
-
-        const vImage_Flags flags =
-            kvImageHighQualityResampling;
-
-        const vImage_Error yStatus =
-            vImageScale_Planar8(
-                &sourceY,
-                &destinationY,
-                yScratch,
-                flags);
-        const vImage_Error cbCrStatus =
-            vImageScale_CbCr8(
-                &sourceCbCr,
-                &destinationCbCr,
-                cbCrScratch,
-                flags);
-
-        success =
-            yStatus == kvImageNoError &&
-            cbCrStatus == kvImageNoError;
-
-        if (success &&
-            sourceFormat !=
-                destinationFormat) {
-            for (std::size_t row = 0;
-                 row <
-                     plan->destinationHeight;
-                 ++row) {
-                auto* y =
-                    destinationYBase +
-                    (plan->destinationY + row) *
-                        destinationYStride +
-                    plan->destinationX;
-                for (std::size_t x = 0;
-                     x <
-                         plan->destinationWidth;
-                     ++x) {
-                    const unsigned value =
-                        y[x];
-                    if (sourceFormat ==
-                        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
-                        y[x] =
-                            static_cast<std::uint8_t>(
-                                16U +
-                                (value * 219U +
-                                 127U) /
-                                    255U);
-                    } else {
-                        const unsigned clamped =
-                            std::min(
-                                235U,
-                                std::max(
-                                    16U,
-                                    value));
-                        y[x] =
-                            static_cast<std::uint8_t>(
-                                ((clamped - 16U) *
-                                     255U +
-                                 109U) /
-                                219U);
-                    }
-                }
+        for (std::size_t y = 0;
+             y < plan->destinationHeight &&
+             success;
+             ++y) {
+            const std::size_t sourceRowIndex =
+                plan->ySourceRows[y];
+            if (sourceRowIndex >=
+                sourceYRows) {
+                success = false;
+                break;
             }
 
-            for (std::size_t row = 0;
-                 row <
-                     plan->destinationHeight /
-                         2;
-                 ++row) {
-                auto* cbcr =
-                    destinationCbCrBase +
-                    (plan->destinationY / 2 +
-                     row) *
-                        destinationCbCrStride +
-                    plan->destinationX;
-                for (std::size_t x = 0;
-                     x <
-                         plan->destinationWidth;
-                     ++x) {
-                    const unsigned value =
-                        cbcr[x];
-                    if (sourceFormat ==
-                        kCVPixelFormatType_420YpCbCr8BiPlanarFullRange) {
-                        cbcr[x] =
-                            static_cast<std::uint8_t>(
-                                16U +
-                                (value * 224U +
-                                 127U) /
-                                    255U);
-                    } else {
-                        const unsigned clamped =
-                            std::min(
-                                240U,
-                                std::max(
-                                    16U,
-                                    value));
-                        cbcr[x] =
-                            static_cast<std::uint8_t>(
-                                ((clamped - 16U) *
-                                     255U +
-                                 112U) /
-                                224U);
-                    }
+            const auto* sourceRow =
+                sourceYBase +
+                sourceRowIndex *
+                    sourceYStride;
+            auto* destinationRow =
+                destinationYBase +
+                (plan->destinationY + y) *
+                    destinationYStride +
+                plan->destinationX;
+
+            for (std::size_t x = 0;
+                 x < plan->destinationWidth;
+                 ++x) {
+                const std::size_t sourceX =
+                    plan->ySourceColumns[x];
+                if (sourceX >=
+                    sourceYColumns) {
+                    success = false;
+                    break;
                 }
+                destinationRow[x] =
+                    plan->yValueMap[
+                        sourceRow[sourceX]];
+            }
+        }
+
+        for (std::size_t y = 0;
+             y < plan->destinationHeight / 2 &&
+             success;
+             ++y) {
+            const std::size_t sourceRowIndex =
+                plan->cbCrSourceRows[y];
+            if (sourceRowIndex >=
+                sourceCbCrRows) {
+                success = false;
+                break;
+            }
+
+            const auto* sourceRow =
+                sourceCbCrBase +
+                sourceRowIndex *
+                    sourceCbCrStride;
+            auto* destinationRow =
+                destinationCbCrBase +
+                (plan->destinationY / 2 + y) *
+                    destinationCbCrStride +
+                plan->destinationX;
+
+            for (std::size_t x = 0;
+                 x <
+                     plan->destinationWidth / 2;
+                 ++x) {
+                const std::size_t sourceByte =
+                    plan->
+                        cbCrSourceByteColumns[x];
+                if (sourceByte + 1 >=
+                    sourceCbCrBytes) {
+                    success = false;
+                    break;
+                }
+                destinationRow[x * 2] =
+                    plan->cbCrValueMap[
+                        sourceRow[
+                            sourceByte]];
+                destinationRow[x * 2 + 1] =
+                    plan->cbCrValueMap[
+                        sourceRow[
+                            sourceByte + 1]];
             }
         }
     }

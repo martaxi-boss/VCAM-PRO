@@ -258,8 +258,17 @@ private:
         std::size_t destinationY = 0;
         std::size_t destinationWidth = 0;
         std::size_t destinationHeight = 0;
-        std::size_t yScratchBytes = 0;
-        std::size_t cbCrScratchBytes = 0;
+
+        // All scaling coordinates and range conversion are prepared on the
+        // producer/control side. The camera callback only walks these bounded
+        // immutable tables and copies into the supplied ORIGINAL buffer.
+        std::vector<std::uint32_t> ySourceColumns{};
+        std::vector<std::uint32_t> ySourceRows{};
+        std::vector<std::uint32_t> cbCrSourceByteColumns{};
+        std::vector<std::uint32_t> cbCrSourceRows{};
+        std::array<std::uint8_t, 256> yValueMap{};
+        std::array<std::uint8_t, 256> cbCrValueMap{};
+        std::size_t mappingBytes = 0;
         std::uint64_t preparedSerial = 0;
     };
 
@@ -377,8 +386,6 @@ private:
         kDirectPhotoPlanCapacity>
         directPhotoPlans_{};
     std::uint64_t directPhotoPlanSerial_ = 0;
-    std::vector<std::uint8_t>
-        directPhotoScaleScratch_;
     std::uint64_t directPhotoRenderCount_ = 0;
     std::uint64_t directPhotoRenderFailureCount_ = 0;
 
