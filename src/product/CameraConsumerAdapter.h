@@ -132,6 +132,11 @@ public:
         kPhotoWorkingSetActiveObservationWindow = 32;
     static constexpr std::size_t
         kBlackFallbackCapacity = 4;
+    static constexpr std::size_t
+        kVideoLatestFrameCapacity = 4;
+    static constexpr std::size_t
+        kVideoLatestRetainedByteBudget =
+            16U * 1024U * 1024U;
 
     CameraConsumerAdapter() = default;
     ~CameraConsumerAdapter();
@@ -173,6 +178,9 @@ public:
     std::size_t photoVariantWorkingSetCount() const;
     std::uint64_t photoVariantEvictionCount() const;
     std::uint64_t photoVariantReprepareCount() const;
+    std::size_t videoLatestFrameCount() const;
+    std::size_t videoLatestRetainedBytes() const;
+    std::uint64_t videoLatestReuseDecisionCount() const noexcept;
     std::size_t blackFallbackCacheCount() const;
 
     void notePhotoGeometryObserved(
@@ -216,6 +224,17 @@ private:
         std::uint64_t lastUseSerial = 0;
     };
 
+    struct VideoLatestFrameSlot {
+        CVPixelBufferRef pixelBuffer = nullptr;
+        std::uint64_t mediaGeneration = 0;
+        std::uint64_t timelineEpoch = 0;
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+        std::size_t retainedBytes = 0;
+        std::uint64_t lastUseSerial = 0;
+    };
+
     struct PhotoWorkingSetEntry {
         bool valid = false;
         std::uint64_t mediaGeneration = 0;
@@ -242,6 +261,14 @@ private:
         frame_engine::ReadyFrameLease lease);
 
     void clearPhotoVariantsLocked() noexcept;
+    void clearVideoLatestFramesLocked() noexcept;
+    VideoLatestFrameSlot* findVideoLatestFrameLocked(
+        CVPixelBufferRef original) noexcept;
+    CVPixelBufferRef retainVideoLatestFrameLocked(
+        CVPixelBufferRef pixelBuffer,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch) noexcept;
+    std::uint64_t nextVideoLatestUseSerialLocked() noexcept;
     PhotoVariantSlot* findPhotoVariantLocked(
         CVPixelBufferRef original) noexcept;
     const PhotoVariantSlot* findPhotoVariantLocked(
@@ -287,6 +314,7 @@ private:
     std::atomic<std::uint64_t> inPlaceBlackGuardDecisionCount_{0};
     std::atomic<std::uint64_t> unsupportedFormatDecisionCount_{0};
     std::atomic<std::uint64_t> enabledSupportedOriginalDecisionCount_{0};
+    std::atomic<std::uint64_t> videoLatestReuseDecisionCount_{0};
 
     mutable std::mutex mutex_;
     frame_engine::ReadyFrameQueue* queue_ = nullptr;
@@ -307,6 +335,13 @@ private:
     std::uint64_t photoVariantUseSerial_ = 0;
     std::uint64_t photoVariantEvictionCount_ = 0;
     std::uint64_t photoVariantReprepareCount_ = 0;
+
+    std::array<
+        VideoLatestFrameSlot,
+        kVideoLatestFrameCapacity>
+        videoLatestFrames_{};
+    std::size_t videoLatestRetainedBytes_ = 0;
+    std::uint64_t videoLatestUseSerial_ = 0;
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,

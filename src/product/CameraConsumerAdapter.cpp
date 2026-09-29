@@ -84,6 +84,7 @@ CameraConsumerAdapter::~CameraConsumerAdapter() {
     {
         std::lock_guard<std::mutex> lock(mutex_);
         clearPhotoVariantsLocked();
+        clearVideoLatestFramesLocked();
     }
 
     blackFallback_.store(
@@ -115,6 +116,7 @@ void CameraConsumerAdapter::setEnabled(
     if (!enabled) {
         std::lock_guard<std::mutex> lock(mutex_);
         clearPhotoVariantsLocked();
+        clearVideoLatestFramesLocked();
     }
 }
 
@@ -139,6 +141,7 @@ void CameraConsumerAdapter::bindQueue(
 
     if (logicalIdentityChanged) {
         clearPhotoVariantsLocked();
+        clearVideoLatestFramesLocked();
     }
 
     // Queue replacement alone is not logical PHOTO invalidation. Geometry
@@ -177,6 +180,7 @@ void CameraConsumerAdapter::updateContext(
         reusableStaticRevision_ !=
             reusableStaticRevision) {
         clearPhotoVariantsLocked();
+        clearVideoLatestFramesLocked();
     }
 
     context_.currentMediaGeneration =
@@ -197,6 +201,7 @@ void CameraConsumerAdapter::updateContext(
 void CameraConsumerAdapter::unbindQueue() {
     std::lock_guard<std::mutex> lock(mutex_);
     clearPhotoVariantsLocked();
+    clearVideoLatestFramesLocked();
     queue_ = nullptr;
     producerHealthy_ = false;
     reusableStaticMedia_ = false;
@@ -450,107 +455,156 @@ CameraDecision CameraConsumerAdapter::decide(
             mediaFailure =
                 CameraFailOpenReason::
                     ProducerUnavailable;
-        } else if (
-            !producerHealthy_ &&
-            !reusableStaticMedia_) {
-            mediaFailure =
-                CameraFailOpenReason::
-                    ProducerUnavailable;
         } else {
-            auto acquired =
-                reusableStaticMedia_ &&
-                        original != nullptr
-                    ? queue_->tryAcquireMatching(
-                          context_,
-                          CVPixelBufferGetWidth(
-                              original),
-                          CVPixelBufferGetHeight(
-                              original),
-                          CVPixelBufferGetPixelFormatType(
-                              original))
-                    : queue_->tryAcquire(
-                          context_);
+            bool freshSelected = false;
 
-            if (acquired.kind !=
-                    frame_engine::
-                        AcquireResultKind::Acquired ||
-                !acquired.lease.has_value()) {
-                mediaFailure =
-                    CameraFailOpenReason::
-                        EmptyOrNoEligibleFrame;
-            } else {
-                const frame_engine::FrameLease*
-                    lease =
-                        acquired.lease->
-                            frameLease();
+            if (producerHealthy_ ||
+                reusableStaticMedia_) {
+                auto acquired =
+                    original != nullptr
+                        ? queue_->tryAcquireMatching(
+                              context_,
+                              CVPixelBufferGetWidth(
+                                  original),
+                              CVPixelBufferGetHeight(
+                                  original),
+                              CVPixelBufferGetPixelFormatType(
+                                  original))
+                        : queue_->tryAcquire(
+                              context_);
 
-                if (!acquired.lease->valid() ||
-                    lease == nullptr ||
-                    lease->pixelBuffer() ==
-                        nullptr) {
+                if (acquired.kind !=
+                        frame_engine::
+                            AcquireResultKind::Acquired ||
+                    !acquired.lease.has_value()) {
                     mediaFailure =
                         CameraFailOpenReason::
-                            InvalidLease;
-                } else if (!matchesOriginalGeometry(
-                               original,
-                               *lease)) {
-                    mediaFailure =
-                        CameraFailOpenReason::
-                            GeometryMismatch;
+                            EmptyOrNoEligibleFrame;
                 } else {
-                    CVPixelBufferRef selected =
-                        lease->pixelBuffer();
+                    const frame_engine::FrameLease*
+                        lease =
+                            acquired.lease->
+                                frameLease();
 
-                    if (reusableStaticMedia_) {
-                        selected =
-                            retainPhotoVariantLocked(
-                                selected,
-                                context_.
-                                    currentMediaGeneration,
-                                context_.
-                                    currentTimelineEpoch,
-                                reusableStaticRevision_);
-                        if (selected == nullptr) {
-                            mediaFailure =
-                                CameraFailOpenReason::
-                                    InvalidLease;
-                        }
+                    if (!acquired.lease->valid() ||
+                        lease == nullptr ||
+                        lease->pixelBuffer() ==
+                            nullptr) {
+                        mediaFailure =
+                            CameraFailOpenReason::
+                                InvalidLease;
+                    } else if (!matchesOriginalGeometry(
+                                   original,
+                                   *lease)) {
+                        mediaFailure =
+                            CameraFailOpenReason::
+                                GeometryMismatch;
                     } else {
-                        pin(
-                            std::move(
-                                *acquired.lease));
-                    }
+                        CVPixelBufferRef selected =
+                            lease->pixelBuffer();
 
-                    if (selected != nullptr) {
-                        virtualDecisionCount_.
-                            fetch_add(
-                                1,
-                                std::memory_order_relaxed);
-                        mediaVirtualDecisionCount_.
-                            fetch_add(
-                                1,
-                                std::memory_order_relaxed);
-
-                        decision.kind =
-                            CameraDecisionKind::Virtual;
-                        decision.source =
-                            CameraDecisionSource::
-                                PreparedMedia;
-                        decision.reason =
-                            CameraFailOpenReason::None;
-                        decision.pixelBuffer =
-                            selected;
                         if (reusableStaticMedia_) {
+                            selected =
+                                retainPhotoVariantLocked(
+                                    selected,
+                                    context_.
+                                        currentMediaGeneration,
+                                    context_.
+                                        currentTimelineEpoch,
+                                    reusableStaticRevision_);
+                            if (selected == nullptr) {
+                                mediaFailure =
+                                    CameraFailOpenReason::
+                                        InvalidLease;
+                            }
+                        } else {
+                            CVPixelBufferRef retained =
+                                retainVideoLatestFrameLocked(
+                                    selected,
+                                    context_.
+                                        currentMediaGeneration,
+                                    context_.
+                                        currentTimelineEpoch);
+                            if (retained != nullptr) {
+                                selected = retained;
+                            }
+                        }
+
+                        if (selected != nullptr) {
+                            virtualDecisionCount_.
+                                fetch_add(
+                                    1,
+                                    std::memory_order_relaxed);
+                            mediaVirtualDecisionCount_.
+                                fetch_add(
+                                    1,
+                                    std::memory_order_relaxed);
+
+                            decision.kind =
+                                CameraDecisionKind::Virtual;
+                            decision.source =
+                                CameraDecisionSource::
+                                    PreparedMedia;
+                            decision.reason =
+                                CameraFailOpenReason::None;
+                            decision.pixelBuffer =
+                                selected;
                             decision.pixelBufferLease.
                                 retain(
                                     decision.pixelBuffer);
+                            freshSelected = true;
                         }
-                        return decision;
                     }
+                }
+            } else {
+                mediaFailure =
+                    CameraFailOpenReason::
+                        ProducerUnavailable;
+            }
+
+            if (freshSelected) {
+                return decision;
+            }
+
+            if (!reusableStaticMedia_) {
+                VideoLatestFrameSlot* retainedVideo =
+                    findVideoLatestFrameLocked(
+                        original);
+                if (retainedVideo != nullptr &&
+                    retainedVideo->pixelBuffer !=
+                        nullptr) {
+                    retainedVideo->lastUseSerial =
+                        nextVideoLatestUseSerialLocked();
+
+                    videoLatestReuseDecisionCount_.
+                        fetch_add(
+                            1,
+                            std::memory_order_relaxed);
+                    virtualDecisionCount_.
+                        fetch_add(
+                            1,
+                            std::memory_order_relaxed);
+                    mediaVirtualDecisionCount_.
+                        fetch_add(
+                            1,
+                            std::memory_order_relaxed);
+
+                    decision.kind =
+                        CameraDecisionKind::Virtual;
+                    decision.source =
+                        CameraDecisionSource::
+                            PreparedMedia;
+                    decision.reason =
+                        CameraFailOpenReason::None;
+                    decision.pixelBuffer =
+                        retainedVideo->pixelBuffer;
+                    decision.pixelBufferLease.
+                        retain(
+                            decision.pixelBuffer);
+                    return decision;
                 }
             }
         }
-    }
 
     if (lock.owns_lock()) {
         lock.unlock();
@@ -662,6 +716,33 @@ CameraConsumerAdapter::photoVariantCount() const {
         }
     }
     return count;
+}
+
+std::size_t
+CameraConsumerAdapter::
+videoLatestFrameCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::size_t count = 0;
+    for (const auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+std::size_t
+CameraConsumerAdapter::
+videoLatestRetainedBytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return videoLatestRetainedBytes_;
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+videoLatestReuseDecisionCount() const noexcept {
+    return videoLatestReuseDecisionCount_.
+        load(std::memory_order_relaxed);
 }
 
 std::size_t
@@ -849,6 +930,215 @@ matchesOriginalGeometry(
             original) ==
             CVPixelBufferGetPixelFormatType(
                 candidate);
+}
+
+void CameraConsumerAdapter::
+clearVideoLatestFramesLocked() noexcept {
+    for (auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr) {
+            CVPixelBufferRelease(
+                slot.pixelBuffer);
+        }
+        slot = {};
+    }
+    videoLatestRetainedBytes_ = 0;
+    videoLatestUseSerial_ = 0;
+}
+
+CameraConsumerAdapter::VideoLatestFrameSlot*
+CameraConsumerAdapter::
+findVideoLatestFrameLocked(
+    CVPixelBufferRef original) noexcept {
+    if (original == nullptr) {
+        return nullptr;
+    }
+
+    const std::size_t width =
+        CVPixelBufferGetWidth(original);
+    const std::size_t height =
+        CVPixelBufferGetHeight(original);
+    const OSType pixelFormat =
+        CVPixelBufferGetPixelFormatType(
+            original);
+
+    for (auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.mediaGeneration ==
+                context_.currentMediaGeneration &&
+            slot.timelineEpoch ==
+                context_.currentTimelineEpoch &&
+            slot.width == width &&
+            slot.height == height &&
+            slot.pixelFormat == pixelFormat) {
+            return &slot;
+        }
+    }
+    return nullptr;
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+nextVideoLatestUseSerialLocked() noexcept {
+    if (videoLatestUseSerial_ ==
+        UINT64_MAX) {
+        std::uint64_t next = 1;
+        for (auto& slot : videoLatestFrames_) {
+            if (slot.pixelBuffer != nullptr) {
+                slot.lastUseSerial = next++;
+            }
+        }
+        videoLatestUseSerial_ = next;
+    } else {
+        ++videoLatestUseSerial_;
+    }
+    return videoLatestUseSerial_;
+}
+
+CVPixelBufferRef
+CameraConsumerAdapter::
+retainVideoLatestFrameLocked(
+    CVPixelBufferRef pixelBuffer,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch) noexcept {
+    if (pixelBuffer == nullptr ||
+        mediaGeneration == 0 ||
+        timelineEpoch == 0) {
+        return nullptr;
+    }
+
+    const std::size_t retainedBytes =
+        PixelBufferFootprint(pixelBuffer);
+    if (retainedBytes == 0 ||
+        retainedBytes >
+            kVideoLatestRetainedByteBudget) {
+        return nullptr;
+    }
+
+    const std::size_t width =
+        CVPixelBufferGetWidth(pixelBuffer);
+    const std::size_t height =
+        CVPixelBufferGetHeight(pixelBuffer);
+    const OSType pixelFormat =
+        CVPixelBufferGetPixelFormatType(
+            pixelBuffer);
+
+    VideoLatestFrameSlot* destination =
+        nullptr;
+
+    for (auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.mediaGeneration ==
+                mediaGeneration &&
+            slot.timelineEpoch ==
+                timelineEpoch &&
+            slot.width == width &&
+            slot.height == height &&
+            slot.pixelFormat == pixelFormat) {
+            destination = &slot;
+            break;
+        }
+    }
+
+    if (destination == nullptr) {
+        for (auto& slot : videoLatestFrames_) {
+            if (slot.pixelBuffer == nullptr ||
+                slot.mediaGeneration !=
+                    mediaGeneration ||
+                slot.timelineEpoch !=
+                    timelineEpoch) {
+                destination = &slot;
+                break;
+            }
+        }
+    }
+
+    if (destination == nullptr) {
+        destination =
+            &*std::min_element(
+                videoLatestFrames_.begin(),
+                videoLatestFrames_.end(),
+                [](const VideoLatestFrameSlot& lhs,
+                   const VideoLatestFrameSlot& rhs) {
+                    return lhs.lastUseSerial <
+                           rhs.lastUseSerial;
+                });
+    }
+
+    const std::size_t destinationBytes =
+        destination->retainedBytes;
+
+    while (videoLatestRetainedBytes_ -
+               std::min(
+                   videoLatestRetainedBytes_,
+                   destinationBytes) +
+               retainedBytes >
+           kVideoLatestRetainedByteBudget) {
+        VideoLatestFrameSlot* victim = nullptr;
+        for (auto& slot : videoLatestFrames_) {
+            if (&slot == destination ||
+                slot.pixelBuffer == nullptr) {
+                continue;
+            }
+            if (victim == nullptr ||
+                slot.lastUseSerial <
+                    victim->lastUseSerial) {
+                victim = &slot;
+            }
+        }
+
+        if (victim == nullptr) {
+            return nullptr;
+        }
+
+        CVPixelBufferRelease(
+            victim->pixelBuffer);
+        if (videoLatestRetainedBytes_ >=
+            victim->retainedBytes) {
+            videoLatestRetainedBytes_ -=
+                victim->retainedBytes;
+        } else {
+            videoLatestRetainedBytes_ = 0;
+        }
+        *victim = {};
+    }
+
+    if (destination->pixelBuffer !=
+        pixelBuffer) {
+        CVPixelBufferRetain(pixelBuffer);
+
+        if (destination->pixelBuffer !=
+            nullptr) {
+            CVPixelBufferRelease(
+                destination->pixelBuffer);
+        }
+
+        if (videoLatestRetainedBytes_ >=
+            destinationBytes) {
+            videoLatestRetainedBytes_ -=
+                destinationBytes;
+        } else {
+            videoLatestRetainedBytes_ = 0;
+        }
+
+        destination->pixelBuffer =
+            pixelBuffer;
+        destination->retainedBytes =
+            retainedBytes;
+        videoLatestRetainedBytes_ +=
+            retainedBytes;
+    }
+
+    destination->mediaGeneration =
+        mediaGeneration;
+    destination->timelineEpoch =
+        timelineEpoch;
+    destination->width = width;
+    destination->height = height;
+    destination->pixelFormat = pixelFormat;
+    destination->lastUseSerial =
+        nextVideoLatestUseSerialLocked();
+
+    return destination->pixelBuffer;
 }
 
 void CameraConsumerAdapter::
