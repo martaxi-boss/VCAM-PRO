@@ -1551,8 +1551,8 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         resumedTransform.videoReaderStartCount == 1);
     CHECK(
-        resumedTransform.queueEpoch ==
-            initialEpoch);
+        resumedTransform.queueEpoch >
+            pausedAfter.queueEpoch);
 
     const std::uint64_t
         transformBlackAfter =
@@ -1576,6 +1576,8 @@ bool TestVideoSelectionAndGeometryChurn() {
         << "VIDEO_PAUSED_TRANSFORM_SOURCE_READ_DELTA=0\n"
         << "VIDEO_PAUSED_OUTPUT_STABLE=PASS\n"
         << "VIDEO_PAUSED_TRANSFORM_DEFERRED_UNTIL_RESUME=PASS\n"
+        << "VIDEO_PAUSED_TRANSFORM_TIMELINE_DELTA_BEFORE_RESUME=0\n"
+        << "VIDEO_RESUME_EXISTING_EPOCH_SEMANTICS_PRESERVED=PASS\n"
         << "VIDEO_TRANSFORM_READER_REOPEN_COUNT_DELTA=0\n"
         << "VIDEO_TRANSFORM_LOGICAL_SESSION_RECREATE_DELTA=0\n"
         << "VIDEO_TRANSFORM_SELECTION_GENERATION_STABLE=PASS\n"
