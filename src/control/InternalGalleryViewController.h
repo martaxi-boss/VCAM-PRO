@@ -13,7 +13,8 @@ class ProductControlOwner;
 
 NS_ASSUME_NONNULL_BEGIN
 
-typedef void (^VCAMAdjustPhotoRequestHandler)(void);
+typedef void (^VCAMAdjustMediaRequestHandler)(void);
+typedef VCAMAdjustMediaRequestHandler VCAMAdjustPhotoRequestHandler;
 
 @interface VCAMInternalGalleryViewController : UIViewController
 
@@ -28,8 +29,8 @@ typedef void (^VCAMAdjustPhotoRequestHandler)(void);
 #endif
 
 @property(nonatomic, copy, nullable)
-    VCAMAdjustPhotoRequestHandler
-        adjustPhotoRequestHandler;
+    VCAMAdjustMediaRequestHandler
+        adjustMediaRequestHandler;
 
 - (instancetype)initWithNibName:(nullable NSString*)nibNameOrNil
                          bundle:(nullable NSBundle*)nibBundleOrNil
