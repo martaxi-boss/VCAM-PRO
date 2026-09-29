@@ -53,6 +53,11 @@ static constexpr CGFloat
     BOOL _floatingButtonPositionInitialized;
     BOOL _ownerInitializationStarted;
     BOOL _ownerReady;
+    UIView* _photoAdjustSurface;
+    UIButton* _photoAdjustDoneButton;
+    double _photoPanStartX;
+    double _photoPanStartY;
+    double _photoPinchStartScale;
 }
 
 - (void)viewDidLoad {
@@ -118,6 +123,268 @@ static constexpr CGFloat
                 constraintEqualToConstant:
                     kFloatingButtonSize]
         ]];
+    [[UIDevice currentDevice]
+        beginGeneratingDeviceOrientationNotifications];
+    [[NSNotificationCenter defaultCenter]
+        addObserver:self
+           selector:@selector(deviceOrientationChanged:)
+               name:UIDeviceOrientationDidChangeNotification
+             object:nil];
+}
+
+- (ProductStreamOrientation)currentStreamOrientation {
+    const UIDeviceOrientation device =
+        UIDevice.currentDevice.orientation;
+
+    switch (device) {
+        case UIDeviceOrientationPortrait:
+            return ProductStreamOrientation::Portrait;
+        case UIDeviceOrientationPortraitUpsideDown:
+            return ProductStreamOrientation::PortraitUpsideDown;
+        case UIDeviceOrientationLandscapeLeft:
+            return ProductStreamOrientation::LandscapeLeft;
+        case UIDeviceOrientationLandscapeRight:
+            return ProductStreamOrientation::LandscapeRight;
+        case UIDeviceOrientationFaceUp:
+        case UIDeviceOrientationFaceDown:
+        case UIDeviceOrientationUnknown:
+            break;
+    }
+
+    UIWindow* window =
+        [self floatingButtonHostView].window;
+    UIInterfaceOrientation orientation =
+        UIInterfaceOrientationUnknown;
+    if (@available(iOS 13.0, *)) {
+        orientation =
+            window.windowScene.interfaceOrientation;
+    }
+
+    switch (orientation) {
+        case UIInterfaceOrientationPortrait:
+            return ProductStreamOrientation::Portrait;
+        case UIInterfaceOrientationPortraitUpsideDown:
+            return ProductStreamOrientation::PortraitUpsideDown;
+        case UIInterfaceOrientationLandscapeLeft:
+            return ProductStreamOrientation::LandscapeLeft;
+        case UIInterfaceOrientationLandscapeRight:
+            return ProductStreamOrientation::LandscapeRight;
+        case UIInterfaceOrientationUnknown:
+            return ProductStreamOrientation::Unknown;
+    }
+
+    return ProductStreamOrientation::Unknown;
+}
+
+- (void)syncStreamOrientation {
+    if (!_ownerReady || !_owner) {
+        return;
+    }
+
+    const ProductStreamOrientation orientation =
+        [self currentStreamOrientation];
+
+    if (orientation !=
+        ProductStreamOrientation::Unknown) {
+        (void)_owner->setStreamOrientation(
+            orientation);
+    }
+}
+
+- (void)deviceOrientationChanged:
+    (NSNotification*)notification {
+    (void)notification;
+
+    if (![NSThread isMainThread]) {
+        dispatch_async(
+            dispatch_get_main_queue(),
+            ^{
+                [self syncStreamOrientation];
+            });
+        return;
+    }
+
+    [self syncStreamOrientation];
+}
+
+- (void)exitPhotoAdjustMode {
+    [_photoAdjustSurface removeFromSuperview];
+    [_photoAdjustDoneButton removeFromSuperview];
+    _photoAdjustSurface = nil;
+    _photoAdjustDoneButton = nil;
+    [self raiseFloatingButtonAboveOverlayContent];
+}
+
+- (void)photoAdjustPan:
+    (UIPanGestureRecognizer*)gesture {
+    if (!_ownerReady ||
+        !_owner ||
+        _photoAdjustSurface == nil) {
+        return;
+    }
+
+    const auto snapshot =
+        _owner->snapshot();
+    if (snapshot.mediaKind !=
+            ProductMediaKind::Photo ||
+        !snapshot.hasMedia()) {
+        [self exitPhotoAdjustMode];
+        return;
+    }
+
+    if (gesture.state ==
+        UIGestureRecognizerStateBegan) {
+        _photoPanStartX =
+            snapshot.photoTransform.translationX;
+        _photoPanStartY =
+            snapshot.photoTransform.translationY;
+    }
+
+    const CGPoint translation =
+        [gesture translationInView:
+            _photoAdjustSurface];
+    const CGFloat width =
+        MAX(
+            _photoAdjustSurface.bounds.size.width,
+            1.0);
+    const CGFloat height =
+        MAX(
+            _photoAdjustSurface.bounds.size.height,
+            1.0);
+
+    (void)_owner->setPhotoTransform(
+        _photoPanStartX +
+            static_cast<double>(
+                translation.x / width) * 2.0,
+        _photoPanStartY +
+            static_cast<double>(
+                translation.y / height) * 2.0,
+        snapshot.photoTransform.scale);
+}
+
+- (void)photoAdjustPinch:
+    (UIPinchGestureRecognizer*)gesture {
+    if (!_ownerReady ||
+        !_owner ||
+        _photoAdjustSurface == nil) {
+        return;
+    }
+
+    const auto snapshot =
+        _owner->snapshot();
+    if (snapshot.mediaKind !=
+            ProductMediaKind::Photo ||
+        !snapshot.hasMedia()) {
+        [self exitPhotoAdjustMode];
+        return;
+    }
+
+    if (gesture.state ==
+        UIGestureRecognizerStateBegan) {
+        _photoPinchStartScale =
+            snapshot.photoTransform.scale;
+    }
+
+    (void)_owner->setPhotoTransform(
+        snapshot.photoTransform.translationX,
+        snapshot.photoTransform.translationY,
+        _photoPinchStartScale *
+            static_cast<double>(
+                gesture.scale));
+}
+
+- (void)enterPhotoAdjustMode {
+    if (!_ownerReady || !_owner) {
+        return;
+    }
+
+    const auto snapshot =
+        _owner->snapshot();
+    if (snapshot.mediaKind !=
+            ProductMediaKind::Photo ||
+        !snapshot.hasMedia()) {
+        return;
+    }
+
+    UIWindow* window =
+        [self floatingButtonHostView].window;
+    if (window == nil &&
+        [_floatingButton.superview
+            isKindOfClass:[UIWindow class]]) {
+        window =
+            (UIWindow*)_floatingButton.superview;
+    }
+    if (window == nil) {
+        return;
+    }
+
+    [self exitPhotoAdjustMode];
+
+    UIView* surface =
+        [[UIView alloc]
+            initWithFrame:window.bounds];
+    surface.backgroundColor =
+        [UIColor clearColor];
+    surface.autoresizingMask =
+        UIViewAutoresizingFlexibleWidth |
+        UIViewAutoresizingFlexibleHeight;
+    surface.userInteractionEnabled = YES;
+
+    UIPanGestureRecognizer* pan =
+        [[UIPanGestureRecognizer alloc]
+            initWithTarget:self
+                    action:@selector(photoAdjustPan:)];
+    pan.maximumNumberOfTouches = 1;
+    pan.cancelsTouchesInView = YES;
+    [surface addGestureRecognizer:pan];
+
+    UIPinchGestureRecognizer* pinch =
+        [[UIPinchGestureRecognizer alloc]
+            initWithTarget:self
+                    action:@selector(photoAdjustPinch:)];
+    pinch.cancelsTouchesInView = YES;
+    [surface addGestureRecognizer:pinch];
+
+    UIButton* done =
+        [UIButton buttonWithType:
+            UIButtonTypeSystem];
+    [done setTitle:@"Done"
+          forState:UIControlStateNormal];
+    done.backgroundColor =
+        [UIColor
+            colorWithWhite:0.1
+                     alpha:0.9];
+    [done
+        setTitleColor:[UIColor whiteColor]
+             forState:UIControlStateNormal];
+    done.layer.cornerRadius = 10.0;
+    done.frame =
+        CGRectMake(
+            MAX(
+                window.bounds.size.width -
+                    90.0,
+                10.0),
+            MAX(
+                window.safeAreaInsets.top +
+                    10.0,
+                10.0),
+            74.0,
+            40.0);
+    done.autoresizingMask =
+        UIViewAutoresizingFlexibleLeftMargin |
+        UIViewAutoresizingFlexibleBottomMargin;
+    [done addTarget:self
+             action:@selector(exitPhotoAdjustMode)
+   forControlEvents:UIControlEventTouchUpInside];
+
+    [window addSubview:surface];
+    [window addSubview:done];
+
+    _photoAdjustSurface = surface;
+    _photoAdjustDoneButton = done;
+
+    [window bringSubviewToFront:_floatingButton];
+    [window bringSubviewToFront:done];
 }
 
 - (UIView*)floatingButtonHostView {
@@ -479,12 +746,15 @@ static constexpr CGFloat
                         strongSelf
                             ->_floatingButton
                             .enabled = YES;
+                        [strongSelf syncStreamOrientation];
                     });
             }
         });
 }
 
 - (void)openControl {
+    [self exitPhotoAdjustMode];
+
     NSAssert(
         [NSThread isMainThread],
         @"VCAM control presentation must occur on the main thread.");
@@ -501,6 +771,25 @@ static constexpr CGFloat
         [[VCAMInternalGalleryViewController alloc]
             initWithProductControlOwner:
                 owner.get()];
+
+    __weak VCAMProductOverlayController*
+        weakSelf = self;
+    control.adjustPhotoRequestHandler = ^{
+        VCAMProductOverlayController*
+            strongSelf = weakSelf;
+        if (strongSelf == nil) {
+            return;
+        }
+        [strongSelf
+            dismissViewControllerAnimated:YES
+                               completion:^{
+                                   VCAMProductOverlayController*
+                                       currentSelf = weakSelf;
+                                   if (currentSelf != nil) {
+                                       [currentSelf enterPhotoAdjustMode];
+                                   }
+                               }];
+    };
 
     UINavigationController* navigation =
         [[UINavigationController alloc]

@@ -31,6 +31,7 @@ using vcam::product::ProductPlaybackIntent;
 @property(nonatomic, strong) UIView* photoManipulationSurface;
 @property(nonatomic, strong) UILabel* photoManipulationLabel;
 @property(nonatomic, strong) UIButton* resetPhotoTransformButton;
+@property(nonatomic, strong) UIButton* adjustPhotoButton;
 @property(nonatomic, strong, nullable) NSURL* ownedMediaURL;
 - (BOOL)claimFileCompletionForRequestToken:
     (std::uint64_t)requestToken;
@@ -221,6 +222,10 @@ using vcam::product::ProductPlaybackIntent;
     [self.photoManipulationSurface
         addGestureRecognizer:photoPinch];
 
+    self.adjustPhotoButton =
+        [self buttonWithTitle:@"Adjust Photo"
+                       action:@selector(adjustPhotoTapped:)];
+
     self.resetPhotoTransformButton =
         [self buttonWithTitle:
             @"Reset Photo Position / Zoom"
@@ -262,7 +267,7 @@ using vcam::product::ProductPlaybackIntent;
                 self.selectButton,
                 self.changeButton,
                 self.clearButton,
-                self.photoManipulationSurface,
+                self.adjustPhotoButton,
                 self.resetPhotoTransformButton,
                 self.playbackButton,
                 loopRow
@@ -751,6 +756,28 @@ using vcam::product::ProductPlaybackIntent;
     }
 }
 
+- (void)adjustPhotoTapped:(id)sender {
+    (void)sender;
+
+    if (_productOwner == nullptr) {
+        return;
+    }
+
+    const auto snapshot =
+        _productOwner->snapshot();
+    if (snapshot.mediaKind !=
+            ProductMediaKind::Photo ||
+        !snapshot.hasMedia()) {
+        return;
+    }
+
+    VCAMAdjustPhotoRequestHandler handler =
+        self.adjustPhotoRequestHandler;
+    if (handler != nil) {
+        handler();
+    }
+}
+
 - (void)resetPhotoTransformTapped:(id)sender {
     (void)sender;
 
@@ -934,9 +961,14 @@ using vcam::product::ProductPlaybackIntent;
             !photoSelected;
         self.resetPhotoTransformButton.hidden =
             !photoSelected;
+        self.adjustPhotoButton.hidden =
+            !photoSelected;
+        self.adjustPhotoButton.enabled =
+            photoSelected &&
+            _productOwner != nullptr;
+        self.photoManipulationSurface.hidden = YES;
         self.photoManipulationSurface
-            .userInteractionEnabled =
-            photoSelected;
+            .userInteractionEnabled = NO;
 
         [self.playbackButton
             setTitle:
@@ -1032,6 +1064,7 @@ using vcam::product::ProductPlaybackIntent;
         selected.kind ==
             SelectedMediaKind::Video;
     self.photoManipulationSurface.hidden = YES;
+    self.adjustPhotoButton.hidden = YES;
     self.resetPhotoTransformButton.hidden = YES;
 }
 
