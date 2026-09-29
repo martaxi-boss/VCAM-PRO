@@ -140,13 +140,22 @@ void CameraConsumerAdapter::bindQueue(
         reusableStaticRevision_ !=
             reusableStaticRevision;
 
+    const bool videoTransformRevisionChanged =
+        !reusableStaticMedia &&
+        mediaTransformRevision_ !=
+            mediaTransformRevision;
+    const bool deferPausedVideoRevision =
+        videoTransformRevisionChanged &&
+        !producerHealthy &&
+        !logicalIdentityChanged &&
+        mediaTransformRevision_ != 0;
+
     if (logicalIdentityChanged) {
         clearPhotoVariantsLocked();
         clearVideoLatestFramesLocked();
     } else if (
-        !reusableStaticMedia &&
-        mediaTransformRevision_ !=
-            mediaTransformRevision) {
+        videoTransformRevisionChanged &&
+        !deferPausedVideoRevision) {
         // Keep the prior frame only as a bounded bridge until a fresh frame
         // carrying the new revision is acquired.
         videoStaleTransformReuseBudget_ =
@@ -170,8 +179,10 @@ void CameraConsumerAdapter::bindQueue(
         reusableStaticMedia
             ? reusableStaticRevision
             : 0;
-    mediaTransformRevision_ =
-        mediaTransformRevision;
+    if (!deferPausedVideoRevision) {
+        mediaTransformRevision_ =
+            mediaTransformRevision;
+    }
 }
 
 void CameraConsumerAdapter::updateContext(
@@ -193,13 +204,22 @@ void CameraConsumerAdapter::updateContext(
         reusableStaticRevision_ !=
             reusableStaticRevision;
 
+    const bool videoTransformRevisionChanged =
+        !reusableStaticMedia &&
+        mediaTransformRevision_ !=
+            mediaTransformRevision;
+    const bool deferPausedVideoRevision =
+        videoTransformRevisionChanged &&
+        !producerHealthy &&
+        !logicalIdentityChanged &&
+        mediaTransformRevision_ != 0;
+
     if (logicalIdentityChanged) {
         clearPhotoVariantsLocked();
         clearVideoLatestFramesLocked();
     } else if (
-        !reusableStaticMedia &&
-        mediaTransformRevision_ !=
-            mediaTransformRevision) {
+        videoTransformRevisionChanged &&
+        !deferPausedVideoRevision) {
         videoStaleTransformReuseBudget_ =
             kVideoTransformTransitionReuseBudget;
     }
@@ -217,8 +237,10 @@ void CameraConsumerAdapter::updateContext(
         reusableStaticMedia
             ? reusableStaticRevision
             : 0;
-    mediaTransformRevision_ =
-        mediaTransformRevision;
+    if (!deferPausedVideoRevision) {
+        mediaTransformRevision_ =
+            mediaTransformRevision;
+    }
 }
 
 void CameraConsumerAdapter::unbindQueue() {
