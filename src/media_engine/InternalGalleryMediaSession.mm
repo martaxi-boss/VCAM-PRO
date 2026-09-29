@@ -42,6 +42,8 @@ bool InternalGalleryMediaSession::selectVideo(
     if (!reader->open(
             localPath,
             readerConfig)) {
+        lastVideoReaderErrorCode_ =
+            reader->lastErrorCode();
         const std::string message =
             reader->lastErrorMessage();
         clearFailedSelection(
@@ -52,6 +54,8 @@ bool InternalGalleryMediaSession::selectVideo(
     }
 
     videoReader_ = reader.get();
+    lastVideoReaderErrorCode_ =
+        videoReader_->lastErrorCode();
     source_ = std::move(reader);
 
     selected_ = {
@@ -123,9 +127,18 @@ bool InternalGalleryMediaSession::start() {
     }
 
     if (!source_->start()) {
+        if (videoReader_ != nullptr) {
+            lastVideoReaderErrorCode_ =
+                videoReader_->lastErrorCode();
+        }
         setStatus(
             "Selected media source failed to start.");
         return false;
+    }
+
+    if (videoReader_ != nullptr) {
+        lastVideoReaderErrorCode_ =
+            videoReader_->lastErrorCode();
     }
 
     if (!driver_->start()) {
@@ -470,6 +483,8 @@ void InternalGalleryMediaSession::clearMedia() {
     source_.reset();
     videoReader_ = nullptr;
     photoReader_ = nullptr;
+    lastVideoReaderErrorCode_ =
+        frame_engine::ReaderErrorCode::None;
 
     state_.clearMedia();
     scheduler_.reset();
@@ -559,7 +574,7 @@ InternalGalleryMediaSession::
 videoReaderErrorCode() const noexcept {
     return videoReader_ != nullptr
         ? videoReader_->lastErrorCode()
-        : frame_engine::ReaderErrorCode::None;
+        : lastVideoReaderErrorCode_;
 }
 
 ProducerRuntimeDiagnosticsSnapshot
@@ -605,6 +620,8 @@ stopActiveSourceForReplacement() {
     source_.reset();
     videoReader_ = nullptr;
     photoReader_ = nullptr;
+    lastVideoReaderErrorCode_ =
+        frame_engine::ReaderErrorCode::None;
     selected_ = {};
 }
 
