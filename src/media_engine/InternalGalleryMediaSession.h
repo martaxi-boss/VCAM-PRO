@@ -99,6 +99,12 @@ public:
     ProducerWakeupDriverState producerDriverState() const;
     std::optional<FramePipelinePumpStatus> lastPumpStatus() const;
     std::uint64_t publishedFrameCount() const;
+    bool videoReaderOpen() const noexcept;
+    bool videoReaderStarted() const noexcept;
+    frame_engine::ReaderErrorCode
+    videoReaderErrorCode() const noexcept;
+    ProducerRuntimeDiagnosticsSnapshot
+    producerRuntimeDiagnostics() const;
     std::uint64_t photoDecodeCount() const noexcept;
     std::uint64_t photoVariantPreparationCount() const noexcept;
 #if defined(VCAM_TESTING)
