@@ -228,9 +228,11 @@ static constexpr CGFloat
 
     const auto snapshot =
         _owner->snapshot();
-    if (snapshot.mediaKind !=
-            ProductMediaKind::Photo ||
-        !snapshot.hasMedia()) {
+    if (!snapshot.hasMedia() ||
+        (snapshot.mediaKind !=
+             ProductMediaKind::Photo &&
+         snapshot.mediaKind !=
+             ProductMediaKind::Video)) {
         [self exitPhotoAdjustMode];
         return;
     }
@@ -255,7 +257,7 @@ static constexpr CGFloat
             _photoAdjustSurface.bounds.size.height,
             1.0);
 
-    (void)_owner->setPhotoTransform(
+    (void)_owner->setMediaTransform(
         _photoPanStartX +
             static_cast<double>(
                 translation.x / width) * 2.0,
@@ -275,9 +277,11 @@ static constexpr CGFloat
 
     const auto snapshot =
         _owner->snapshot();
-    if (snapshot.mediaKind !=
-            ProductMediaKind::Photo ||
-        !snapshot.hasMedia()) {
+    if (!snapshot.hasMedia() ||
+        (snapshot.mediaKind !=
+             ProductMediaKind::Photo &&
+         snapshot.mediaKind !=
+             ProductMediaKind::Video)) {
         [self exitPhotoAdjustMode];
         return;
     }
@@ -288,7 +292,7 @@ static constexpr CGFloat
             snapshot.photoTransform.scale;
     }
 
-    (void)_owner->setPhotoTransform(
+    (void)_owner->setMediaTransform(
         snapshot.photoTransform.translationX,
         snapshot.photoTransform.translationY,
         _photoPinchStartScale *
@@ -303,9 +307,11 @@ static constexpr CGFloat
 
     const auto snapshot =
         _owner->snapshot();
-    if (snapshot.mediaKind !=
-            ProductMediaKind::Photo ||
-        !snapshot.hasMedia()) {
+    if (!snapshot.hasMedia() ||
+        (snapshot.mediaKind !=
+             ProductMediaKind::Photo &&
+         snapshot.mediaKind !=
+             ProductMediaKind::Video)) {
         return;
     }
 
@@ -777,7 +783,7 @@ static constexpr CGFloat
 
     __weak VCAMProductOverlayController*
         weakSelf = self;
-    control.adjustPhotoRequestHandler = ^{
+    control.adjustMediaRequestHandler = ^{
         VCAMProductOverlayController*
             strongSelf = weakSelf;
         if (strongSelf == nil) {
