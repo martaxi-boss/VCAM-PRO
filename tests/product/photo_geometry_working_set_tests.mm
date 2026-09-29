@@ -403,6 +403,18 @@ bool TestDirectRendererSyntheticSource() {
         0.0,
         0.0,
         1.0));
+    std::cout
+        << "DIRECT_RENDER_SNAPSHOT_BYTES="
+        << adapter.directPhotoSourceBytes()
+        << "\n"
+        << "DIRECT_RENDER_SNAPSHOT_FIRST_LUMA="
+        << static_cast<unsigned>(
+            adapter.directPhotoSnapshotFirstLumaForTesting())
+        << "\n";
+    CHECK(adapter.directPhotoSourceBytes() > 0);
+    CHECK(
+        adapter.directPhotoSnapshotFirstLumaForTesting() ==
+        120);
     CHECK(adapter.prepareDirectPhotoGeometry(
         640,
         360,

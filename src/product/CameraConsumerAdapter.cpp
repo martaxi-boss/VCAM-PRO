@@ -1779,6 +1779,15 @@ directPhotoTestDestinationLuma() const {
     return directPhotoTestDestinationLuma_;
 }
 
+std::uint8_t
+CameraConsumerAdapter::
+directPhotoSnapshotFirstLumaForTesting() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoSourceY_.empty()
+        ? 0
+        : directPhotoSourceY_.front();
+}
+
 bool CameraConsumerAdapter::
 directPhotoSourceMatchesForTesting(
     CVPixelBufferRef expected) const {
