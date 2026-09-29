@@ -185,6 +185,7 @@ public:
     std::size_t videoLatestFrameCount() const;
     std::size_t videoLatestRetainedBytes() const;
     std::uint64_t videoLatestReuseDecisionCount() const noexcept;
+    std::uint64_t videoAcquireCount() const noexcept;
     std::size_t blackFallbackCacheCount() const;
 
     void notePhotoGeometryObserved(
@@ -321,6 +322,7 @@ private:
     std::atomic<std::uint64_t> unsupportedFormatDecisionCount_{0};
     std::atomic<std::uint64_t> enabledSupportedOriginalDecisionCount_{0};
     std::atomic<std::uint64_t> videoLatestReuseDecisionCount_{0};
+    std::atomic<std::uint64_t> videoAcquireCount_{0};
 
     mutable std::mutex mutex_;
     frame_engine::ReadyFrameQueue* queue_ = nullptr;
