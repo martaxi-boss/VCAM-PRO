@@ -130,19 +130,6 @@ jobs:
           grep -Fq 'lastObject' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
           grep -Fq 'AVAssetReaderTrackOutput' docs/research/IOS15_MOTIONCAM_E2E_CONVERGENCE_001.md
 
-          for marker in \
-            CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS \
-            NO_CALLBACK_FILE_IO=PASS \
-            NO_CALLBACK_DECODE=PASS \
-            NO_CALLBACK_SCALE=PASS \
-            NO_CALLBACK_TRANSFORM=PASS \
-            NO_CALLBACK_COLOR_CONVERSION=PASS \
-            NO_CALLBACK_MEDIA_ALLOCATION=PASS \
-            NO_CALLBACK_SYNCHRONOUS_WAIT=PASS \
-            NO_CALLBACK_DIRECT_PHOTO_RENDER=PASS \
-            NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS; do
-            grep -Fq "$marker" build/e2e-convergence/static-contract.txt
-          done
           {
             echo "IOS15_REFERENCE_INSPECTED=YES"
             echo "MOTIONCAM_REFERENCE_INSPECTED=YES"
@@ -525,6 +512,19 @@ jobs:
             grep -Fq "$marker" build/e2e-convergence/product-composition.txt
           done
 
+          for marker in \
+            CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS \
+            NO_CALLBACK_FILE_IO=PASS \
+            NO_CALLBACK_DECODE=PASS \
+            NO_CALLBACK_SCALE=PASS \
+            NO_CALLBACK_TRANSFORM=PASS \
+            NO_CALLBACK_COLOR_CONVERSION=PASS \
+            NO_CALLBACK_MEDIA_ALLOCATION=PASS \
+            NO_CALLBACK_SYNCHRONOUS_WAIT=PASS \
+            NO_CALLBACK_DIRECT_PHOTO_RENDER=PASS \
+            NO_BLOCKING_CAMERA_CALLBACK_WORK=PASS; do
+            grep -Fq "$marker" build/e2e-convergence/static-contract.txt
+          done
           {
             echo "IOS15_REFERENCE_INSPECTED=YES"
             echo "MOTIONCAM_REFERENCE_INSPECTED=YES"
