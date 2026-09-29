@@ -183,6 +183,11 @@ public:
     std::uint64_t directPhotoRenderCount() const;
     std::uint64_t directPhotoRenderFailureCount() const;
     std::size_t directPhotoScratchBytes() const;
+#if defined(VCAM_TESTING)
+    std::uint8_t directPhotoTestSourceLuma() const;
+    std::uint8_t directPhotoTestMappedLuma() const;
+    std::uint8_t directPhotoTestDestinationLuma() const;
+#endif
     std::size_t blackFallbackCacheCount() const;
 
     void notePhotoGeometryObserved(
@@ -388,6 +393,11 @@ private:
     std::uint64_t directPhotoPlanSerial_ = 0;
     std::uint64_t directPhotoRenderCount_ = 0;
     std::uint64_t directPhotoRenderFailureCount_ = 0;
+#if defined(VCAM_TESTING)
+    std::uint8_t directPhotoTestSourceLuma_ = 0;
+    std::uint8_t directPhotoTestMappedLuma_ = 0;
+    std::uint8_t directPhotoTestDestinationLuma_ = 0;
+#endif
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,

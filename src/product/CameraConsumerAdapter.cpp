@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
 #include <cstring>
 #include <limits>
 #include <new>
@@ -1603,6 +1602,29 @@ directPhotoScratchBytes() const {
     return total;
 }
 
+#if defined(VCAM_TESTING)
+std::uint8_t
+CameraConsumerAdapter::
+directPhotoTestSourceLuma() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoTestSourceLuma_;
+}
+
+std::uint8_t
+CameraConsumerAdapter::
+directPhotoTestMappedLuma() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoTestMappedLuma_;
+}
+
+std::uint8_t
+CameraConsumerAdapter::
+directPhotoTestDestinationLuma() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return directPhotoTestDestinationLuma_;
+}
+#endif
+
 bool CameraConsumerAdapter::
 hasReusablePhotoVariant(
     std::size_t width,
@@ -2304,6 +2326,7 @@ renderDirectPhotoIntoOriginalLocked(
                 directPhotoSource_,
                 1) * 2;
 
+#if defined(VCAM_TESTING)
         if (!plan->ySourceRows.empty() &&
             !plan->ySourceColumns.empty()) {
             const std::size_t debugRow =
@@ -2314,22 +2337,13 @@ renderDirectPhotoIntoOriginalLocked(
                 sourceYBase +
                 debugRow *
                     sourceYStride;
-            std::fprintf(
-                stderr,
-                "DIRECT_PLAN_DEBUG row=%zu col=%zu source=%u mapped=%u destHeight=%zu destWidth=%zu sourceRows=%zu sourceCols=%zu\n",
-                debugRow,
-                debugColumn,
-                static_cast<unsigned>(
-                    debugSource[debugColumn]),
-                static_cast<unsigned>(
-                    plan->yValueMap[
-                        debugSource[
-                            debugColumn]]),
-                plan->destinationHeight,
-                plan->destinationWidth,
-                plan->ySourceRows.size(),
-                plan->ySourceColumns.size());
+            directPhotoTestSourceLuma_ =
+                debugSource[debugColumn];
+            directPhotoTestMappedLuma_ =
+                plan->yValueMap[
+                    directPhotoTestSourceLuma_];
         }
+#endif
 
         for (std::size_t y = 0;
              y < plan->destinationHeight &&
@@ -2369,17 +2383,16 @@ renderDirectPhotoIntoOriginalLocked(
             }
         }
 
+#if defined(VCAM_TESTING)
         if (plan->destinationHeight != 0 &&
             plan->destinationWidth != 0) {
-            std::fprintf(
-                stderr,
-                "DIRECT_PLAN_DEST_AFTER=%u\n",
-                static_cast<unsigned>(
-                    destinationYBase[
-                        plan->destinationY *
-                            destinationYStride +
-                        plan->destinationX]));
+            directPhotoTestDestinationLuma_ =
+                destinationYBase[
+                    plan->destinationY *
+                        destinationYStride +
+                    plan->destinationX];
         }
+#endif
 
         for (std::size_t y = 0;
              y < plan->destinationHeight / 2 &&

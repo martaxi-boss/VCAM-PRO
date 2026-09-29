@@ -399,6 +399,18 @@ bool TestDirectRendererSyntheticSource() {
     std::cout
         << "DIRECT_RENDER_DESTINATION_LUMA="
         << destinationSample << "\n"
+        << "DIRECT_RENDER_INTERNAL_SOURCE_LUMA="
+        << static_cast<unsigned>(
+            adapter.directPhotoTestSourceLuma())
+        << "\n"
+        << "DIRECT_RENDER_INTERNAL_MAPPED_LUMA="
+        << static_cast<unsigned>(
+            adapter.directPhotoTestMappedLuma())
+        << "\n"
+        << "DIRECT_RENDER_INTERNAL_DESTINATION_LUMA="
+        << static_cast<unsigned>(
+            adapter.directPhotoTestDestinationLuma())
+        << "\n"
         << "DIRECT_RENDER_COUNT="
         << adapter.directPhotoRenderCount()
         << "\n"
