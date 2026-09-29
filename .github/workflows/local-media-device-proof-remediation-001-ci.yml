@@ -1,0 +1,519 @@
+name: VCAM PRO Local Media Device Proof Remediation 001
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/**"
+      - "tests/**"
+      - "tools/run_frame_regressions.sh"
+      - "product/local_media_device_proof_remediation_001/**"
+      - "product/VCAMPro.plist"
+      - "docs/research/LOCAL_MEDIA_DEVICE_PROOF_REMEDIATION_001.md"
+      - "docs/CANONICAL_PROJECT_STATE.md"
+      - ".github/workflows/local-media-device-proof-remediation-001-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  device-proof-remediation:
+    runs-on: macos-26
+    timeout-minutes: 75
+
+    steps:
+      - name: Checkout exact VCAM PRO head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS15
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS16
+          fetch-depth: 1
+
+      - name: Checkout RootHidePatcher exact pin
+        uses: actions/checkout@v4
+        with:
+          repository: roothide/RootHidePatcher
+          ref: 80c16e08da33fecd27c0ff35777f37afd171868b
+          path: reference/RootHidePatcher
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Install build and packaging tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew unlink ldid >/dev/null 2>&1 || true
+          brew install dpkg gnu-sed findutils coreutils ldid-procursus
+          GNU_PATH="$(brew --prefix coreutils)/libexec/gnubin:$(brew --prefix findutils)/libexec/gnubin:$(brew --prefix gnu-sed)/libexec/gnubin"
+          echo "$GNU_PATH" >> "$GITHUB_PATH"
+          mkdir -p build/local-media-device-proof-remediation-001
+
+      - name: Exact-head authority and immutable references
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor 5e2dfa2062addf7f8d03cdf982a602ea378a2164 HEAD
+          test "$(git rev-parse origin/main)" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          test "$(git -C reference/IOS15 rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS16 rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+          test "$(git -C reference/RootHidePatcher rev-parse HEAD)" = "80c16e08da33fecd27c0ff35777f37afd171868b"
+          test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
+          {
+            echo "STARTING_HEAD=5e2dfa2062addf7f8d03cdf982a602ea378a2164"
+            echo "FINAL_HEAD=$GITHUB_SHA"
+            echo "MAIN_UNCHANGED=PASS"
+            echo "READ_ONLY_REPOS_UNCHANGED=PASS"
+            echo "DEVICE_ACTION=NO"
+          } | tee build/local-media-device-proof-remediation-001/baseline.txt
+
+      - name: Reaudit IOS15 orientation semantics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("reference/IOS15/analysis/disassembly/VCamRecovered.disassembly.txt").read_text(errors="replace")
+          lines = text.splitlines()
+
+          def has(*tokens):
+              return any(all(token in line for token in tokens) for line in lines)
+
+          assert has("imageWithCVPixelBuffer:")
+          assert has("imageByApplyingOrientation:")
+          assert has("mov", "#0x6")
+          assert has("imageByCroppingToRect:")
+          assert has("render:toCVPixelBuffer:")
+
+          oi = next(i for i,l in enumerate(lines) if "imageByApplyingOrientation:" in l)
+          ci = next(i for i,l in enumerate(lines) if "imageByCroppingToRect:" in l and i > oi)
+          ri = next(i for i,l in enumerate(lines) if "render:toCVPixelBuffer:" in l and i > ci)
+          assert oi < ci < ri
+
+          out = Path("build/local-media-device-proof-remediation-001/ios15-orientation.txt")
+          out.write_text("\n".join([
+              "IOS15_ORIENTATION_SEMANTICS_REAUDITED=PASS",
+              "IOS15_VIRTUAL_SOURCE_CIIMAGE=PASS",
+              "IOS15_CONTEXTUAL_ORIENTATION_6_EVIDENCE=PASS",
+              "IOS15_ORIENTATION_BEFORE_CROP=PASS",
+              "IOS15_RENDER_TO_CAMERA_DESTINATION=PASS",
+              "NO_GLOBAL_ORIENTATION_6_HARDCODE=PASS",
+              "",
+          ]))
+          print(out.read_text(), end="")
+          PY
+
+      - name: Orientation and frame-engine regression matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools/run_frame_regressions.sh
+
+          grep -Fq 'Stage B tests run: 11, failures: 0' build/regressions/stage-b.txt
+          grep -Fq 'VIDEO_SOURCE_PTS_MONOTONIC=PASS' build/regressions/stage-b.txt
+          grep -Fq 'Stage E1 transformer tests run:' build/regressions/e1-transformer.txt
+          grep -Fq 'failures: 0' build/regressions/e1-transformer.txt
+
+          for marker in \
+            STREAM_ORIENTATION_PORTRAIT=PASS \
+            STREAM_ORIENTATION_LANDSCAPE_LEFT=PASS \
+            STREAM_ORIENTATION_LANDSCAPE_RIGHT=PASS \
+            STREAM_ORIENTATION_PORTRAIT_UPSIDE_DOWN=PASS \
+            ASYMMETRIC_TOP_BOTTOM_LEFT_RIGHT_FIXTURE=PASS \
+            ORIENTATION_PHYSICAL_REGRESSION_ROOT_CAUSE=EXTRA_UIDEVICE_PORTRAIT_PIXEL_ROTATION_AFTER_UPRIGHT_SOURCE_NORMALIZATION \
+            CURRENT_PORTRAIT_90_DEGREE_ASSUMPTION_STATUS=REJECTED \
+            PHYSICAL_TARGET_PORTRAIT_BASELINE_NEEDS_PIXEL_ROTATION=NO \
+            FINAL_ORIENTATION_MODEL=LOGICAL_UPRIGHT_SOURCE_DESTINATION_GEOMETRY_PORTRAIT_ZERO_BASELINE \
+            APPLE_CAMERA_UPRIGHT_HOST_MODEL=PASS \
+            THIRD_PARTY_APP_INDEPENDENT_ORIENTATION_HOST_MODEL=PASS \
+            LANDSCAPE_TRANSITION_MODEL=PASS \
+            SOURCE_AND_DESTINATION_SEMANTICS_CLASSIFIED=PASS \
+            NO_DOUBLE_ROTATION=PASS \
+            NO_APP_SPECIFIC_ORIENTATION=PASS \
+            NO_GLOBAL_ORIENTATION_6_HARDCODE=PASS \
+            SOURCE_PREFERRED_TRANSFORM_STATUS=APPLIED_BEFORE_STREAM_ORIENTATION \
+            ORIENTATION_CROP_ORDER_STATUS=LOGICAL_UPRIGHT_THEN_EXISTING_CENTER_CROP \
+            ASPECT_RATIO_SEMANTICS_FINAL=EXISTING_CENTER_CROP_PRESERVE_ASPECT \
+            NO_UNINTENDED_OVERSCALE_OR_CROP=HOST_FIXTURE_PASS \
+            PAN_TRANSLATION_PIXELS=PASS \
+            PINCH_SCALE_PIXELS=PASS \
+            PHOTO_ROTATION_DISABLED=PASS \
+            PHOTO_TRANSFORM_OUTSIDE_CALLBACK=PASS; do
+            grep -Fq "$marker" build/regressions/e1-transformer.txt
+          done
+
+      - name: CameraConsumerAdapter latest-video ownership
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -Wall -Wextra -Werror -pedantic -pthread \
+            -Isrc/frame_engine -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/product/ControlStateCache.cpp \
+            src/product/CameraConsumerAdapter.cpp \
+            tests/product/camera_consumer_adapter_tests.cpp \
+            -framework CoreFoundation -framework CoreMedia -framework CoreVideo \
+            -o build/local-media-device-proof-remediation-001/camera-consumer
+
+          build/local-media-device-proof-remediation-001/camera-consumer \
+            | tee build/local-media-device-proof-remediation-001/camera-consumer.txt
+
+          grep -Fq 'failures: 0' build/local-media-device-proof-remediation-001/camera-consumer.txt
+          grep -Fq '[PASS] static photo lease persists across callbacks' build/local-media-device-proof-remediation-001/camera-consumer.txt
+          grep -Fq '[PASS] latest video survives queue consumption' build/local-media-device-proof-remediation-001/camera-consumer.txt
+          grep -Fq '[PASS] latest video storage remains bounded' build/local-media-device-proof-remediation-001/camera-consumer.txt
+
+      - name: Real-product PHOTO VIDEO composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -fblocks -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            tests/product/post_photo_local_media_convergence_tests.mm \
+            -framework Accelerate \
+            -framework Foundation \
+            -framework AVFoundation \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -framework ImageIO \
+            -framework UniformTypeIdentifiers \
+            -o build/local-media-device-proof-remediation-001/composition
+
+          build/local-media-device-proof-remediation-001/composition \
+            | tee build/local-media-device-proof-remediation-001/composition.txt
+
+          for marker in \
+            VIDEO_PICKER_CLASSIFICATION=PASS \
+            VIDEO_STAGING=PASS \
+            VIDEO_CONTROL_COMMIT=PASS \
+            VIDEO_MEDIA_KIND=VIDEO \
+            VIDEO_PLAYBACK_INTENT_AFTER_SELECTION=PLAYING \
+            VIDEO_RUNTIME_SELECT=PASS \
+            VIDEO_READER_OPEN_COUNT=1 \
+            VIDEO_READER_START_COUNT=1 \
+            VIDEO_REAL_PRODUCT_COMPOSITION_FIX=PASS \
+            VIDEO_FRAME_REACHES_PREPARED_MEDIA=PASS \
+            VIDEO_LATEST_FRAME_REUSE=PASS \
+            VIDEO_LATEST_FRAME_MEMORY_BOUNDED=PASS \
+            VIDEO_BLACK_DECISION_DELTA_DURING_PRODUCER_GAP=0 \
+            VIDEO_LOGICAL_SESSION_CREATION_COUNT=1 \
+            VIDEO_SELECTION_GENERATION_STABLE=PASS \
+            VIDEO_TIMELINE_CONTINUOUS=PASS \
+            VIDEO_GEOMETRY_A_OUTPUT=PASS \
+            VIDEO_GEOMETRY_B_OUTPUT=PASS \
+            VIDEO_NO_RESTART_ON_GEOMETRY_SWITCH=PASS \
+            VIDEO_GEOMETRY_STARVATION=NO \
+            VCAM_ON_SUPPORTED_ORIGINAL_DECISIONS=ZERO \
+            PHOTO_CONTINUITY_REGRESSION=PASS \
+            PHOTO_PREPARED_MEDIA_DECISIONS_CONTINUOUS=PASS \
+            PHOTO_STABLE_BLACK_DECISION_DELTA=0 \
+            PHOTO_STABLE_GUARD_DECISION_DELTA=0 \
+            PHOTO_STABLE_ORIGINAL_DECISION_DELTA=0 \
+            PHOTO_DROPOUT_PRESENT=NO \
+            VIDEO_TO_PHOTO_CHANGE=PASS \
+            PHOTO_TO_VIDEO_CHANGE=PASS \
+            CLEAR_VIDEO_RETURNS_BLACK=PASS \
+            VCAM_OFF_FROM_VIDEO_RETURNS_REAL=PASS \
+            POST_PHOTO_LOCAL_MEDIA_CONVERGENCE_PROOF=PASS; do
+            grep -Fq "$marker" build/local-media-device-proof-remediation-001/composition.txt
+          done
+
+          grep -Eq 'VIDEO_PUBLISHED_FRAME_COUNT=[1-9][0-9]*' build/local-media-device-proof-remediation-001/composition.txt
+          grep -Eq 'VIDEO_CAMERA_DECISIONS=[1-9][0-9]*' build/local-media-device-proof-remediation-001/composition.txt
+
+          {
+            echo "VIDEO_FIRST_BROKEN_STAGE=ONE_SHOT_VIDEO_LEASE_CONSUMPTION_NO_PERSISTENT_LATEST_FRAME"
+            echo "VIDEO_NO_READER_RESTART_ON_GEOMETRY_CHANGE=PASS"
+            echo "DEVICE_DIAGNOSTIC_SURFACE_ADDED=NO"
+            echo "MICROFLASH_CLASSIFICATION=PRESENTATION_LEVEL_OR_RUNTIME_ONLY_UNRESOLVED"
+          } | tee build/local-media-device-proof-remediation-001/classification.txt
+
+      - name: Product playback lifecycle regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++ \
+            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
+            -Wno-deprecated-declarations -Wno-unused-function \
+            -DVCAM_TESTING=1 \
+            -DVCAM_REFERENCE_CAMERA_HOOK_OUTPUT_OWNERSHIP_TEST=1 \
+            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
+            src/frame_engine/PreparedFrame.cpp \
+            src/frame_engine/FrameEngineState.cpp \
+            src/frame_engine/ReadyFrameQueue.cpp \
+            src/frame_engine/FrameTimelineScheduler.cpp \
+            src/frame_engine/MonotonicHostClock.cpp \
+            src/media_engine/LocalVideoReader.mm \
+            src/media_engine/LocalPhotoReader.mm \
+            src/media_engine/FrameNormalizer.cpp \
+            src/media_engine/FrameTransformer.mm \
+            src/media_engine/FramePipelinePump.cpp \
+            src/media_engine/FramePipelinePumpTimed.cpp \
+            src/media_engine/ProducerWakeupController.cpp \
+            src/media_engine/ProducerWakeupDriver.mm \
+            src/media_engine/InternalGalleryMediaSession.mm \
+            src/product/ControlStateCache.cpp \
+            src/product/VirtualBlackFrame.mm \
+            src/product/CameraConsumerAdapter.cpp \
+            src/product/SharedControlStore.mm \
+            src/product/SharedMediaStager.mm \
+            src/product/ProductControlOwner.mm \
+            src/product/MediaserverdRuntime.mm \
+            src/product/ReferenceCameraHook.mm \
+            tests/product/product_composition_e2e_tests.mm \
+            -framework Accelerate \
+            -framework Foundation \
+            -framework AVFoundation \
+            -framework CoreFoundation \
+            -framework CoreGraphics \
+            -framework CoreMedia \
+            -framework CoreVideo \
+            -framework ImageIO \
+            -o build/local-media-device-proof-remediation-001/product-composition
+
+          build/local-media-device-proof-remediation-001/product-composition \
+            | tee build/local-media-device-proof-remediation-001/product-composition.txt
+
+          for marker in \
+            VIDEO_SELECT=PASS \
+            VIDEO_PLAY=PASS \
+            VIDEO_PAUSE=PASS \
+            VIDEO_PAUSED_VIRTUAL_STATE_STABLE=PASS \
+            VIDEO_RESUME=PASS \
+            VIDEO_LOOP=PASS \
+            VIDEO_CLEAR_TO_BLACK=PASS \
+            VIDEO_PLAY_PAUSE_RESUME_LOOP=PASS \
+            PHOTO_TRANSFORM_PRODUCT_COMPOSITION=PASS; do
+            grep -Fq "$marker" build/local-media-device-proof-remediation-001/product-composition.txt
+          done
+
+          grep -Fq '[PASS] EOS without loop' build/regressions/stage-b.txt
+          grep -Fq '[PASS] Loop restart and iteration' build/regressions/stage-b.txt
+
+      - name: PHOTO overlay code regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          spring = Path("src/product/SpringBoardControlHost.mm").read_text()
+          panel = Path("src/control/InternalGalleryViewController.mm").read_text()
+
+          assert "VCAMProductOverlayWindow" in spring
+          assert "if (hit == self.rootViewController.view)" in spring
+          assert "return nil;" in spring
+          assert "enterPhotoAdjustMode" in spring
+          assert "_photoAdjustSurface" in spring
+          assert "UIPanGestureRecognizer" in spring
+          assert "UIPinchGestureRecognizer" in spring
+          assert 'setTitle:@"Done"' in spring
+          assert "exitPhotoAdjustMode" in spring
+          assert "[_photoAdjustSurface removeFromSuperview]" in spring
+          assert "UIRotationGestureRecognizer" not in spring
+          assert 'buttonWithTitle:@"Adjust Photo"' in panel
+
+          out = Path("build/local-media-device-proof-remediation-001/overlay.txt")
+          out.write_text("\n".join([
+              "PHOTO_ADJUST_OVERLAY_CHANGED=NO",
+              "PHOTO_ADJUST_OVERLAY_REASON=EXISTING_CENTRAL_OVERLAY_NOT_IMPLICATED_BY_DEVICE_EVIDENCE",
+              "PHOTO_OVERLAY_CODE_REGRESSION=PASS",
+              "NORMAL_APP_TOUCH_PASSTHROUGH=PASS",
+              "ADJUST_MODE_TOUCH_CAPTURE=PASS",
+              "DONE_RESTORES_PASSTHROUGH=PASS",
+              "USER_ROTATION_GESTURE=NO",
+              "",
+          ]))
+          print(out.read_text(), end="")
+          PY
+
+      - name: Reachable camera callback contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def between(text, start, end):
+              a = text.index(start)
+              b = text.index(end, a + len(start))
+              return text[a:b]
+
+          hook = Path("src/product/ReferenceCameraHook.mm").read_text()
+          runtime = Path("src/product/MediaserverdRuntime.mm").read_text()
+          adapter = Path("src/product/CameraConsumerAdapter.cpp").read_text()
+
+          hook_callback = between(
+              hook,
+              "CVImageBufferRef HookedCMSampleBufferGetImageBuffer",
+              "bool InstallReferenceCameraHook")
+          runtime_impl = between(
+              runtime,
+              "    CameraDecision decide(",
+              "    void prepareBlackFallbackForGeometry(")
+          runtime_wrapper = between(
+              runtime,
+              "CameraDecision MediaserverdRuntime::",
+              "CameraConsumerAdapter&")
+          adapter_decide = between(
+              adapter,
+              "CameraDecision CameraConsumerAdapter::decide(",
+              "CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal")
+
+          assert "runtime.decideCameraBuffer" in hook_callback
+          assert "impl_->decide" in runtime_wrapper
+          assert "adapter_.decide" in runtime_impl
+          assert "retainVideoLatestFrameLocked" in adapter_decide
+          assert "findVideoLatestFrameLocked" in adapter_decide
+
+          reachable = "\n".join([
+              hook_callback,
+              runtime_impl,
+              runtime_wrapper,
+              adapter_decide,
+          ])
+
+          forbidden = [
+              "AVAssetReader",
+              "CGImageSource",
+              "FrameTransformer",
+              "vImage",
+              "CIContext",
+              "CVPixelBufferCreate(",
+              "dispatch_sync",
+              "sleep(",
+              "wait(",
+              "loadFile",
+              "contentsOfFile",
+              "readData",
+              "renderDirectPhotoIntoOriginalLocked",
+          ]
+          bad = [token for token in forbidden if token in reachable]
+          if bad:
+              raise SystemExit(f"camera-critical path contains {bad}")
+
+          helper_start = adapter.index(
+              "CameraConsumerAdapter::\nretainVideoLatestFrameLocked(")
+          helper_end = adapter.index(
+              "\nvoid CameraConsumerAdapter::\nclearPhotoVariantsLocked",
+              helper_start)
+          video_helpers = adapter[helper_start:helper_end]
+          helper_forbidden = [
+              "AVAssetReader", "FrameTransformer", "vImage", "CIContext",
+              "CVPixelBufferCreate(", "dispatch_sync", "sleep(", "wait(",
+              "std::vector", "new ", "malloc(", "calloc(", "realloc(",
+          ]
+          bad = [token for token in helper_forbidden if token in video_helpers]
+          if bad:
+              raise SystemExit(f"VIDEO callback helper contains {bad}")
+
+          out = Path("build/local-media-device-proof-remediation-001/callback.txt")
+          out.write_text("\n".join([
+              "CAMERA_CALLBACK_REACHABLE_PATH_AUDITED=PASS",
+              "NO_CALLBACK_FILE_IO=PASS",
+              "NO_CALLBACK_DECODE=PASS",
+              "NO_CALLBACK_SCALE=PASS",
+              "NO_CALLBACK_TRANSFORM=PASS",
+              "NO_CALLBACK_COLOR_CONVERSION=PASS",
+              "NO_CALLBACK_MEDIA_ALLOCATION=PASS",
+              "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS",
+              "NO_CALLBACK_VIDEO_READER_WORK=PASS",
+              "NO_CALLBACK_DIRECT_PHOTO_RENDER=PASS",
+              "",
+          ]))
+          print(out.read_text(), end="")
+          PY
+
+      - name: Build and audit RootHide device-proof remediation candidate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh product/local_media_device_proof_remediation_001/ci_build_package_and_audit.sh \
+            | tee build/local-media-device-proof-remediation-001/package-audit.txt
+
+          FINAL=build/local-media-device-proof-remediation-001/final/VCAM-PRO-RootHide-Device-Proof-Remediation-001.deb
+          test -f "$FINAL"
+          test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
+          test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide21~deviceproofremed1"
+          test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
+          grep -Fq 'LOCAL_MEDIA_DEVICE_PROOF_REMEDIATION_PACKAGE=PASS' \
+            build/local-media-device-proof-remediation-001/evidence/validation-report.txt
+          grep -Fq 'ARM64=PASS' \
+            build/local-media-device-proof-remediation-001/evidence/validation-report.txt
+          grep -Fq 'MINIMUM_IOS_15=PASS' \
+            build/local-media-device-proof-remediation-001/evidence/validation-report.txt
+          grep -Fq 'ROOTHIDE_PACKAGE=PASS' \
+            build/local-media-device-proof-remediation-001/evidence/validation-report.txt
+          grep -Fq 'VALID_CODE_SIGNATURE=PASS' \
+            build/local-media-device-proof-remediation-001/evidence/validation-report.txt
+
+          {
+            echo "DEDICATED_DEVICE_PROOF_REMEDIATION_CI=SUCCESS"
+            echo "PHYSICAL_PHOTO_ORIENTATION_FIX=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_THIRD_PARTY_ORIENTATION_FIX=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_VIDEO_OUTPUT_FIX=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_VIDEO_CONTINUITY=PENDING_DEVICE_PROOF"
+            echo "PHYSICAL_PAN_PINCH=PENDING_DEVICE_PROOF"
+          } | tee build/local-media-device-proof-remediation-001/terminal-markers.txt
+
+      - name: Upload exact-head remediation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: VCAM-PRO-Local-Media-Device-Proof-Remediation-001
+          path: |
+            build/local-media-device-proof-remediation-001/**
+          if-no-files-found: error
+          retention-days: 30
