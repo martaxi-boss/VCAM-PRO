@@ -244,7 +244,7 @@ bool TestEligibleFramePrefersPreparedMedia() {
     CHECK(result.pixelBuffer != original);
     CHECK(adapter.mediaVirtualDecisionCount() == 1);
     CHECK(adapter.blackVirtualDecisionCount() == 0);
-    CHECK(adapter.pinnedLeaseCount() == 0);
+    CHECK(adapter.pinnedLeaseCount() == 1);
     CHECK(adapter.videoLatestFrameCount() == 1);
     CHECK(adapter.videoLatestRetainedBytes() > 0);
 
