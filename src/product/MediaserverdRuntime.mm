@@ -4,6 +4,7 @@
 #include "InternalGalleryMediaSession.h"
 #include "SharedControlStore.h"
 #include "VirtualBlackFrame.h"
+#include "VideoRuntimeDiagnostics.h"
 
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
 #include "RealCameraCallbackPassThroughProof.h"
@@ -177,6 +178,23 @@ struct MediaserverdRuntime::Impl {
             dispatch_sync(
                 controlQueue_,
                 ^{
+                    videoDiagnosticActive_ = false;
+                    if (videoDiagnosticTimer_ != nullptr) {
+                        dispatch_source_set_timer(
+                            videoDiagnosticTimer_,
+                            DISPATCH_TIME_FOREVER,
+                            DISPATCH_TIME_FOREVER,
+                            0);
+                        dispatch_source_set_event_handler(
+                            videoDiagnosticTimer_,
+                            ^{});
+                        dispatch_source_cancel(
+                            videoDiagnosticTimer_);
+                        videoDiagnosticTimer_ = nullptr;
+                    }
+                    if (videoDiagnosticTransport_ != nullptr) {
+                        videoDiagnosticTransport_->clear();
+                    }
                     adapter_.unbindQueue();
                     session_.reset();
                 });
@@ -210,6 +228,34 @@ struct MediaserverdRuntime::Impl {
                 DISPATCH_QUEUE_SERIAL);
         if (controlQueue_ == nullptr) {
             return false;
+        }
+
+        videoDiagnosticTransport_ =
+            std::make_unique<
+                video_diagnostics::Transport>();
+        if (videoDiagnosticTransport_ != nullptr) {
+            videoDiagnosticTransport_->clear();
+        }
+
+        videoDiagnosticTimer_ =
+            dispatch_source_create(
+                DISPATCH_SOURCE_TYPE_TIMER,
+                0,
+                0,
+                controlQueue_);
+        if (videoDiagnosticTimer_ != nullptr) {
+            dispatch_source_set_event_handler(
+                videoDiagnosticTimer_,
+                ^{
+                    this->publishVideoRuntimeDiagnostic();
+                });
+            dispatch_source_set_timer(
+                videoDiagnosticTimer_,
+                DISPATCH_TIME_FOREVER,
+                DISPATCH_TIME_FOREVER,
+                0);
+            dispatch_resume(
+                videoDiagnosticTimer_);
         }
 
 #if defined(VCAM_FIRST_LOCAL_PHOTO_SUBSTITUTION_DIAGNOSTIC_PROOF)
@@ -307,6 +353,7 @@ struct MediaserverdRuntime::Impl {
                                 this->prepareBlackFallbackForObservedGeometry();
                                 this->applyCachedState(
                                     false);
+                                this->beginOrRefreshVideoRuntimeDiagnostic();
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
                                 this->evaluateLocalPhotoDiagnostic(
                                     false);
@@ -335,6 +382,7 @@ struct MediaserverdRuntime::Impl {
 #endif
                 this->applyCachedState(
                     true);
+                this->beginOrRefreshVideoRuntimeDiagnostic();
 #if defined(VCAM_LOCAL_PHOTO_PIPELINE_READY_PROOF)
                 this->evaluateLocalPhotoDiagnostic(
                     false);
@@ -1004,6 +1052,325 @@ struct MediaserverdRuntime::Impl {
 #endif
     }
 
+    void noteCameraCommitResult(
+        bool attempted,
+        bool succeeded) noexcept {
+        if (!attempted) {
+            return;
+        }
+
+        if (succeeded) {
+            videoCommitSuccessCount_.fetch_add(
+                1,
+                std::memory_order_relaxed);
+        } else {
+            videoCommitFailureCount_.fetch_add(
+                1,
+                std::memory_order_relaxed);
+        }
+    }
+
+    static std::uint64_t CounterDelta(
+        std::uint64_t current,
+        std::uint64_t baseline) noexcept {
+        return current >= baseline
+            ? current - baseline
+            : 0;
+    }
+
+    static std::uint64_t SaturatingSum(
+        std::uint64_t lhs,
+        std::uint64_t rhs) noexcept {
+        return UINT64_MAX - lhs < rhs
+            ? UINT64_MAX
+            : lhs + rhs;
+    }
+
+    void disarmVideoDiagnosticTimer() noexcept {
+        if (videoDiagnosticTimer_ != nullptr) {
+            dispatch_source_set_timer(
+                videoDiagnosticTimer_,
+                DISPATCH_TIME_FOREVER,
+                DISPATCH_TIME_FOREVER,
+                0);
+        }
+    }
+
+    void armVideoDiagnosticTimer() noexcept {
+        if (videoDiagnosticTimer_ == nullptr) {
+            return;
+        }
+
+        constexpr std::uint64_t intervalNs =
+            UINT64_C(500000000);
+        constexpr std::uint64_t leewayNs =
+            UINT64_C(50000000);
+
+        dispatch_source_set_timer(
+            videoDiagnosticTimer_,
+            dispatch_time(
+                DISPATCH_TIME_NOW,
+                static_cast<std::int64_t>(
+                    intervalNs)),
+            intervalNs,
+            leewayNs);
+    }
+
+    void beginOrRefreshVideoRuntimeDiagnostic() {
+        if (videoDiagnosticTransport_ == nullptr) {
+            return;
+        }
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+        const bool activeVideo =
+            snapshot.mediaKind ==
+                ProductMediaKind::Video &&
+            snapshot.hasMedia() &&
+            snapshot.selectionGeneration != 0;
+
+        if (!activeVideo) {
+            videoDiagnosticActive_ = false;
+            videoDiagnosticGeneration_ = 0;
+            disarmVideoDiagnosticTimer();
+            videoDiagnosticTransport_->clear();
+            return;
+        }
+
+        if (!videoDiagnosticActive_ ||
+            videoDiagnosticGeneration_ !=
+                snapshot.selectionGeneration) {
+            videoDiagnosticActive_ = true;
+            videoDiagnosticGeneration_ =
+                snapshot.selectionGeneration;
+
+            videoDiagnosticAcquireBaseline_ =
+                adapter_.videoAcquireCount();
+            videoDiagnosticLatestReuseBaseline_ =
+                adapter_.videoLatestReuseDecisionCount();
+            videoDiagnosticPreparedBaseline_ =
+                adapter_.mediaVirtualDecisionCount();
+            videoDiagnosticBlackBaseline_ =
+                SaturatingSum(
+                    adapter_.blackVirtualDecisionCount(),
+                    adapter_.
+                        inPlaceBlackGuardDecisionCount());
+            videoDiagnosticCommitSuccessBaseline_ =
+                videoCommitSuccessCount_.load(
+                    std::memory_order_relaxed);
+            videoDiagnosticCommitFailureBaseline_ =
+                videoCommitFailureCount_.load(
+                    std::memory_order_relaxed);
+
+            armVideoDiagnosticTimer();
+        }
+
+        publishVideoRuntimeDiagnostic();
+    }
+
+    void publishVideoRuntimeDiagnostic() {
+        if (!videoDiagnosticActive_ ||
+            videoDiagnosticTransport_ == nullptr) {
+            return;
+        }
+
+        const ProductControlSnapshot snapshot =
+            cache_.snapshot();
+        if (snapshot.mediaKind !=
+                ProductMediaKind::Video ||
+            !snapshot.hasMedia() ||
+            snapshot.selectionGeneration !=
+                videoDiagnosticGeneration_) {
+            beginOrRefreshVideoRuntimeDiagnostic();
+            return;
+        }
+
+        bool readerOpen =
+            videoDiagnosticLastReaderOpen_;
+        bool readerStarted =
+            videoDiagnosticLastReaderStarted_;
+        frame_engine::ReaderErrorCode readerError =
+            videoDiagnosticLastReaderError_;
+        media_engine::ProducerRuntimeDiagnosticsSnapshot
+            producer;
+        media_engine::ProducerWakeupDriverState
+            driverState =
+                media_engine::
+                    ProducerWakeupDriverState::
+                        Stopped;
+        std::size_t queueDepth = 0;
+        std::uint64_t publishCount = 0;
+
+        if (session_ != nullptr &&
+            SameMediaIdentity(
+                snapshot,
+                applied_) &&
+            session_->selectedMedia().kind ==
+                media_engine::
+                    SelectedMediaKind::Video) {
+            readerOpen =
+                session_->videoReaderOpen();
+            readerStarted =
+                session_->videoReaderStarted();
+            readerError =
+                session_->videoReaderErrorCode();
+            producer =
+                session_->
+                    producerRuntimeDiagnostics();
+            driverState =
+                session_->
+                    producerDriverState();
+            queueDepth =
+                session_->readyQueue().size();
+            publishCount =
+                session_->publishedFrameCount();
+        }
+
+        std::uint64_t state = 0;
+        state |= video_diagnostics::kSelected;
+        if (snapshot.playbackIntent ==
+            ProductPlaybackIntent::Playing) {
+            state |=
+                video_diagnostics::kPlaying;
+        }
+        if (readerOpen) {
+            state |=
+                video_diagnostics::kReaderOpen;
+        }
+        if (readerStarted) {
+            state |=
+                video_diagnostics::kReaderStarted;
+        }
+        if (driverState ==
+            media_engine::
+                ProducerWakeupDriverState::
+                    Armed) {
+            state |=
+                video_diagnostics::kDriverRunning;
+        }
+        if (producer.hasLastSourcePTS) {
+            state |=
+                video_diagnostics::kHasSourcePTS;
+        }
+
+        state |=
+            (static_cast<std::uint64_t>(
+                 static_cast<std::uint8_t>(
+                     readerError)) &
+             UINT64_C(0xff))
+            << video_diagnostics::
+                   kReaderErrorShift;
+        state |=
+            (static_cast<std::uint64_t>(
+                 static_cast<std::uint8_t>(
+                     producer.lastReadResult)) &
+             UINT64_C(0xff))
+            << video_diagnostics::
+                   kLastReadResultShift;
+        state |=
+            (static_cast<std::uint64_t>(
+                 static_cast<std::uint8_t>(
+                     driverState)) &
+             UINT64_C(0xff))
+            << video_diagnostics::
+                   kDriverStateShift;
+
+        const std::uint64_t currentBlack =
+            SaturatingSum(
+                adapter_.blackVirtualDecisionCount(),
+                adapter_.
+                    inPlaceBlackGuardDecisionCount());
+
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::State,
+            state);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                ReadFrameCount,
+            producer.readFrameCount);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                LastSourcePTS,
+            producer.hasLastSourcePTS
+                ? video_diagnostics::PackSourcePTS(
+                      producer.lastSourcePTSValue,
+                      producer.
+                          lastSourcePTSTimescale)
+                : 0);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                NormalizeCounts,
+            video_diagnostics::PackPair32(
+                producer.
+                    normalizeSuccessCount,
+                producer.
+                    normalizeFailureCount));
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                TransformCounts,
+            video_diagnostics::PackPair32(
+                producer.
+                    transformSuccessCount,
+                producer.
+                    transformFailureCount));
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                TimelineReadyCount,
+            producer.timelineReadyCount);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                TimelineWaitCount,
+            producer.timelineWaitCount);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                TimelineDropCount,
+            producer.timelineDropCount);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                PublishCount,
+            publishCount);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                QueueDepth,
+            queueDepth);
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                AcquireCount,
+            CounterDelta(
+                adapter_.videoAcquireCount(),
+                videoDiagnosticAcquireBaseline_));
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                LatestReuseCount,
+            CounterDelta(
+                adapter_.
+                    videoLatestReuseDecisionCount(),
+                videoDiagnosticLatestReuseBaseline_));
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                DecisionCounts,
+            video_diagnostics::PackPair32(
+                CounterDelta(
+                    adapter_.
+                        mediaVirtualDecisionCount(),
+                    videoDiagnosticPreparedBaseline_),
+                CounterDelta(
+                    currentBlack,
+                    videoDiagnosticBlackBaseline_)));
+        (void)videoDiagnosticTransport_->set(
+            video_diagnostics::Field::
+                CommitCounts,
+            video_diagnostics::PackPair32(
+                CounterDelta(
+                    videoCommitSuccessCount_.load(
+                        std::memory_order_relaxed),
+                    videoDiagnosticCommitSuccessBaseline_),
+                CounterDelta(
+                    videoCommitFailureCount_.load(
+                        std::memory_order_relaxed),
+                    videoDiagnosticCommitFailureBaseline_)));
+    }
+
     void prepareBlackFallbackForGeometry(
         std::uint64_t geometry) {
         std::size_t width = 0;
@@ -1363,10 +1730,20 @@ struct MediaserverdRuntime::Impl {
 #endif
         if (snapshot.mediaKind ==
             ProductMediaKind::Video) {
+            videoDiagnosticLastReaderOpen_ = false;
+            videoDiagnosticLastReaderStarted_ = false;
+            videoDiagnosticLastReaderError_ =
+                frame_engine::ReaderErrorCode::None;
             selected =
                 candidate->selectVideo(
                     snapshot.mediaPath,
                     snapshot.loopEnabled);
+            videoDiagnosticLastReaderOpen_ =
+                candidate->videoReaderOpen();
+            videoDiagnosticLastReaderStarted_ =
+                candidate->videoReaderStarted();
+            videoDiagnosticLastReaderError_ =
+                candidate->videoReaderErrorCode();
         } else if (
             snapshot.mediaKind ==
             ProductMediaKind::Photo) {
@@ -1442,6 +1819,15 @@ struct MediaserverdRuntime::Impl {
 #endif
             producerHealthy =
                 candidate->start();
+            if (snapshot.mediaKind ==
+                ProductMediaKind::Video) {
+                videoDiagnosticLastReaderOpen_ =
+                    candidate->videoReaderOpen();
+                videoDiagnosticLastReaderStarted_ =
+                    candidate->videoReaderStarted();
+                videoDiagnosticLastReaderError_ =
+                    candidate->videoReaderErrorCode();
+            }
 #if defined(VCAM_TESTING)
             if (producerHealthy &&
                 snapshot.mediaKind ==
@@ -3687,6 +4073,29 @@ struct MediaserverdRuntime::Impl {
     std::atomic<std::uint64_t>
         observedGeometry_{0};
 
+    std::unique_ptr<
+        video_diagnostics::Transport>
+        videoDiagnosticTransport_;
+    dispatch_source_t videoDiagnosticTimer_ =
+        nullptr;
+    bool videoDiagnosticActive_ = false;
+    std::uint64_t videoDiagnosticGeneration_ = 0;
+    std::uint64_t videoDiagnosticAcquireBaseline_ = 0;
+    std::uint64_t videoDiagnosticLatestReuseBaseline_ = 0;
+    std::uint64_t videoDiagnosticPreparedBaseline_ = 0;
+    std::uint64_t videoDiagnosticBlackBaseline_ = 0;
+    std::uint64_t videoDiagnosticCommitSuccessBaseline_ = 0;
+    std::uint64_t videoDiagnosticCommitFailureBaseline_ = 0;
+    bool videoDiagnosticLastReaderOpen_ = false;
+    bool videoDiagnosticLastReaderStarted_ = false;
+    frame_engine::ReaderErrorCode
+        videoDiagnosticLastReaderError_ =
+            frame_engine::ReaderErrorCode::None;
+    std::atomic<std::uint64_t>
+        videoCommitSuccessCount_{0};
+    std::atomic<std::uint64_t>
+        videoCommitFailureCount_{0};
+
 #if defined(VCAM_REAL_CAMERA_CALLBACK_PASSTHROUGH_PROOF)
     std::atomic<std::uint32_t>
         proofControlState_{0};
@@ -4002,7 +4411,75 @@ MediaserverdRuntime::snapshotForTesting() {
                         impl_->session_->
                             currentTarget().
                                 orientation);
+
+                if (control.mediaKind ==
+                    ProductMediaKind::Video) {
+                    result.videoReaderOpen =
+                        impl_->session_->
+                            videoReaderOpen();
+                    result.videoReaderStarted =
+                        impl_->session_->
+                            videoReaderStarted();
+                    result.videoReaderError =
+                        static_cast<std::uint8_t>(
+                            impl_->session_->
+                                videoReaderErrorCode());
+                    const auto producer =
+                        impl_->session_->
+                            producerRuntimeDiagnostics();
+                    result.videoReadFrameCount =
+                        producer.readFrameCount;
+                    result.videoLastReadResult =
+                        static_cast<std::uint8_t>(
+                            producer.lastReadResult);
+                    result.videoHasLastSourcePTS =
+                        producer.hasLastSourcePTS;
+                    result.videoLastSourcePTSValue =
+                        producer.lastSourcePTSValue;
+                    result.videoLastSourcePTSTimescale =
+                        producer.lastSourcePTSTimescale;
+                    result.videoNormalizeSuccessCount =
+                        producer.normalizeSuccessCount;
+                    result.videoNormalizeFailureCount =
+                        producer.normalizeFailureCount;
+                    result.videoTransformSuccessCount =
+                        producer.transformSuccessCount;
+                    result.videoTransformFailureCount =
+                        producer.transformFailureCount;
+                    result.videoTimelineReadyCount =
+                        producer.timelineReadyCount;
+                    result.videoTimelineWaitCount =
+                        producer.timelineWaitCount;
+                    result.videoTimelineDropCount =
+                        producer.timelineDropCount;
+                    result.videoDriverState =
+                        static_cast<std::uint8_t>(
+                            impl_->session_->
+                                producerDriverState());
+                }
             }
+
+            result.videoAcquireCount =
+                impl_->adapter_.
+                    videoAcquireCount();
+            result.videoLatestReuseCount =
+                impl_->adapter_.
+                    videoLatestReuseDecisionCount();
+            result.videoPreparedMediaDecisionCount =
+                impl_->adapter_.
+                    mediaVirtualDecisionCount();
+            result.videoBlackDecisionCount =
+                Impl::SaturatingSum(
+                    impl_->adapter_.
+                        blackVirtualDecisionCount(),
+                    impl_->adapter_.
+                        inPlaceBlackGuardDecisionCount());
+            result.videoCommitSuccessCount =
+                impl_->videoCommitSuccessCount_.
+                    load(std::memory_order_relaxed);
+            result.videoCommitFailureCount =
+                impl_->videoCommitFailureCount_.
+                    load(std::memory_order_relaxed);
 
             result.photoVariantRetainedBytes =
                 impl_->adapter_.
@@ -4111,6 +4588,17 @@ decideCameraBuffer(
 
     return impl_->decide(
         original);
+}
+
+void MediaserverdRuntime::
+noteCameraCommitResult(
+    bool attempted,
+    bool succeeded) noexcept {
+    if (impl_) {
+        impl_->noteCameraCommitResult(
+            attempted,
+            succeeded);
+    }
 }
 
 CameraConsumerAdapter&
