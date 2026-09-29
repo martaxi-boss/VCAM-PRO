@@ -186,6 +186,11 @@ public:
     std::size_t videoLatestRetainedBytes() const;
     std::uint64_t videoLatestReuseDecisionCount() const noexcept;
     std::uint64_t videoAcquireCount() const noexcept;
+#if defined(VCAM_TESTING)
+    std::uint64_t videoLatestTransformRevisionForTesting() const;
+    std::size_t videoLatestStaleTransformCountForTesting(
+        std::uint64_t expectedRevision) const;
+#endif
     std::size_t blackFallbackCacheCount() const;
 
     void notePhotoGeometryObserved(
