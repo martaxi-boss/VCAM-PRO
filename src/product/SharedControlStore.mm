@@ -483,14 +483,11 @@ void NormalizeSnapshot(
     if (snapshot->mediaKind ==
         ProductMediaKind::Photo) {
         snapshot->loopEnabled = false;
-    } else {
-        const std::uint64_t revision =
-            snapshot->photoTransform.revision;
-        snapshot->photoTransform =
-            ProductPhotoTransform{};
-        snapshot->photoTransform.revision =
-            revision;
     }
+
+    // Keep the established serialized photoTransform fields for VIDEO too.
+    // This generalizes the same translation/scale state without a schema
+    // migration and preserves existing PHOTO state compatibility.
 }
 
 }  // namespace
