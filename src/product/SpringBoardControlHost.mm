@@ -8,6 +8,9 @@
 
 #include <memory>
 
+using vcam::product::ProductMediaKind;
+using vcam::product::ProductStreamOrientation;
+
 static dispatch_queue_t
 ProductOwnerInitializationQueue();
 
