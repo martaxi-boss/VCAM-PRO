@@ -1628,7 +1628,9 @@ bool TestVideoSelectionAndGeometryChurn() {
     CHECK(
         after.queueGeneration ==
             initialGeneration);
-    CHECK(after.queueEpoch == initialEpoch);
+    CHECK(
+        after.queueEpoch ==
+            resumedTransform.queueEpoch);
     CHECK(
         after.totalVideoPublishedFrameCount >
             initialPublished);
