@@ -30,6 +30,10 @@ struct MediaserverdRuntimeTestSnapshot {
     std::uint64_t logicalPhotoSessionCreationCount = 0;
     std::uint64_t totalPhotoDecodeCount = 0;
     std::uint64_t photoVariantPreparationCount = 0;
+    std::size_t photoVariantRetainedBytes = 0;
+    std::size_t photoVariantWorkingSetCount = 0;
+    std::uint64_t photoVariantEvictionCount = 0;
+    std::uint64_t photoVariantReprepareCount = 0;
     std::array<std::uint64_t, 8> appliedGeometryHistory{};
     std::size_t appliedGeometryHistoryCount = 0;
 };

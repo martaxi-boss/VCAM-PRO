@@ -1,0 +1,87 @@
+name: VCAM PRO Photo Geometry Working Set Primary 002
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/product/CameraConsumerAdapter.*"
+      - "src/product/MediaserverdRuntime.*"
+      - "tests/product/photo_geometry_working_set_tests.mm"
+      - "tests/product/photo_multi_geometry_stability_tests.mm"
+      - ".github/workflows/photo-geometry-working-set-primary-002-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  primary-working-set:
+    name: Adaptive bounded working-set and overflow gate
+    runs-on: macos-26
+    timeout-minutes: 90
+    steps:
+      - name: Checkout exact head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Source invariants
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse main 2>/dev/null || true)" != ""
+          grep -Fq 'kPhotoVariantStructuralCapacity = 12' src/product/CameraConsumerAdapter.h
+          grep -Fq '32U * 1024U * 1024U' src/product/CameraConsumerAdapter.h
+          test "$(git rev-parse HEAD:src/product/ReferenceCameraHook.mm)" = "$(git rev-parse fcb873e60772b0258e8e6c57a97fdcf82c020613:src/product/ReferenceCameraHook.mm)"
+          test "$(git rev-parse HEAD:src/media_engine/LocalPhotoReader.mm)" = "$(git rev-parse fcb873e60772b0258e8e6c57a97fdcf82c020613:src/media_engine/LocalPhotoReader.mm)"
+          test "$(git rev-parse HEAD:src/media_engine/LocalVideoReader.mm)" = "$(git rev-parse fcb873e60772b0258e8e6c57a97fdcf82c020613:src/media_engine/LocalVideoReader.mm)"
+
+      - name: Build and run adaptive working-set product composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/photo-geometry-working-set-primary
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             tests/product/photo_geometry_working_set_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO             -o build/photo-geometry-working-set-primary/test
+
+          build/photo-geometry-working-set-primary/test             | tee build/photo-geometry-working-set-primary/results.txt
+
+          for marker in             A_B_C_D_WITHIN_CACHE=PASS             FIFTH_GEOMETRY_BEHAVIOR=PASS             RETURN_TO_EVICTED_GEOMETRY=PASS             FIVE_GEOMETRY_CONTINUOUS_CYCLE=PASS             RAPID_GEOMETRY_INTERLEAVING=PASS             NO_REPEATED_BLACK_AFTER_GEOMETRY_WARMUP=PASS             PHOTO_ACTIVE_WORKING_SET_RETAINED=PASS             PHOTO_VARIANT_MEMORY_BOUNDED=PASS             PHOTO_VARIANT_STRUCTURAL_BOUND=PASS             PHOTO_SOURCE_DECODE_COUNT=1             PHOTO_LOGICAL_SESSION_CREATION_COUNT=1             NO_GEOMETRY_EVENT_ALIASING=PASS             NO_ORIGINAL_WHILE_ON=PASS             OVER_BUDGET_STRESS=PASS             IOS15_DIRECT_RENDER_FALLBACK_REQUIRED=YES; do
+            grep -Fq "$marker" build/photo-geometry-working-set-primary/results.txt
+          done
+
+      - name: Static callback allocation contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path("src/product/CameraConsumerAdapter.cpp").read_text()
+          start = text.index("CameraDecision CameraConsumerAdapter::decide")
+          end = text.index("CameraDecision\nCameraConsumerAdapter::\nblackOrEmergencyOriginal", start)
+          callback = text[start:end]
+          forbidden = [
+              "CVPixelBufferCreate",
+              "CVPixelBufferPoolCreate",
+              "new ",
+              "make_unique",
+              "unordered_map",
+              "dispatch_sync",
+              "sleep(",
+              "wait(",
+          ]
+          found = [token for token in forbidden if token in callback]
+          if found:
+              raise SystemExit(f"callback allocation/wait found: {found}")
+          PY
+          echo "NO_CALLBACK_UNBOUNDED_ALLOCATION=PASS"
+          echo "NO_CALLBACK_SYNCHRONOUS_WAIT=PASS"
+
+      - name: Upload primary evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: photo-geometry-working-set-primary-002-evidence
+          path: build/photo-geometry-working-set-primary/results.txt
+          if-no-files-found: error
+          retention-days: 14

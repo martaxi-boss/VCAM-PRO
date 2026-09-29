@@ -1062,6 +1062,14 @@ struct MediaserverdRuntime::Impl {
         const std::uint64_t revision =
             snapshot.photoTransform.revision;
 
+        adapter_.notePhotoGeometryObserved(
+            width,
+            height,
+            pixelFormat,
+            generation,
+            epoch,
+            revision);
+
         if (adapter_.hasReusablePhotoVariant(
                 width,
                 height,
@@ -1508,6 +1516,33 @@ struct MediaserverdRuntime::Impl {
                 ? bindingSnapshot.
                       photoTransform.revision
                 : 0);
+
+        if (reusableStaticMedia) {
+            const std::uint64_t geometry =
+                observedGeometry_.load(
+                    std::memory_order_acquire);
+            std::size_t width = 0;
+            std::size_t height = 0;
+            OSType pixelFormat = 0;
+            DecodeGeometryKey(
+                geometry,
+                &width,
+                &height,
+                &pixelFormat);
+            if (width != 0 &&
+                height != 0 &&
+                SupportedCameraFormat(
+                    pixelFormat)) {
+                adapter_.notePhotoGeometryObserved(
+                    width,
+                    height,
+                    pixelFormat,
+                    queueGeneration,
+                    queueEpoch,
+                    bindingSnapshot.
+                        photoTransform.revision);
+            }
+        }
 
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
         const ProductControlSnapshot
@@ -3820,6 +3855,19 @@ MediaserverdRuntime::snapshotForTesting() {
                     impl_->session_->
                         photoVariantPreparationCount();
             }
+
+            result.photoVariantRetainedBytes =
+                impl_->adapter_.
+                    photoVariantRetainedBytes();
+            result.photoVariantWorkingSetCount =
+                impl_->adapter_.
+                    photoVariantWorkingSetCount();
+            result.photoVariantEvictionCount =
+                impl_->adapter_.
+                    photoVariantEvictionCount();
+            result.photoVariantReprepareCount =
+                impl_->adapter_.
+                    photoVariantReprepareCount();
 
             result.logicalPhotoSessionCreationCount =
                 impl_->testLogicalPhotoSessionCreationCount_;

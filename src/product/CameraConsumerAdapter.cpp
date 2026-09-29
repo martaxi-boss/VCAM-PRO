@@ -1,5 +1,6 @@
 #include "CameraConsumerAdapter.h"
 
+#include <limits>
 #include <utility>
 
 namespace vcam::product {
@@ -22,6 +23,58 @@ bool SupportsInPlaceBlackOwnership(
             kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange ||
         format ==
             kCVPixelFormatType_420YpCbCr8BiPlanarFullRange;
+}
+
+std::size_t PixelBufferFootprint(
+    CVPixelBufferRef pixelBuffer) noexcept {
+    if (pixelBuffer == nullptr) {
+        return 0;
+    }
+
+    const std::size_t dataSize =
+        CVPixelBufferGetDataSize(pixelBuffer);
+    if (dataSize != 0) {
+        return dataSize;
+    }
+
+    if (!CVPixelBufferIsPlanar(pixelBuffer)) {
+        const std::size_t stride =
+            CVPixelBufferGetBytesPerRow(pixelBuffer);
+        const std::size_t height =
+            CVPixelBufferGetHeight(pixelBuffer);
+        if (height != 0 &&
+            stride <=
+                std::numeric_limits<std::size_t>::max() /
+                    height) {
+            return stride * height;
+        }
+        return 0;
+    }
+
+    std::size_t total = 0;
+    const std::size_t planeCount =
+        CVPixelBufferGetPlaneCount(pixelBuffer);
+    for (std::size_t plane = 0;
+         plane < planeCount;
+         ++plane) {
+        const std::size_t stride =
+            CVPixelBufferGetBytesPerRowOfPlane(
+                pixelBuffer,
+                plane);
+        const std::size_t height =
+            CVPixelBufferGetHeightOfPlane(
+                pixelBuffer,
+                plane);
+        if (height != 0 &&
+            stride >
+                (std::numeric_limits<std::size_t>::max() -
+                 total) /
+                    height) {
+            return 0;
+        }
+        total += stride * height;
+    }
+    return total;
 }
 
 }  // namespace
@@ -148,6 +201,129 @@ void CameraConsumerAdapter::unbindQueue() {
     reusableStaticMedia_ = false;
     reusableStaticRevision_ = 0;
     context_ = {};
+}
+
+void CameraConsumerAdapter::notePhotoGeometryObserved(
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) {
+    if (width == 0 ||
+        height == 0 ||
+        pixelFormat == 0 ||
+        mediaGeneration == 0 ||
+        timelineEpoch == 0) {
+        return;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    if (!reusableStaticMedia_ ||
+        context_.currentMediaGeneration !=
+            mediaGeneration ||
+        context_.currentTimelineEpoch !=
+            timelineEpoch ||
+        reusableStaticRevision_ !=
+            transformRevision) {
+        return;
+    }
+
+    if (photoGeometryObservationSerial_ ==
+        UINT64_MAX) {
+        std::uint64_t serial = 1;
+        for (auto& entry : photoWorkingSet_) {
+            if (entry.valid) {
+                entry.lastObservedSerial =
+                    serial++;
+            }
+        }
+        photoGeometryObservationSerial_ =
+            serial;
+    } else {
+        ++photoGeometryObservationSerial_;
+    }
+
+    PhotoWorkingSetEntry* entry =
+        findPhotoWorkingSetEntryLocked(
+            width,
+            height,
+            pixelFormat,
+            mediaGeneration,
+            timelineEpoch,
+            transformRevision);
+
+    if (entry == nullptr) {
+        for (auto& candidate : photoWorkingSet_) {
+            if (!candidate.valid ||
+                candidate.mediaGeneration !=
+                    mediaGeneration ||
+                candidate.timelineEpoch !=
+                    timelineEpoch ||
+                candidate.transformRevision !=
+                    transformRevision) {
+                entry = &candidate;
+                break;
+            }
+        }
+    }
+
+    if (entry == nullptr) {
+        entry = &photoWorkingSet_[0];
+        for (auto& candidate : photoWorkingSet_) {
+            if (candidate.lastObservedSerial <
+                entry->lastObservedSerial) {
+                entry = &candidate;
+            }
+        }
+    }
+
+    const bool sameGeometry =
+        entry->valid &&
+        entry->mediaGeneration ==
+            mediaGeneration &&
+        entry->timelineEpoch ==
+            timelineEpoch &&
+        entry->transformRevision ==
+            transformRevision &&
+        entry->width == width &&
+        entry->height == height &&
+        entry->pixelFormat == pixelFormat;
+
+    if (!sameGeometry) {
+        *entry = {};
+        entry->valid = true;
+        entry->mediaGeneration =
+            mediaGeneration;
+        entry->timelineEpoch =
+            timelineEpoch;
+        entry->transformRevision =
+            transformRevision;
+        entry->width = width;
+        entry->height = height;
+        entry->pixelFormat =
+            pixelFormat;
+    } else if (
+        entry->preparedOnce &&
+        !entry->repreparePending &&
+        findPhotoVariantLocked(
+            width,
+            height,
+            pixelFormat,
+            mediaGeneration,
+            timelineEpoch,
+            transformRevision) == nullptr) {
+        ++photoVariantReprepareCount_;
+        entry->repreparePending = true;
+    }
+
+    entry->lastObservedSerial =
+        photoGeometryObservationSerial_;
+    if (entry->observationCount !=
+        UINT64_MAX) {
+        ++entry->observationCount;
+    }
 }
 
 bool CameraConsumerAdapter::bindBlackFallback(
@@ -472,6 +648,58 @@ CameraConsumerAdapter::photoVariantCount() const {
     return count;
 }
 
+std::size_t
+CameraConsumerAdapter::
+photoVariantRetainedBytes() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return photoVariantRetainedBytes_;
+}
+
+std::size_t
+CameraConsumerAdapter::
+photoVariantWorkingSetCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+
+    std::size_t count = 0;
+    for (const auto& entry : photoWorkingSet_) {
+        if (!entry.valid ||
+            entry.mediaGeneration !=
+                context_.currentMediaGeneration ||
+            entry.timelineEpoch !=
+                context_.currentTimelineEpoch ||
+            entry.transformRevision !=
+                reusableStaticRevision_) {
+            continue;
+        }
+
+        const std::uint64_t age =
+            photoGeometryObservationSerial_ >=
+                    entry.lastObservedSerial
+                ? photoGeometryObservationSerial_ -
+                      entry.lastObservedSerial
+                : UINT64_MAX;
+        if (age <=
+            kPhotoWorkingSetActiveObservationWindow) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+photoVariantEvictionCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return photoVariantEvictionCount_;
+}
+
+std::uint64_t
+CameraConsumerAdapter::
+photoVariantReprepareCount() const {
+    std::lock_guard<std::mutex> lock(mutex_);
+    return photoVariantReprepareCount_;
+}
+
 bool CameraConsumerAdapter::
 hasReusablePhotoVariant(
     std::size_t width,
@@ -616,7 +844,14 @@ clearPhotoVariantsLocked() noexcept {
         }
         slot = {};
     }
+    photoVariantRetainedBytes_ = 0;
+    for (auto& entry : photoWorkingSet_) {
+        entry = {};
+    }
+    photoGeometryObservationSerial_ = 0;
     photoVariantUseSerial_ = 0;
+    photoVariantEvictionCount_ = 0;
+    photoVariantReprepareCount_ = 0;
 }
 
 CameraConsumerAdapter::PhotoVariantSlot*
@@ -669,6 +904,76 @@ CameraConsumerAdapter::findPhotoVariantLocked(
     return nullptr;
 }
 
+PhotoWorkingSetEntry*
+CameraConsumerAdapter::
+findPhotoWorkingSetEntryLocked(
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) noexcept {
+    return const_cast<PhotoWorkingSetEntry*>(
+        static_cast<const CameraConsumerAdapter*>(
+            this)->findPhotoWorkingSetEntryLocked(
+                width,
+                height,
+                pixelFormat,
+                mediaGeneration,
+                timelineEpoch,
+                transformRevision));
+}
+
+const CameraConsumerAdapter::PhotoWorkingSetEntry*
+CameraConsumerAdapter::
+findPhotoWorkingSetEntryLocked(
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat,
+    std::uint64_t mediaGeneration,
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) const noexcept {
+    for (const auto& entry : photoWorkingSet_) {
+        if (entry.valid &&
+            entry.mediaGeneration ==
+                mediaGeneration &&
+            entry.timelineEpoch ==
+                timelineEpoch &&
+            entry.transformRevision ==
+                transformRevision &&
+            entry.width == width &&
+            entry.height == height &&
+            entry.pixelFormat ==
+                pixelFormat) {
+            return &entry;
+        }
+    }
+    return nullptr;
+}
+
+bool CameraConsumerAdapter::
+photoGeometryActiveLocked(
+    const PhotoVariantSlot& slot) const noexcept {
+    const PhotoWorkingSetEntry* entry =
+        findPhotoWorkingSetEntryLocked(
+            slot.width,
+            slot.height,
+            slot.pixelFormat,
+            slot.mediaGeneration,
+            slot.timelineEpoch,
+            slot.transformRevision);
+    if (entry == nullptr ||
+        photoGeometryObservationSerial_ <
+            entry->lastObservedSerial) {
+        return false;
+    }
+
+    return
+        photoGeometryObservationSerial_ -
+            entry->lastObservedSerial <=
+        kPhotoWorkingSetActiveObservationWindow;
+}
+
 CVPixelBufferRef
 CameraConsumerAdapter::
 retainPhotoVariantLocked(
@@ -689,9 +994,55 @@ retainPhotoVariantLocked(
     const OSType pixelFormat =
         CVPixelBufferGetPixelFormatType(
             pixelBuffer);
+    const std::size_t retainedBytes =
+        PixelBufferFootprint(pixelBuffer);
+
+    if (retainedBytes == 0 ||
+        retainedBytes >
+            kPhotoVariantRetainedByteBudget) {
+        return nullptr;
+    }
+
+    auto releaseSlot =
+        [this](
+            PhotoVariantSlot& slot,
+            bool countEviction) {
+            if (slot.pixelBuffer == nullptr) {
+                slot = {};
+                return;
+            }
+
+            if (photoVariantRetainedBytes_ >=
+                slot.retainedBytes) {
+                photoVariantRetainedBytes_ -=
+                    slot.retainedBytes;
+            } else {
+                photoVariantRetainedBytes_ = 0;
+            }
+
+            CVPixelBufferRelease(
+                slot.pixelBuffer);
+            slot = {};
+            if (countEviction) {
+                ++photoVariantEvictionCount_;
+            }
+        };
+
+    for (auto& slot : photoVariants_) {
+        if (slot.pixelBuffer != nullptr &&
+            (slot.mediaGeneration !=
+                 mediaGeneration ||
+             slot.timelineEpoch !=
+                 timelineEpoch ||
+             slot.transformRevision !=
+                 transformRevision)) {
+            releaseSlot(
+                slot,
+                false);
+        }
+    }
 
     PhotoVariantSlot* destination = nullptr;
-
     for (auto& slot : photoVariants_) {
         if (slot.pixelBuffer != nullptr &&
             slot.mediaGeneration ==
@@ -709,42 +1060,102 @@ retainPhotoVariantLocked(
         }
     }
 
+    const auto chooseEviction =
+        [this, &destination]()
+            -> PhotoVariantSlot* {
+            PhotoVariantSlot* bestInactive =
+                nullptr;
+            PhotoVariantSlot* bestActive =
+                nullptr;
+
+            for (auto& slot : photoVariants_) {
+                if (&slot == destination ||
+                    slot.pixelBuffer == nullptr) {
+                    continue;
+                }
+
+                PhotoVariantSlot*& best =
+                    photoGeometryActiveLocked(
+                        slot)
+                        ? bestActive
+                        : bestInactive;
+                if (best == nullptr ||
+                    slot.lastUseSerial <
+                        best->lastUseSerial) {
+                    best = &slot;
+                }
+            }
+
+            return bestInactive != nullptr
+                ? bestInactive
+                : bestActive;
+        };
+
     if (destination == nullptr) {
         for (auto& slot : photoVariants_) {
-            if (slot.pixelBuffer == nullptr ||
-                slot.mediaGeneration !=
-                    mediaGeneration ||
-                slot.timelineEpoch !=
-                    timelineEpoch ||
-                slot.transformRevision !=
-                    transformRevision) {
+            if (slot.pixelBuffer == nullptr) {
                 destination = &slot;
                 break;
             }
         }
     }
 
+    while (
+        photoVariantRetainedBytes_ +
+            retainedBytes -
+            (destination != nullptr
+                 ? destination->retainedBytes
+                 : 0) >
+        kPhotoVariantRetainedByteBudget) {
+        PhotoVariantSlot* reclaim =
+            chooseEviction();
+        if (reclaim == nullptr) {
+            return nullptr;
+        }
+        releaseSlot(
+            *reclaim,
+            true);
+        if (destination == nullptr) {
+            destination = reclaim;
+        }
+    }
+
     if (destination == nullptr) {
         destination =
-            &photoVariants_[0];
-        for (auto& slot : photoVariants_) {
-            if (slot.lastUseSerial <
-                destination->lastUseSerial) {
-                destination = &slot;
-            }
+            chooseEviction();
+        if (destination == nullptr) {
+            return nullptr;
         }
+        releaseSlot(
+            *destination,
+            true);
     }
 
     if (destination->pixelBuffer !=
         pixelBuffer) {
+        const std::size_t previousBytes =
+            destination->retainedBytes;
         CVPixelBufferRetain(pixelBuffer);
         if (destination->pixelBuffer !=
             nullptr) {
             CVPixelBufferRelease(
                 destination->pixelBuffer);
         }
+
+        if (photoVariantRetainedBytes_ >=
+            previousBytes) {
+            photoVariantRetainedBytes_ -=
+                previousBytes;
+        } else {
+            photoVariantRetainedBytes_ = 0;
+        }
+
         destination->pixelBuffer =
             pixelBuffer;
+        destination->retainedBytes =
+            retainedBytes;
+        photoVariantRetainedBytes_ +=
+            retainedBytes;
     }
 
     destination->mediaGeneration =
@@ -759,6 +1170,19 @@ retainPhotoVariantLocked(
         pixelFormat;
     destination->lastUseSerial =
         nextPhotoVariantUseSerialLocked();
+
+    PhotoWorkingSetEntry* working =
+        findPhotoWorkingSetEntryLocked(
+            width,
+            height,
+            pixelFormat,
+            mediaGeneration,
+            timelineEpoch,
+            transformRevision);
+    if (working != nullptr) {
+        working->preparedOnce = true;
+        working->repreparePending = false;
+    }
 
     return destination->pixelBuffer;
 }

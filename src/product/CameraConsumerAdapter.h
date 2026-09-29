@@ -54,7 +54,17 @@ public:
     static constexpr std::size_t
         kPinnedLeaseCapacity = 4;
     static constexpr std::size_t
-        kPhotoVariantCapacity = 4;
+        kPhotoVariantStructuralCapacity = 12;
+    static constexpr std::size_t
+        kPhotoVariantCapacity =
+            kPhotoVariantStructuralCapacity;
+    static constexpr std::size_t
+        kPhotoVariantRetainedByteBudget =
+            32U * 1024U * 1024U;
+    static constexpr std::size_t
+        kPhotoWorkingSetCapacity = 16;
+    static constexpr std::uint64_t
+        kPhotoWorkingSetActiveObservationWindow = 32;
     static constexpr std::size_t
         kBlackFallbackCapacity = 4;
 
@@ -94,7 +104,19 @@ public:
 
     std::size_t pinnedLeaseCount() const;
     std::size_t photoVariantCount() const;
+    std::size_t photoVariantRetainedBytes() const;
+    std::size_t photoVariantWorkingSetCount() const;
+    std::uint64_t photoVariantEvictionCount() const;
+    std::uint64_t photoVariantReprepareCount() const;
     std::size_t blackFallbackCacheCount() const;
+
+    void notePhotoGeometryObserved(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision);
 
     bool hasReusablePhotoVariant(
         std::size_t width,
@@ -125,7 +147,22 @@ private:
         std::size_t width = 0;
         std::size_t height = 0;
         OSType pixelFormat = 0;
+        std::size_t retainedBytes = 0;
         std::uint64_t lastUseSerial = 0;
+    };
+
+    struct PhotoWorkingSetEntry {
+        bool valid = false;
+        std::uint64_t mediaGeneration = 0;
+        std::uint64_t timelineEpoch = 0;
+        std::uint64_t transformRevision = 0;
+        std::size_t width = 0;
+        std::size_t height = 0;
+        OSType pixelFormat = 0;
+        std::uint64_t lastObservedSerial = 0;
+        std::uint64_t observationCount = 0;
+        bool preparedOnce = false;
+        bool repreparePending = false;
     };
 
     bool matchesOriginalGeometry(
@@ -154,6 +191,22 @@ private:
         std::uint64_t mediaGeneration,
         std::uint64_t timelineEpoch,
         std::uint64_t transformRevision) noexcept;
+    PhotoWorkingSetEntry* findPhotoWorkingSetEntryLocked(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) noexcept;
+    const PhotoWorkingSetEntry* findPhotoWorkingSetEntryLocked(
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat,
+        std::uint64_t mediaGeneration,
+        std::uint64_t timelineEpoch,
+        std::uint64_t transformRevision) const noexcept;
+    bool photoGeometryActiveLocked(
+        const PhotoVariantSlot& slot) const noexcept;
     std::uint64_t nextPhotoVariantUseSerialLocked() noexcept;
 
     CameraDecision blackOrEmergencyOriginal(
@@ -176,9 +229,19 @@ private:
     bool producerHealthy_ = false;
     bool reusableStaticMedia_ = false;
     std::uint64_t reusableStaticRevision_ = 0;
-    std::array<PhotoVariantSlot, kPhotoVariantCapacity>
+    std::array<
+        PhotoVariantSlot,
+        kPhotoVariantStructuralCapacity>
         photoVariants_{};
+    std::size_t photoVariantRetainedBytes_ = 0;
+    std::array<
+        PhotoWorkingSetEntry,
+        kPhotoWorkingSetCapacity>
+        photoWorkingSet_{};
+    std::uint64_t photoGeometryObservationSerial_ = 0;
     std::uint64_t photoVariantUseSerial_ = 0;
+    std::uint64_t photoVariantEvictionCount_ = 0;
+    std::uint64_t photoVariantReprepareCount_ = 0;
 
     std::array<
         std::optional<frame_engine::ReadyFrameLease>,

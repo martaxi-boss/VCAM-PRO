@@ -336,8 +336,9 @@ bool TestPhotoMultiGeometryStability() {
 
     // Fifth geometry requires deterministic bounded eviction, never expansion.
     CHECK(ObserveDrainAndExpectPhoto(runtime, e));
-    CHECK(runtime.cameraAdapter().photoVariantCount() ==
+    CHECK(runtime.cameraAdapter().photoVariantCount() <=
           CameraConsumerAdapter::kPhotoVariantCapacity);
+    CHECK(runtime.cameraAdapter().photoVariantCount() >= 5);
     CHECK(runtime.cameraAdapter().
               enabledSupportedOriginalDecisionCount() == 0);
 
