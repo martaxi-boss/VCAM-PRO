@@ -1198,121 +1198,6 @@ bool TestVideoSelectionAndGeometryChurn() {
 }
 
 
-bool TestVideoRepeatedCameraCallbackStarvationPreFix() {
-    const std::string root =
-        TempRoot("video-repeated-callback-prefx");
-    CHECK(CreateDirectory(root));
-
-    const std::string input =
-        root + "/input.mov";
-    CHECK(CreateVideo(input, 240));
-
-    const std::string controlPath =
-        root + "/control.plist";
-    const std::string media =
-        root + "/Media";
-    const std::string notification =
-        "com.vcampro.deviceproof.video.prefx." +
-        std::to_string(getpid());
-
-    ProductControlOwner owner(
-        controlPath,
-        notification,
-        media);
-    MediaserverdRuntime runtime(
-        controlPath,
-        notification);
-    CHECK(runtime.start());
-
-    CVPixelBufferRef geometry =
-        MakeBuffer(
-            64,
-            48,
-            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
-    CHECK(geometry != nullptr);
-
-    runtime.observeRealCameraBuffer(
-        geometry);
-    CHECK(runtime.drainControlQueueForTesting());
-    CHECK(owner.setEnabled(true));
-
-    std::string error;
-    CHECK(
-        owner.selectFromTemporaryPath(
-            input,
-            ProductMediaKind::Video,
-            &error));
-    CHECK(error.empty());
-
-    const auto selected =
-        owner.snapshot();
-    CHECK(
-        WaitForVideo(
-            runtime,
-            selected.selectionGeneration,
-            1));
-    CHECK(
-        WaitForPreparedGeometry(
-            runtime,
-            geometry,
-            selected.selectionGeneration));
-
-    const auto blackBefore =
-        runtime.cameraAdapter().
-            blackVirtualDecisionCount() +
-        runtime.cameraAdapter().
-            inPlaceBlackGuardDecisionCount();
-
-    const CameraDecision first =
-        runtime.decideCameraBuffer(
-            geometry);
-    CHECK(IsPrepared(first));
-
-    const CameraDecision second =
-        runtime.decideCameraBuffer(
-            geometry);
-    CHECK(
-        second.kind ==
-            CameraDecisionKind::Virtual);
-    CHECK(
-        second.source ==
-            CameraDecisionSource::BlackFallback ||
-        second.source ==
-            CameraDecisionSource::
-                InPlaceBlackOwnershipGuard);
-
-    const auto blackAfter =
-        runtime.cameraAdapter().
-            blackVirtualDecisionCount() +
-        runtime.cameraAdapter().
-            inPlaceBlackGuardDecisionCount();
-
-    CHECK(blackAfter > blackBefore);
-    CHECK(
-        runtime.cameraAdapter().
-            enabledSupportedOriginalDecisionCount() ==
-                0);
-
-    std::cout
-        << "PRE_FIX_VIDEO_REPEATED_CALLBACK_FIRST_PREPARED=PASS\n"
-        << "PRE_FIX_VIDEO_REPEATED_CALLBACK_SECOND_BLACK=YES\n"
-        << "PRE_FIX_VIDEO_QUEUE_ONE_SHOT_STARVATION=PASS\n"
-        << "PRE_FIX_VIDEO_ORIGINAL_DECISIONS=ZERO\n";
-
-    CVPixelBufferRelease(
-        geometry);
-
-    [[NSFileManager defaultManager]
-        removeItemAtPath:
-            [NSString
-                stringWithUTF8String:
-                    root.c_str()]
-                   error:nil];
-
-    return true;
-}
-
-
 }  // namespace
 
 int main() {
@@ -1336,10 +1221,6 @@ int main() {
 #endif
 
         if (!TestVideoSelectionAndGeometryChurn()) {
-            return EXIT_FAILURE;
-        }
-
-        if (!TestVideoRepeatedCameraCallbackStarvationPreFix()) {
             return EXIT_FAILURE;
         }
 
