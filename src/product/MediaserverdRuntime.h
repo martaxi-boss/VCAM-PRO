@@ -34,6 +34,28 @@ struct MediaserverdRuntimeTestSnapshot {
     std::uint64_t videoReaderStartCount = 0;
     std::uint64_t videoSessionReplacementCount = 0;
     std::uint64_t totalVideoPublishedFrameCount = 0;
+    bool videoReaderOpen = false;
+    bool videoReaderStarted = false;
+    std::uint8_t videoReaderError = 0;
+    std::uint64_t videoReadFrameCount = 0;
+    std::uint8_t videoLastReadResult = 0;
+    bool videoHasLastSourcePTS = false;
+    std::int64_t videoLastSourcePTSValue = 0;
+    std::int32_t videoLastSourcePTSTimescale = 0;
+    std::uint64_t videoNormalizeSuccessCount = 0;
+    std::uint64_t videoNormalizeFailureCount = 0;
+    std::uint64_t videoTransformSuccessCount = 0;
+    std::uint64_t videoTransformFailureCount = 0;
+    std::uint64_t videoTimelineReadyCount = 0;
+    std::uint64_t videoTimelineWaitCount = 0;
+    std::uint64_t videoTimelineDropCount = 0;
+    std::uint8_t videoDriverState = 0;
+    std::uint64_t videoAcquireCount = 0;
+    std::uint64_t videoLatestReuseCount = 0;
+    std::uint64_t videoPreparedMediaDecisionCount = 0;
+    std::uint64_t videoBlackDecisionCount = 0;
+    std::uint64_t videoCommitSuccessCount = 0;
+    std::uint64_t videoCommitFailureCount = 0;
     std::uint8_t currentTargetOrientation = 0;
     std::uint64_t photoVariantPreparationCount = 0;
     std::size_t photoVariantRetainedBytes = 0;
@@ -76,6 +98,12 @@ public:
 
     CameraDecision decideCameraBuffer(
         CVPixelBufferRef original) noexcept;
+
+    // Callback-safe diagnostic counters only. Serialization is performed
+    // later on the mediaserverd control queue.
+    void noteCameraCommitResult(
+        bool attempted,
+        bool succeeded) noexcept;
 
     CameraConsumerAdapter&
     cameraAdapter() noexcept;
