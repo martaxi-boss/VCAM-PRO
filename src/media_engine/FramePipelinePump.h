@@ -116,6 +116,8 @@ public:
     const NormalizationTarget& target() const noexcept;
     void setTarget(
         const NormalizationTarget& target) noexcept;
+    void setTargetPreservingTimeline(
+        const NormalizationTarget& target) noexcept;
 
     void setForceTransform(bool enabled) noexcept {
         forceTransform_ = enabled;
