@@ -126,7 +126,8 @@ void CameraConsumerAdapter::bindQueue(
     std::uint64_t timelineEpoch,
     bool producerHealthy,
     bool reusableStaticMedia,
-    std::uint64_t reusableStaticRevision) {
+    std::uint64_t reusableStaticRevision,
+    std::uint64_t mediaTransformRevision) {
     std::lock_guard<std::mutex> lock(mutex_);
 
     const bool logicalIdentityChanged =
@@ -142,6 +143,14 @@ void CameraConsumerAdapter::bindQueue(
     if (logicalIdentityChanged) {
         clearPhotoVariantsLocked();
         clearVideoLatestFramesLocked();
+    } else if (
+        !reusableStaticMedia &&
+        mediaTransformRevision_ !=
+            mediaTransformRevision) {
+        // Keep the prior frame only as a bounded bridge until a fresh frame
+        // carrying the new revision is acquired.
+        videoStaleTransformReuseBudget_ =
+            kVideoTransformTransitionReuseBudget;
     }
 
     // Queue replacement alone is not logical PHOTO invalidation. Geometry
@@ -161,6 +170,8 @@ void CameraConsumerAdapter::bindQueue(
         reusableStaticMedia
             ? reusableStaticRevision
             : 0;
+    mediaTransformRevision_ =
+        mediaTransformRevision;
 }
 
 void CameraConsumerAdapter::updateContext(
@@ -168,19 +179,29 @@ void CameraConsumerAdapter::updateContext(
     std::uint64_t timelineEpoch,
     bool producerHealthy,
     bool reusableStaticMedia,
-    std::uint64_t reusableStaticRevision) {
+    std::uint64_t reusableStaticRevision,
+    std::uint64_t mediaTransformRevision) {
     std::lock_guard<std::mutex> lock(mutex_);
 
-    if (context_.currentMediaGeneration !=
+    const bool logicalIdentityChanged =
+        context_.currentMediaGeneration !=
             mediaGeneration ||
         context_.currentTimelineEpoch !=
             timelineEpoch ||
         reusableStaticMedia_ !=
             reusableStaticMedia ||
         reusableStaticRevision_ !=
-            reusableStaticRevision) {
+            reusableStaticRevision;
+
+    if (logicalIdentityChanged) {
         clearPhotoVariantsLocked();
         clearVideoLatestFramesLocked();
+    } else if (
+        !reusableStaticMedia &&
+        mediaTransformRevision_ !=
+            mediaTransformRevision) {
+        videoStaleTransformReuseBudget_ =
+            kVideoTransformTransitionReuseBudget;
     }
 
     context_.currentMediaGeneration =
@@ -196,6 +217,8 @@ void CameraConsumerAdapter::updateContext(
         reusableStaticMedia
             ? reusableStaticRevision
             : 0;
+    mediaTransformRevision_ =
+        mediaTransformRevision;
 }
 
 void CameraConsumerAdapter::unbindQueue() {
@@ -206,6 +229,8 @@ void CameraConsumerAdapter::unbindQueue() {
     producerHealthy_ = false;
     reusableStaticMedia_ = false;
     reusableStaticRevision_ = 0;
+    mediaTransformRevision_ = 0;
+    videoStaleTransformReuseBudget_ = 0;
     context_ = {};
 }
 
@@ -524,7 +549,8 @@ CameraDecision CameraConsumerAdapter::decide(
                                     context_.
                                         currentMediaGeneration,
                                     context_.
-                                        currentTimelineEpoch);
+                                        currentTimelineEpoch,
+                                    mediaTransformRevision_);
                             if (retained != nullptr) {
                                 selected = retained;
                             }
@@ -952,6 +978,7 @@ clearVideoLatestFramesLocked() noexcept {
     }
     videoLatestRetainedBytes_ = 0;
     videoLatestUseSerial_ = 0;
+    videoStaleTransformReuseBudget_ = 0;
 }
 
 CameraConsumerAdapter::VideoLatestFrameSlot*
@@ -976,13 +1003,40 @@ findVideoLatestFrameLocked(
                 context_.currentMediaGeneration &&
             slot.timelineEpoch ==
                 context_.currentTimelineEpoch &&
+            slot.transformRevision ==
+                mediaTransformRevision_ &&
             slot.width == width &&
             slot.height == height &&
             slot.pixelFormat == pixelFormat) {
             return &slot;
         }
     }
-    return nullptr;
+
+    if (videoStaleTransformReuseBudget_ == 0) {
+        return nullptr;
+    }
+
+    VideoLatestFrameSlot* transitional = nullptr;
+    for (auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.mediaGeneration ==
+                context_.currentMediaGeneration &&
+            slot.timelineEpoch ==
+                context_.currentTimelineEpoch &&
+            slot.width == width &&
+            slot.height == height &&
+            slot.pixelFormat == pixelFormat &&
+            (transitional == nullptr ||
+             slot.lastUseSerial >
+                 transitional->lastUseSerial)) {
+            transitional = &slot;
+        }
+    }
+
+    if (transitional != nullptr) {
+        --videoStaleTransformReuseBudget_;
+    }
+    return transitional;
 }
 
 std::uint64_t
@@ -1008,7 +1062,8 @@ CameraConsumerAdapter::
 retainVideoLatestFrameLocked(
     CVPixelBufferRef pixelBuffer,
     std::uint64_t mediaGeneration,
-    std::uint64_t timelineEpoch) noexcept {
+    std::uint64_t timelineEpoch,
+    std::uint64_t transformRevision) noexcept {
     if (pixelBuffer == nullptr ||
         mediaGeneration == 0 ||
         timelineEpoch == 0) {
@@ -1031,6 +1086,29 @@ retainVideoLatestFrameLocked(
         CVPixelBufferGetPixelFormatType(
             pixelBuffer);
 
+    // A fresh frame at this revision supersedes transitional stale frames.
+    for (auto& slot : videoLatestFrames_) {
+        if (slot.pixelBuffer != nullptr &&
+            slot.mediaGeneration ==
+                mediaGeneration &&
+            slot.timelineEpoch ==
+                timelineEpoch &&
+            slot.transformRevision !=
+                transformRevision) {
+            CVPixelBufferRelease(
+                slot.pixelBuffer);
+            if (videoLatestRetainedBytes_ >=
+                slot.retainedBytes) {
+                videoLatestRetainedBytes_ -=
+                    slot.retainedBytes;
+            } else {
+                videoLatestRetainedBytes_ = 0;
+            }
+            slot = {};
+        }
+    }
+    videoStaleTransformReuseBudget_ = 0;
+
     VideoLatestFrameSlot* destination =
         nullptr;
 
@@ -1040,6 +1118,8 @@ retainVideoLatestFrameLocked(
                 mediaGeneration &&
             slot.timelineEpoch ==
                 timelineEpoch &&
+            slot.transformRevision ==
+                transformRevision &&
             slot.width == width &&
             slot.height == height &&
             slot.pixelFormat == pixelFormat) {
@@ -1141,6 +1221,8 @@ retainVideoLatestFrameLocked(
         mediaGeneration;
     destination->timelineEpoch =
         timelineEpoch;
+    destination->transformRevision =
+        transformRevision;
     destination->width = width;
     destination->height = height;
     destination->pixelFormat = pixelFormat;
