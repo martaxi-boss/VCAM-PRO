@@ -542,6 +542,34 @@ publishedFrameCount() const {
         : 0;
 }
 
+bool InternalGalleryMediaSession::
+videoReaderOpen() const noexcept {
+    return videoReader_ != nullptr &&
+           videoReader_->isOpen();
+}
+
+bool InternalGalleryMediaSession::
+videoReaderStarted() const noexcept {
+    return videoReader_ != nullptr &&
+           videoReader_->isStarted();
+}
+
+frame_engine::ReaderErrorCode
+InternalGalleryMediaSession::
+videoReaderErrorCode() const noexcept {
+    return videoReader_ != nullptr
+        ? videoReader_->lastErrorCode()
+        : frame_engine::ReaderErrorCode::None;
+}
+
+ProducerRuntimeDiagnosticsSnapshot
+InternalGalleryMediaSession::
+producerRuntimeDiagnostics() const {
+    return driver_
+        ? driver_->runtimeDiagnostics()
+        : ProducerRuntimeDiagnosticsSnapshot{};
+}
+
 std::uint64_t InternalGalleryMediaSession::
 photoDecodeCount() const noexcept {
     return photoReader_
