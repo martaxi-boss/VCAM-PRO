@@ -79,6 +79,11 @@ private:
         MonotonicHostTimeNs nowHostTimeNs,
         CMTime frameDuration) const noexcept;
 
+    TimelineScheduleResult classifyAndRebaseLate(
+        MonotonicHostTimeNs dueHostTimeNs,
+        MonotonicHostTimeNs nowHostTimeNs,
+        CMTime frameDuration) noexcept;
+
     void initializeContext(
         const PreparedFrame& frame,
         std::uint64_t currentMediaGeneration,

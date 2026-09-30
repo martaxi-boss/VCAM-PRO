@@ -106,9 +106,10 @@ jobs:
             | tee build/video-device-proof-remediation-002/timing-final.txt
           for marker in \
             CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=REMEDIATED \
-            VIDEO_TIMING_MODEL_AFTER=FRAME_DURATION_DERIVED_LATENESS_FLOOR_PLUS_CONFIGURED_MINIMUM \
+            VIDEO_TIMING_MODEL_AFTER=FRAME_DURATION_DERIVED_LATENESS_WITH_SINGLE_LATE_HOST_REBASE \
             VIDEO_PUBLISH_SEQUENCE_CONTINUOUS=PASS \
             VIDEO_LATE_DROP_POLICY_BOUNDED=PASS \
+            VIDEO_LATE_DROP_HOST_REBASE=PASS \
             VIDEO_DOES_NOT_ACCUMULATE_UNBOUNDED_BACKLOG=PASS; do
             grep -Fq "$marker" build/video-device-proof-remediation-002/timing-final.txt
           done

@@ -525,6 +525,10 @@ bool TestGeometryRetargetPreservesPendingTimelineFrame() {
     const auto next =
         pump.pumpOnceAtHostTime(
             *pending.dueHostTimeNs);
+    std::cout
+        << "VIDEO_GEOMETRY_RETARGET_NEXT_STATUS="
+        << static_cast<unsigned>(next.status)
+        << "\n";
     CHECK(
         next.status ==
         FramePipelinePumpStatus::
@@ -605,8 +609,11 @@ bool TestLateFrameDroppedWithoutPublish() {
           FramePipelinePumpStatus::WaitingForPresentation);
     const std::size_t beforeDrop = queue.size();
 
+    // The remediation accepts normal jitter up to one source frame duration.
+    // Verify that an actually stale frame beyond that bounded window is still
+    // dropped rather than accumulated.
     const auto dropped = pump.pumpOnceAtHostTime(
-        *wait.dueHostTimeNs + 1'000'001ULL);
+        *wait.dueHostTimeNs + 33'333'334ULL);
 
     CHECK(dropped.status == FramePipelinePumpStatus::DroppedLate);
     CHECK(dropped.timelineStatus == TimelineScheduleStatus::DropLate);

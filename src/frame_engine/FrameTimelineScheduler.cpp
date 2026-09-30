@@ -52,7 +52,7 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
             currentTimelineEpoch,
             nowHostTimeNs);
 
-        return classify(
+        return classifyAndRebaseLate(
             lastDueHostTimeNs_,
             nowHostTimeNs,
             frame.timing().duration);
@@ -68,7 +68,7 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
             };
         }
 
-        return classify(
+        return classifyAndRebaseLate(
             lastDueHostTimeNs_,
             nowHostTimeNs,
             lastDuration_);
@@ -149,7 +149,7 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
     lastDueHostTimeNs_ = dueHostTimeNs;
     hasLastScheduledFrame_ = true;
 
-    return classify(
+    return classifyAndRebaseLate(
         dueHostTimeNs,
         nowHostTimeNs,
         frame.timing().duration);
@@ -278,6 +278,48 @@ bool FrameTimelineScheduler::checkedAdd(
 
     *result = lhs + rhs;
     return true;
+}
+
+TimelineScheduleResult FrameTimelineScheduler::classifyAndRebaseLate(
+    MonotonicHostTimeNs dueHostTimeNs,
+    MonotonicHostTimeNs nowHostTimeNs,
+    CMTime frameDuration) noexcept {
+    TimelineScheduleResult result =
+        classify(
+            dueHostTimeNs,
+            nowHostTimeNs,
+            frameDuration);
+
+    if (result.status != TimelineScheduleStatus::DropLate) {
+        return result;
+    }
+
+    // A late frame is already being dropped. Shift only the host-time anchor
+    // by the observed lateness so the next source PTS resumes normal cadence
+    // instead of cascading through a backlog of equally stale due times.
+    // Source PTS, generation, epoch, loop iteration and logical media identity
+    // remain unchanged.
+    const MonotonicHostTimeNs latenessNs =
+        nowHostTimeNs - dueHostTimeNs;
+
+    MonotonicHostTimeNs rebasedHostAnchorNs = 0;
+    MonotonicHostTimeNs rebasedLastDueHostTimeNs = 0;
+    if (!checkedAdd(
+            hostAnchorNs_,
+            latenessNs,
+            &rebasedHostAnchorNs) ||
+        !checkedAdd(
+            lastDueHostTimeNs_,
+            latenessNs,
+            &rebasedLastDueHostTimeNs)) {
+        result.status = TimelineScheduleStatus::InvalidTiming;
+        result.dueHostTimeNs.reset();
+        return result;
+    }
+
+    hostAnchorNs_ = rebasedHostAnchorNs;
+    lastDueHostTimeNs_ = rebasedLastDueHostTimeNs;
+    return result;
 }
 
 TimelineScheduleResult FrameTimelineScheduler::classify(

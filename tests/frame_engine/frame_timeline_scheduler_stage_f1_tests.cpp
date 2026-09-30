@@ -440,6 +440,10 @@ bool TestFrameDurationDerivedLatenessPolicy() {
         1, 71, 81, 0,
         CMTimeMake(1, 30),
         CMTimeMake(1, 30));
+    const auto boundedThird = MakeFrame(
+        2, 71, 81, 0,
+        CMTimeMake(2, 30),
+        CMTimeMake(1, 30));
     CHECK(
         bounded.evaluate(
             boundedFirst,
@@ -465,22 +469,47 @@ bool TestFrameDurationDerivedLatenessPolicy() {
             *boundedWait.dueHostTimeNs +
                 kFrameDurationNs).status ==
         TimelineScheduleStatus::ReadyNow);
+    const std::uint64_t dropHostTimeNs =
+        *boundedWait.dueHostTimeNs +
+        kFrameDurationNs + 1ULL;
     CHECK(
         bounded.evaluate(
             boundedSecond,
             71,
             81,
-            *boundedWait.dueHostTimeNs +
-                kFrameDurationNs + 1ULL).status ==
+            dropHostTimeNs).status ==
         TimelineScheduleStatus::DropLate);
+
+    const auto recoveredWait =
+        bounded.evaluate(
+            boundedThird,
+            71,
+            81,
+            dropHostTimeNs);
+    CHECK(
+        recoveredWait.status ==
+        TimelineScheduleStatus::WaitUntilDue);
+    CHECK(recoveredWait.dueHostTimeNs.has_value());
+    CHECK(*recoveredWait.dueHostTimeNs > dropHostTimeNs);
+    CHECK(
+        *recoveredWait.dueHostTimeNs - dropHostTimeNs <=
+        kFrameDurationNs);
+    CHECK(
+        bounded.evaluate(
+            boundedThird,
+            71,
+            81,
+            *recoveredWait.dueHostTimeNs).status ==
+        TimelineScheduleStatus::ReadyNow);
 
     CHECK(readyWithJitter == 30);
     CHECK(waits == 30);
     std::cout
         << "CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=REMEDIATED\n"
-        << "VIDEO_TIMING_MODEL_AFTER=FRAME_DURATION_DERIVED_LATENESS_FLOOR_PLUS_CONFIGURED_MINIMUM\n"
+        << "VIDEO_TIMING_MODEL_AFTER=FRAME_DURATION_DERIVED_LATENESS_WITH_SINGLE_LATE_HOST_REBASE\n"
         << "VIDEO_PUBLISH_SEQUENCE_CONTINUOUS=PASS\n"
         << "VIDEO_LATE_DROP_POLICY_BOUNDED=PASS\n"
+        << "VIDEO_LATE_DROP_HOST_REBASE=PASS\n"
         << "VIDEO_DOES_NOT_ACCUMULATE_UNBOUNDED_BACKLOG=PASS\n"
         << "VIDEO_FRAME_DERIVED_QUARTER_JITTER_NS="
         << kQuarterFrameJitterNs << "\n";
