@@ -1604,6 +1604,60 @@ bool TestVideoPresentationRemediation002() {
         [NSThread sleepForTimeInterval:0.5];
         const auto flowAfter =
             runtime.snapshotForTesting();
+
+        std::cout
+            << "VIDEO_FLOW_WINDOW_PUBLISH="
+            << flowBefore.totalVideoPublishedFrameCount
+            << "->"
+            << flowAfter.totalVideoPublishedFrameCount
+            << "\nVIDEO_FLOW_WINDOW_READ="
+            << flowBefore.videoReadFrameCount
+            << "->"
+            << flowAfter.videoReadFrameCount
+            << "\nVIDEO_FLOW_WINDOW_NORMALIZE="
+            << flowBefore.videoNormalizeSuccessCount
+            << "->"
+            << flowAfter.videoNormalizeSuccessCount
+            << "\nVIDEO_FLOW_WINDOW_TRANSFORM="
+            << flowBefore.videoTransformSuccessCount
+            << "->"
+            << flowAfter.videoTransformSuccessCount
+            << "\nVIDEO_FLOW_WINDOW_TIMELINE="
+            << flowBefore.videoTimelineReadyCount
+            << "/"
+            << flowBefore.videoTimelineWaitCount
+            << "/"
+            << flowBefore.videoTimelineDropCount
+            << "->"
+            << flowAfter.videoTimelineReadyCount
+            << "/"
+            << flowAfter.videoTimelineWaitCount
+            << "/"
+            << flowAfter.videoTimelineDropCount
+            << "\nVIDEO_FLOW_WINDOW_DRIVER="
+            << static_cast<unsigned>(
+                   flowBefore.videoDriverState)
+            << "->"
+            << static_cast<unsigned>(
+                   flowAfter.videoDriverState)
+            << "\nVIDEO_FLOW_WINDOW_HEALTHY="
+            << (flowBefore.producerHealthy ? 1 : 0)
+            << "->"
+            << (flowAfter.producerHealthy ? 1 : 0)
+            << "\nVIDEO_FLOW_WINDOW_QUEUE="
+            << flowBefore.readyQueueSize
+            << "->"
+            << flowAfter.readyQueueSize
+            << "\nVIDEO_FLOW_WINDOW_PTS="
+            << flowBefore.videoLastSourcePTSValue
+            << "/"
+            << flowBefore.videoLastSourcePTSTimescale
+            << "->"
+            << flowAfter.videoLastSourcePTSValue
+            << "/"
+            << flowAfter.videoLastSourcePTSTimescale
+            << "\n";
+
         CHECK(
             flowAfter.totalVideoPublishedFrameCount >
             flowBefore.totalVideoPublishedFrameCount + 5);
