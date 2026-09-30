@@ -274,6 +274,50 @@ bool ReadyFrameQueue::hasEligibleMatching(
     return false;
 }
 
+#if defined(VCAM_TESTING)
+MatchingAcquireClassificationForTesting
+ReadyFrameQueue::classifyMatchingAcquireForTesting(
+    const QueueContext& context,
+    std::size_t width,
+    std::size_t height,
+    OSType pixelFormat) const {
+    std::unique_lock<std::mutex> lock(
+        mutex_,
+        std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return MatchingAcquireClassificationForTesting::Contended;
+    }
+
+    if (entries_.empty()) {
+        return MatchingAcquireClassificationForTesting::QueueEmpty;
+    }
+
+    bool eligibleContextObserved = false;
+    for (const auto& entry : entries_) {
+        if (entryIsLogicallyConsumed(entry) ||
+            entry->tracker->leased.load(
+                std::memory_order_acquire) ||
+            !frameMatchesContext(
+                entry->frame,
+                context)) {
+            continue;
+        }
+
+        eligibleContextObserved = true;
+        if (entry->frame.width() == width &&
+            entry->frame.height() == height &&
+            entry->frame.pixelFormat() ==
+                pixelFormat) {
+            return MatchingAcquireClassificationForTesting::Acquired;
+        }
+    }
+
+    return eligibleContextObserved
+        ? MatchingAcquireClassificationForTesting::GeometryMismatch
+        : MatchingAcquireClassificationForTesting::NoEligibleContext;
+}
+#endif
+
 std::size_t ReadyFrameQueue::purgeGeneration(
     std::uint64_t currentMediaGeneration) {
     std::lock_guard<std::mutex> lock(mutex_);

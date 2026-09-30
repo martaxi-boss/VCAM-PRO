@@ -187,6 +187,9 @@ public:
     std::uint64_t videoLatestReuseDecisionCount() const noexcept;
     std::uint64_t videoAcquireCount() const noexcept;
 #if defined(VCAM_TESTING)
+    frame_engine::MatchingAcquireClassificationForTesting
+    classifyVideoAcquireForTesting(
+        CVPixelBufferRef original) const;
     std::uint64_t videoLatestTransformRevisionForTesting() const;
     std::uint64_t videoBoundTransformRevisionForTesting() const;
     std::size_t videoLatestStaleTransformCountForTesting(

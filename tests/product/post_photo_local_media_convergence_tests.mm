@@ -1040,6 +1040,275 @@ bool TestVideoLatestFramePersistsAcrossProducerGap() {
     return true;
 }
 
+
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX)
+const char* MatchingAcquireClassificationName(
+    vcam::frame_engine::
+        MatchingAcquireClassificationForTesting value) {
+    using Classification =
+        vcam::frame_engine::
+            MatchingAcquireClassificationForTesting;
+    switch (value) {
+        case Classification::QueueEmpty:
+            return "QUEUE_EMPTY";
+        case Classification::NoEligibleContext:
+            return "NO_ELIGIBLE_CONTEXT";
+        case Classification::GeometryMismatch:
+            return "GEOMETRY_MISMATCH";
+        case Classification::Contended:
+            return "CONTENDED";
+        case Classification::Acquired:
+            return "ACQUIRED";
+    }
+    return "UNKNOWN";
+}
+
+bool TestVideoColdStartAndGeometryStarvationPreFix() {
+    const std::string root =
+        TempRoot("video-remediation-002-prefx");
+    CHECK(CreateDirectory(root));
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input, 240));
+
+    CVPixelBufferRef a =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    CVPixelBufferRef b =
+        MakeBuffer(
+            80,
+            60,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    CHECK(a != nullptr);
+    CHECK(b != nullptr);
+
+    {
+        const std::string controlPath =
+            root + "/stable-control.plist";
+        const std::string media =
+            root + "/StableMedia";
+        const std::string notification =
+            "com.vcampro.videoremed002.stable." +
+            std::to_string(getpid());
+
+        ProductControlOwner owner(
+            controlPath,
+            notification,
+            media);
+        MediaserverdRuntime runtime(
+            controlPath,
+            notification);
+        CHECK(runtime.start());
+        runtime.observeRealCameraBuffer(a);
+        CHECK(runtime.drainControlQueueForTesting());
+        CHECK(owner.setEnabled(true));
+
+        std::string error;
+        CHECK(owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Video,
+            &error));
+        CHECK(error.empty());
+        const auto selected = owner.snapshot();
+        CHECK(WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            1));
+
+        const auto before =
+            runtime.snapshotForTesting();
+        CHECK(before.totalVideoPublishedFrameCount > 0);
+        CHECK(before.videoAcquireCount == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() == 0);
+
+        const auto classification =
+            runtime.cameraAdapter().
+                classifyVideoAcquireForTesting(a);
+        CHECK(
+            classification ==
+            vcam::frame_engine::
+                MatchingAcquireClassificationForTesting::Acquired);
+
+        const CameraDecision first =
+            runtime.decideCameraBuffer(a);
+        CHECK(IsPrepared(first));
+        CHECK(
+            runtime.cameraAdapter().
+                videoAcquireCount() > 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() > 0);
+
+        std::cout
+            << "STABLE_GEOMETRY_FIRST_ACQUIRE=PASS\n"
+            << "PREFX_STABLE_FIRST_ACQUIRE_CLASSIFICATION="
+            << MatchingAcquireClassificationName(
+                classification)
+            << "\n";
+    }
+
+    {
+        const std::string controlPath =
+            root + "/churn-control.plist";
+        const std::string media =
+            root + "/ChurnMedia";
+        const std::string notification =
+            "com.vcampro.videoremed002.churn." +
+            std::to_string(getpid());
+
+        ProductControlOwner owner(
+            controlPath,
+            notification,
+            media);
+        MediaserverdRuntime runtime(
+            controlPath,
+            notification);
+        CHECK(runtime.start());
+        runtime.observeRealCameraBuffer(a);
+        CHECK(runtime.drainControlQueueForTesting());
+        CHECK(owner.setEnabled(true));
+
+        std::string error;
+        CHECK(owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Video,
+            &error));
+        CHECK(error.empty());
+        const auto selected = owner.snapshot();
+        CHECK(WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            1));
+
+        const auto initial =
+            runtime.snapshotForTesting();
+        CHECK(initial.totalVideoPublishedFrameCount > 0);
+        CHECK(initial.videoAcquireCount == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() == 0);
+
+        std::uint64_t queueEmpty = 0;
+        std::uint64_t noEligible = 0;
+        std::uint64_t geometryMismatch = 0;
+        std::uint64_t contended = 0;
+        std::uint64_t acquiredAvailable = 0;
+        std::uint64_t blackCallbacks = 0;
+        std::uint64_t preparedCallbacks = 0;
+
+        CVPixelBufferRef sequence[] = {
+            b, a, b, a, b, a, b, a,
+            b, a, b, a, b, a, b, a,
+        };
+
+        for (CVPixelBufferRef current : sequence) {
+            CHECK(runtime.suspendControlQueueForTesting());
+            runtime.observeRealCameraBuffer(current);
+
+            const auto classification =
+                runtime.cameraAdapter().
+                    classifyVideoAcquireForTesting(
+                        current);
+            switch (classification) {
+                case vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::QueueEmpty:
+                    ++queueEmpty;
+                    break;
+                case vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::NoEligibleContext:
+                    ++noEligible;
+                    break;
+                case vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::GeometryMismatch:
+                    ++geometryMismatch;
+                    break;
+                case vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::Contended:
+                    ++contended;
+                    break;
+                case vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::Acquired:
+                    ++acquiredAvailable;
+                    break;
+            }
+
+            const CameraDecision decision =
+                runtime.decideCameraBuffer(current);
+            if (IsPrepared(decision)) {
+                ++preparedCallbacks;
+            } else {
+                CHECK(
+                    decision.kind ==
+                    CameraDecisionKind::Virtual);
+                CHECK(
+                    decision.source ==
+                        CameraDecisionSource::BlackFallback ||
+                    decision.source ==
+                        CameraDecisionSource::
+                            InPlaceBlackOwnershipGuard);
+                ++blackCallbacks;
+            }
+
+            CHECK(runtime.resumeControlQueueForTesting());
+            CHECK(runtime.drainControlQueueForTesting());
+        }
+
+        const auto after =
+            runtime.snapshotForTesting();
+
+        CHECK(after.totalVideoPublishedFrameCount > 0);
+        CHECK(after.videoRetargetCount > 0);
+        CHECK(after.videoRetargetQueueClearCount > 0);
+        CHECK(
+            after.videoRetargetClearedReadyFrameCount >
+            0);
+        CHECK(after.videoAcquireCount == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() == 0);
+        CHECK(preparedCallbacks == 0);
+        CHECK(blackCallbacks > 0);
+        CHECK(
+            queueEmpty + noEligible +
+                geometryMismatch + contended >
+            0);
+
+        std::cout
+            << "PRE_FIX_VIDEO_GEOMETRY_ALTERNATION_STARVATION=PASS\n"
+            << "PRE_FIX_VIDEO_RETARGET_QUEUE_CLEAR_COUNT="
+            << after.videoRetargetQueueClearCount << "\n"
+            << "PRE_FIX_VIDEO_RETARGET_CLEARED_READY_FRAME_COUNT="
+            << after.videoRetargetClearedReadyFrameCount << "\n"
+            << "PRE_FIX_VIDEO_PUBLISHED_FRAMES_GT_ZERO=PASS\n"
+            << "PRE_FIX_VIDEO_ACQUIRE_ZERO_REPRODUCED=PASS\n"
+            << "PRE_FIX_LATEST_CACHE_NEVER_SEEDED=PASS\n"
+            << "PRE_FIX_ACQUIRE_REASON_QUEUE_EMPTY="
+            << queueEmpty << "\n"
+            << "PRE_FIX_ACQUIRE_REASON_NO_ELIGIBLE_CONTEXT="
+            << noEligible << "\n"
+            << "PRE_FIX_ACQUIRE_REASON_GEOMETRY_MISMATCH="
+            << geometryMismatch << "\n"
+            << "PRE_FIX_ACQUIRE_REASON_CONTENDED="
+            << contended << "\n"
+            << "PRE_FIX_ACQUIRE_REASON_ACQUIRED_AVAILABLE="
+            << acquiredAvailable << "\n";
+    }
+
+    CVPixelBufferRelease(a);
+    CVPixelBufferRelease(b);
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString stringWithUTF8String:
+                root.c_str()]
+                   error:nil];
+    return true;
+}
+#endif
+
 bool TestVideoReaderDiagnosticBeforeStart() {
     const std::string root =
         TempRoot("video-reader-not-started");
@@ -1879,6 +2148,12 @@ int main() {
         if (!TestVideoLatestFramePersistsAcrossProducerGap()) {
             return EXIT_FAILURE;
         }
+
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX)
+        if (!TestVideoColdStartAndGeometryStarvationPreFix()) {
+            return EXIT_FAILURE;
+        }
+#endif
 
         if (!TestVideoReaderDiagnosticBeforeStart()) {
             return EXIT_FAILURE;

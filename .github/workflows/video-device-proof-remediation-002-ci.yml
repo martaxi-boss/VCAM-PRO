@@ -1,0 +1,121 @@
+name: VCAM PRO Video Device Proof Remediation 002
+
+on:
+  push:
+    branches:
+      - builder/canonical-hook-continuation-001
+    paths:
+      - "src/frame_engine/**"
+      - "src/media_engine/**"
+      - "src/product/**"
+      - "tests/frame_engine/**"
+      - "tests/product/**"
+      - "product/video_device_proof_remediation_002/**"
+      - ".github/workflows/video-device-proof-remediation-002-ci.yml"
+      - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: vcampro-video-device-proof-remediation-002
+  cancel-in-progress: true
+
+jobs:
+  pre-fix-classification:
+    runs-on: macos-26
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact VCAM PRO head
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Checkout IOS-15-USB exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-15-USB
+          ref: a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
+          path: reference/IOS15
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout MotionCam exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/MotionCam-iOS
+          ref: 5ede3a1973a01cb13fe7f3ab562b47513feec1b1
+          path: reference/MotionCam
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Checkout IOS-16 exact read-only reference
+        uses: actions/checkout@v4
+        with:
+          repository: martaxi-boss/IOS-16-USB-4k
+          ref: cc20d787070c67565173d4a46c218e2549cecc93
+          path: reference/IOS16
+          persist-credentials: false
+          fetch-depth: 1
+
+      - name: Exact authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/video-device-proof-remediation-002
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git merge-base --is-ancestor ee10f6765e875f3233a92d3edbe3f4154101e935 HEAD
+          test "$(git rev-parse origin/main)" = "d476caacc4f557843f9551533c2fcbe7c5d40baa"
+          test "$(git -C reference/IOS15 rev-parse HEAD)" = "a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d"
+          test "$(git -C reference/MotionCam rev-parse HEAD)" = "5ede3a1973a01cb13fe7f3ab562b47513feec1b1"
+          test "$(git -C reference/IOS16 rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
+
+      - name: Pre-fix timing jitter classification
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -Wall -Wextra -Werror -pedantic             -DVCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX=1             -Isrc/frame_engine             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameTimelineScheduler.cpp             tests/frame_engine/frame_timeline_scheduler_stage_f1_tests.cpp             -framework CoreFoundation -framework CoreMedia -framework CoreVideo             -o build/video-device-proof-remediation-002/timing-prefx
+          build/video-device-proof-remediation-002/timing-prefx             | tee build/video-device-proof-remediation-002/timing-prefx.txt
+          grep -Fq 'CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=STARVING'             build/video-device-proof-remediation-002/timing-prefx.txt
+
+      - name: Pre-fix cold video product composition
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcrun --sdk macosx clang++             -std=c++17 -fobjc-arc -fblocks -Wall -Wextra -Werror -pedantic -pthread             -Wno-deprecated-declarations -Wno-unused-function             -DVCAM_TESTING=1             -DVCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX=1             -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product             src/frame_engine/PreparedFrame.cpp             src/frame_engine/FrameEngineState.cpp             src/frame_engine/ReadyFrameQueue.cpp             src/frame_engine/FrameTimelineScheduler.cpp             src/frame_engine/MonotonicHostClock.cpp             src/media_engine/LocalVideoReader.mm             src/media_engine/LocalPhotoReader.mm             src/media_engine/FrameNormalizer.cpp             src/media_engine/FrameTransformer.mm             src/media_engine/FramePipelinePump.cpp             src/media_engine/FramePipelinePumpTimed.cpp             src/media_engine/ProducerWakeupController.cpp             src/media_engine/ProducerWakeupDriver.mm             src/media_engine/InternalGalleryMediaSession.mm             src/product/ControlStateCache.cpp             src/product/VirtualBlackFrame.mm             src/product/CameraConsumerAdapter.cpp             src/product/SharedControlStore.mm             src/product/SharedMediaStager.mm             src/product/ProductControlOwner.mm             src/product/MediaserverdRuntime.mm             tests/product/post_photo_local_media_convergence_tests.mm             -framework Accelerate -framework Foundation -framework AVFoundation             -framework CoreFoundation -framework CoreGraphics -framework CoreMedia             -framework CoreVideo -framework ImageIO -framework UniformTypeIdentifiers             -o build/video-device-proof-remediation-002/prefx-composition
+          build/video-device-proof-remediation-002/prefx-composition             | tee build/video-device-proof-remediation-002/prefx-composition.txt
+          for marker in             STABLE_GEOMETRY_FIRST_ACQUIRE=PASS             PRE_FIX_VIDEO_GEOMETRY_ALTERNATION_STARVATION=PASS             PRE_FIX_VIDEO_PUBLISHED_FRAMES_GT_ZERO=PASS             PRE_FIX_VIDEO_ACQUIRE_ZERO_REPRODUCED=PASS             PRE_FIX_LATEST_CACHE_NEVER_SEEDED=PASS; do
+            grep -Fq "$marker" build/video-device-proof-remediation-002/prefx-composition.txt
+          done
+
+      - name: Record physical diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > build/video-device-proof-remediation-002/physical-diagnostic.txt <<'EOF'
+          PHYSICAL_DIAGNOSTIC_ACCEPTED=YES
+          VIDEO_SELECTED=1
+          VIDEO_PLAYING=1
+          VIDEO_READER_OPEN_START_ERROR=1/1/0
+          VIDEO_READ_FRAME_COUNT=61
+          VIDEO_LAST_READ_RESULT=0
+          VIDEO_LAST_SOURCE_PTS=30720/15360
+          VIDEO_NORMALIZE_SUCCESS_FAIL=61/0
+          VIDEO_TRANSFORM_SUCCESS_FAIL=42/0
+          VIDEO_TIMELINE_READY_WAIT_DROP=2/37/22
+          VIDEO_DRIVER=1(1)
+          VIDEO_PUBLISH_QUEUE_ACQUIRE_REUSE=2/0/0/0
+          VIDEO_PREPARED_BLACK=0/453
+          VIDEO_COMMIT_SUCCESS_FAIL=128/0
+          VIDEO_FIRST_BROKEN_REGION=POST_TRANSFORM_TO_TIMED_PUBLICATION_TO_READYFRAMEQUEUE_TO_CAMERA_CONSUMER_ACQUISITION
+          EOF
+
+      - name: Upload pre-fix classification evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: VCAM-PRO-Video-Remediation-002-Prefx
+          path: build/video-device-proof-remediation-002/**
+          if-no-files-found: error
+          retention-days: 30

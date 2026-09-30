@@ -4460,6 +4460,15 @@ MediaserverdRuntime::snapshotForTesting() {
                         static_cast<std::uint8_t>(
                             impl_->session_->
                                 producerDriverState());
+                    result.videoRetargetCount =
+                        impl_->session_->
+                            videoRetargetCountForTesting();
+                    result.videoRetargetQueueClearCount =
+                        impl_->session_->
+                            videoRetargetQueueClearCountForTesting();
+                    result.videoRetargetClearedReadyFrameCount =
+                        impl_->session_->
+                            videoRetargetClearedReadyFrameCountForTesting();
                 }
             }
 

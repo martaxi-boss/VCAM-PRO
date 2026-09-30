@@ -109,6 +109,9 @@ public:
     std::uint64_t photoVariantPreparationCount() const noexcept;
 #if defined(VCAM_TESTING)
     void stopProducerForTesting();
+    std::uint64_t videoRetargetCountForTesting() const noexcept;
+    std::uint64_t videoRetargetQueueClearCountForTesting() const noexcept;
+    std::uint64_t videoRetargetClearedReadyFrameCountForTesting() const noexcept;
 #endif
 
 private:
@@ -141,6 +144,11 @@ private:
         lastVideoReaderErrorCode_ =
             frame_engine::ReaderErrorCode::None;
     std::uint64_t photoVariantPreparationCount_ = 0;
+#if defined(VCAM_TESTING)
+    std::uint64_t videoRetargetCountForTesting_ = 0;
+    std::uint64_t videoRetargetQueueClearCountForTesting_ = 0;
+    std::uint64_t videoRetargetClearedReadyFrameCountForTesting_ = 0;
+#endif
     std::string statusMessage_ =
         "No media selected.";
 };

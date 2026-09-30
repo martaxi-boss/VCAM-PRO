@@ -813,6 +813,32 @@ videoAcquireCount() const noexcept {
 }
 
 #if defined(VCAM_TESTING)
+frame_engine::MatchingAcquireClassificationForTesting
+CameraConsumerAdapter::
+classifyVideoAcquireForTesting(
+    CVPixelBufferRef original) const {
+    std::unique_lock<std::mutex> lock(
+        mutex_,
+        std::try_to_lock);
+    if (!lock.owns_lock()) {
+        return frame_engine::
+            MatchingAcquireClassificationForTesting::Contended;
+    }
+
+    if (queue_ == nullptr ||
+        reusableStaticMedia_ ||
+        original == nullptr) {
+        return frame_engine::
+            MatchingAcquireClassificationForTesting::NoEligibleContext;
+    }
+
+    return queue_->classifyMatchingAcquireForTesting(
+        context_,
+        CVPixelBufferGetWidth(original),
+        CVPixelBufferGetHeight(original),
+        CVPixelBufferGetPixelFormatType(original));
+}
+
 std::uint64_t
 CameraConsumerAdapter::
 videoLatestTransformRevisionForTesting() const {

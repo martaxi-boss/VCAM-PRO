@@ -436,6 +436,22 @@ retargetVideoOutput(
     // or recreate LocalVideoReader/AVAssetReader and does not change the
     // FrameEngine media generation or timeline epoch.
     driver_->stop();
+#if defined(VCAM_TESTING)
+    if (videoRetargetCountForTesting_ != UINT64_MAX) {
+        ++videoRetargetCountForTesting_;
+    }
+    if (videoRetargetQueueClearCountForTesting_ != UINT64_MAX) {
+        ++videoRetargetQueueClearCountForTesting_;
+    }
+    const std::size_t readyBeforeClear = queue_.size();
+    if (readyBeforeClear >
+        UINT64_MAX - videoRetargetClearedReadyFrameCountForTesting_) {
+        videoRetargetClearedReadyFrameCountForTesting_ = UINT64_MAX;
+    } else {
+        videoRetargetClearedReadyFrameCountForTesting_ +=
+            static_cast<std::uint64_t>(readyBeforeClear);
+    }
+#endif
     queue_.clear();
 
     config_.target = target;
@@ -608,6 +624,21 @@ stopProducerForTesting() {
     if (driver_) {
         driver_->stop();
     }
+}
+
+std::uint64_t InternalGalleryMediaSession::
+videoRetargetCountForTesting() const noexcept {
+    return videoRetargetCountForTesting_;
+}
+
+std::uint64_t InternalGalleryMediaSession::
+videoRetargetQueueClearCountForTesting() const noexcept {
+    return videoRetargetQueueClearCountForTesting_;
+}
+
+std::uint64_t InternalGalleryMediaSession::
+videoRetargetClearedReadyFrameCountForTesting() const noexcept {
+    return videoRetargetClearedReadyFrameCountForTesting_;
 }
 #endif
 

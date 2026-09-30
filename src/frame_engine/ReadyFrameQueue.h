@@ -33,6 +33,16 @@ enum class AcquireResultKind : std::uint8_t {
     Contended,
 };
 
+#if defined(VCAM_TESTING)
+enum class MatchingAcquireClassificationForTesting : std::uint8_t {
+    QueueEmpty = 0,
+    NoEligibleContext,
+    GeometryMismatch,
+    Contended,
+    Acquired,
+};
+#endif
+
 class ReadyFrameLease final {
 public:
     ReadyFrameLease(ReadyFrameLease&& other) noexcept;
@@ -90,6 +100,15 @@ public:
         std::size_t width,
         std::size_t height,
         OSType pixelFormat) const;
+
+#if defined(VCAM_TESTING)
+    MatchingAcquireClassificationForTesting
+    classifyMatchingAcquireForTesting(
+        const QueueContext& context,
+        std::size_t width,
+        std::size_t height,
+        OSType pixelFormat) const;
+#endif
 
     std::size_t purgeGeneration(std::uint64_t currentMediaGeneration);
     std::size_t purgeEpoch(std::uint64_t currentMediaGeneration,

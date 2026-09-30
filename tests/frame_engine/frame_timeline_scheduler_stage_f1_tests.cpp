@@ -290,6 +290,86 @@ bool TestHostAdditionOverflowRejected() {
     return true;
 }
 
+
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX)
+bool TestFiveMsPolicyUnderFrameDerivedJitter() {
+    constexpr std::uint64_t kConfiguredLatenessNs = 5'000'000ULL;
+    constexpr std::uint64_t kStartNs = 1'000'000'000ULL;
+    constexpr std::uint64_t kFrameDurationNs = 33'333'333ULL;
+    constexpr std::uint64_t kQuarterFrameJitterNs =
+        kFrameDurationNs / 4ULL;
+
+    static_assert(
+        kQuarterFrameJitterNs > kConfiguredLatenessNs,
+        "fixture must exceed the current fixed five millisecond policy");
+
+    FrameTimelineScheduler scheduler(kConfiguredLatenessNs);
+    const auto first = MakeFrame(
+        0, 11, 22, 0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30));
+    CHECK(
+        scheduler.evaluate(first, 11, 22, kStartNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+
+    std::uint64_t lateDrops = 0;
+    std::uint64_t waits = 0;
+    std::uint64_t now = kStartNs;
+
+    for (std::uint64_t sequence = 1;
+         sequence <= 30;
+         ++sequence) {
+        const auto frame = MakeFrame(
+            sequence,
+            11,
+            22,
+            0,
+            CMTimeMake(
+                static_cast<std::int64_t>(sequence),
+                30),
+            CMTimeMake(1, 30));
+
+        const auto initial =
+            scheduler.evaluate(
+                frame,
+                11,
+                22,
+                now);
+        CHECK(
+            initial.status ==
+            TimelineScheduleStatus::WaitUntilDue);
+        CHECK(initial.dueHostTimeNs.has_value());
+        ++waits;
+
+        const auto late =
+            scheduler.evaluate(
+                frame,
+                11,
+                22,
+                *initial.dueHostTimeNs +
+                    kQuarterFrameJitterNs);
+        CHECK(
+            late.status ==
+            TimelineScheduleStatus::DropLate);
+        ++lateDrops;
+        now =
+            *initial.dueHostTimeNs +
+            kQuarterFrameJitterNs;
+    }
+
+    CHECK(lateDrops == 30);
+    CHECK(waits == 30);
+
+    std::cout
+        << "CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=STARVING\n"
+        << "PREFX_FRAME_DERIVED_QUARTER_JITTER_NS="
+        << kQuarterFrameJitterNs << "\n"
+        << "PREFX_TIMING_LATE_DROP_COUNT="
+        << lateDrops << "\n";
+    return true;
+}
+#endif
+
 void Run(
     const std::string& name,
     const std::function<bool()>& test) {
@@ -324,6 +404,11 @@ int main() {
     Run("invalid PTS rejected", TestInvalidPTSRejected);
     Run("time conversion overflow rejected", TestTimeConversionOverflowRejected);
     Run("host addition overflow rejected", TestHostAdditionOverflowRejected);
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX)
+    Run(
+        "five millisecond policy under frame-derived jitter",
+        TestFiveMsPolicyUnderFrameDerivedJitter);
+#endif
 
     std::cout << "Stage F1 scheduler tests run: "
               << gTestsRun

@@ -33,6 +33,9 @@ struct MediaserverdRuntimeTestSnapshot {
     std::uint64_t videoReaderOpenCount = 0;
     std::uint64_t videoReaderStartCount = 0;
     std::uint64_t videoSessionReplacementCount = 0;
+    std::uint64_t videoRetargetCount = 0;
+    std::uint64_t videoRetargetQueueClearCount = 0;
+    std::uint64_t videoRetargetClearedReadyFrameCount = 0;
     std::uint64_t totalVideoPublishedFrameCount = 0;
     bool videoReaderOpen = false;
     bool videoReaderStarted = false;
