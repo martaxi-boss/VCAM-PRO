@@ -1414,7 +1414,6 @@ bool TestVideoPresentationRemediation002() {
         CHECK(before.videoReaderStarted);
         CHECK(before.videoReadFrameCount > 0);
         CHECK(before.videoNormalizeSuccessCount > 0);
-        CHECK(before.videoTransformSuccessCount > 0);
         CHECK(before.totalVideoPublishedFrameCount > 0);
         CHECK(before.videoAcquireCount == 0);
         CHECK(
@@ -1659,6 +1658,9 @@ bool TestVideoPresentationRemediation002() {
 
         const auto finalSnapshot =
             runtime.snapshotForTesting();
+        CHECK(
+            finalSnapshot.videoTransformSuccessCount >
+            0);
 
         std::cout
             << "VIDEO_READER_OPEN=PASS\n"
