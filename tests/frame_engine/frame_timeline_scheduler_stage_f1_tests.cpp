@@ -467,6 +467,67 @@ bool TestFrameDurationDerivedLatenessPolicy() {
                 kQuarterFrameJitterNs).status ==
         TimelineScheduleStatus::ReadyNow);
 
+    // A timer wake beyond the bounded window still presents the one
+    // already-pending latest-due frame, but must rebase the host schedule so
+    // the next source PTS is due in the future instead of immediately stale.
+    FrameTimelineScheduler latePending(kConfiguredLatenessNs);
+    const auto latePendingFirst = MakeFrame(
+        0, 91, 92, 0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30));
+    const auto latePendingSecond = MakeFrame(
+        1, 91, 92, 0,
+        CMTimeMake(1, 30),
+        CMTimeMake(1, 30));
+    const auto latePendingThird = MakeFrame(
+        2, 91, 92, 0,
+        CMTimeMake(2, 30),
+        CMTimeMake(1, 30));
+    CHECK(
+        latePending.evaluate(
+            latePendingFirst,
+            91,
+            92,
+            kStartNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+    const auto latePendingWait =
+        latePending.evaluate(
+            latePendingSecond,
+            91,
+            92,
+            kStartNs);
+    CHECK(
+        latePendingWait.status ==
+        TimelineScheduleStatus::WaitUntilDue);
+    CHECK(latePendingWait.dueHostTimeNs.has_value());
+    const std::uint64_t latePendingWake =
+        *latePendingWait.dueHostTimeNs +
+        kFrameDurationNs + 1ULL;
+    CHECK(
+        latePending.evaluate(
+            latePendingSecond,
+            91,
+            92,
+            latePendingWake).status ==
+        TimelineScheduleStatus::ReadyNow);
+    const auto latePendingNext =
+        latePending.evaluate(
+            latePendingThird,
+            91,
+            92,
+            latePendingWake);
+    CHECK(
+        latePendingNext.status ==
+        TimelineScheduleStatus::WaitUntilDue);
+    CHECK(latePendingNext.dueHostTimeNs.has_value());
+    CHECK(
+        *latePendingNext.dueHostTimeNs >
+        latePendingWake);
+    CHECK(
+        *latePendingNext.dueHostTimeNs -
+            latePendingWake <=
+        kFrameDurationNs);
+
     FrameTimelineScheduler bounded(kConfiguredLatenessNs);
     const auto boundedFirst = MakeFrame(
         0, 71, 81, 0,
@@ -531,6 +592,7 @@ bool TestFrameDurationDerivedLatenessPolicy() {
         << "CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=REMEDIATED\n"
         << "VIDEO_TIMING_MODEL_AFTER=LATEST_DUE_PENDING_PRESENTATION_PLUS_FRAME_DURATION_NEW_FRAME_DROP_REBASE\n"
         << "VIDEO_PENDING_LATEST_DUE_PRESENTED_AFTER_WAKE_JITTER=PASS\n"
+        << "VIDEO_PENDING_LATE_PRESENTATION_REBASE=PASS\n"
         << "VIDEO_PUBLISH_SEQUENCE_CONTINUOUS=PASS\n"
         << "VIDEO_LATE_DROP_POLICY_BOUNDED=PASS\n"
         << "VIDEO_LATE_DROP_HOST_REBASE=PASS\n"
