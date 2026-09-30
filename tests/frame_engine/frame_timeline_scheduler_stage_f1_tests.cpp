@@ -487,27 +487,14 @@ bool TestFrameDurationDerivedLatenessPolicy() {
             81,
             kStartNs).status ==
         TimelineScheduleStatus::ReadyNow);
-    const auto boundedWait =
-        bounded.evaluate(
-            boundedSecond,
-            71,
-            81,
-            kStartNs);
-    CHECK(
-        boundedWait.status ==
-        TimelineScheduleStatus::WaitUntilDue);
-    CHECK(boundedWait.dueHostTimeNs.has_value());
-    CHECK(
-        bounded.evaluate(
-            boundedSecond,
-            71,
-            81,
-            *boundedWait.dueHostTimeNs +
-                kFrameDurationNs).status ==
-        TimelineScheduleStatus::ReadyNow);
+
+    // First evaluation of the second frame occurs after more than one whole
+    // frame duration of lateness. Unlike an already-pending same-identity
+    // frame, this newly-read frame is genuinely stale and must be dropped.
     const std::uint64_t dropHostTimeNs =
-        *boundedWait.dueHostTimeNs +
-        kFrameDurationNs + 1ULL;
+        kStartNs +
+        (2ULL * kFrameDurationNs) +
+        1ULL;
     CHECK(
         bounded.evaluate(
             boundedSecond,
