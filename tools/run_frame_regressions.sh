@@ -18,7 +18,7 @@ grep -q 'Stage B tests run: 11, failures: 0' build/regressions/stage-b.txt
 
 $CXX $BASE -pthread -Isrc/frame_engine   src/frame_engine/PreparedFrame.cpp src/frame_engine/ReadyFrameQueue.cpp   tests/frame_engine/ready_frame_queue_stage_c1_tests.cpp   -framework CoreFoundation -framework CoreMedia -framework CoreVideo   -o build/regressions/c1q
 build/regressions/c1q | tee build/regressions/c1-queue.txt
-grep -q 'Stage C1 queue tests run: 18, failures: 0' build/regressions/c1-queue.txt
+grep -q 'Stage C1 queue tests run: 19, failures: 0' build/regressions/c1-queue.txt
 
 $CXX $BASE $INC   src/frame_engine/PreparedFrame.cpp src/media_engine/FrameNormalizer.cpp   tests/media_engine/frame_normalizer_stage_c1_tests.cpp   -framework CoreFoundation -framework CoreMedia -framework CoreVideo   -framework CoreGraphics -o build/regressions/c1n
 build/regressions/c1n | tee build/regressions/c1-normalizer.txt
@@ -54,7 +54,7 @@ grep -q 'Stage F1 scheduler tests run: 13, failures: 0' build/regressions/f1-sch
 
 $CXX $OBJC $INC   src/frame_engine/PreparedFrame.cpp src/frame_engine/FrameEngineState.cpp   src/frame_engine/ReadyFrameQueue.cpp src/frame_engine/FrameTimelineScheduler.cpp   src/media_engine/LocalVideoReader.mm src/media_engine/FrameNormalizer.cpp   src/media_engine/FrameTransformer.mm src/media_engine/FramePipelinePump.cpp   src/media_engine/FramePipelinePumpTimed.cpp   tests/media_engine/frame_pipeline_stage_f1_tests.mm   -framework Accelerate -framework Foundation -framework AVFoundation   -framework CoreFoundation -framework CoreGraphics -framework CoreMedia   -framework CoreVideo -o build/regressions/f1p
 build/regressions/f1p | tee build/regressions/f1-pipeline.txt
-grep -q 'Stage F1 timed pipeline tests run: 13, failures: 0' build/regressions/f1-pipeline.txt
+grep -q 'Stage F1 timed pipeline tests run: 14, failures: 0' build/regressions/f1-pipeline.txt
 
 $CXX $BASE $INC   src/media_engine/ProducerWakeupController.cpp   tests/media_engine/producer_wakeup_driver_stage_f2_tests.cpp   -framework CoreFoundation -framework CoreGraphics -framework CoreMedia   -framework CoreVideo -o build/regressions/f2
 build/regressions/f2 | tee build/regressions/f2-driver.txt
