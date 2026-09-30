@@ -162,29 +162,37 @@ bool TestRepeatedWaitIsIdempotent() {
 
 bool TestConfigurableLateThreshold() {
     constexpr std::uint64_t kThreshold = 5'000'000ULL;
-    FrameTimelineScheduler scheduler(kThreshold);
+    constexpr std::uint64_t kStart = 1'000ULL;
+    constexpr std::uint64_t kFrameDeltaNs = 33'333'333ULL;
 
     const auto first = MakeFrame(
         0, 1, 2, 0, CMTimeMake(0, 30));
     const auto second = MakeFrame(
         1, 1, 2, 0, CMTimeMake(1, 30));
 
-    CHECK(scheduler.evaluate(first, 1, 2, 1'000ULL).status ==
-          TimelineScheduleStatus::ReadyNow);
+    FrameTimelineScheduler within(kThreshold);
+    CHECK(
+        within.evaluate(first, 1, 2, kStart).status ==
+        TimelineScheduleStatus::ReadyNow);
+    CHECK(
+        within.evaluate(
+            second,
+            1,
+            2,
+            kStart + kFrameDeltaNs + kThreshold).status ==
+        TimelineScheduleStatus::ReadyNow);
 
-    const auto wait =
-        scheduler.evaluate(second, 1, 2, 1'000ULL);
-    CHECK(wait.status == TimelineScheduleStatus::WaitUntilDue);
-    const auto due = *wait.dueHostTimeNs;
-
-    CHECK(scheduler.evaluate(second, 1, 2, due + kThreshold).status ==
-          TimelineScheduleStatus::ReadyNow);
-    CHECK(scheduler.evaluate(
-              second,
-              1,
-              2,
-              due + kThreshold + 1)
-              .status == TimelineScheduleStatus::DropLate);
+    FrameTimelineScheduler beyond(kThreshold);
+    CHECK(
+        beyond.evaluate(first, 1, 2, kStart).status ==
+        TimelineScheduleStatus::ReadyNow);
+    CHECK(
+        beyond.evaluate(
+            second,
+            1,
+            2,
+            kStart + kFrameDeltaNs + kThreshold + 1ULL).status ==
+        TimelineScheduleStatus::DropLate);
     return true;
 }
 
@@ -431,6 +439,34 @@ bool TestFrameDurationDerivedLatenessPolicy() {
             kQuarterFrameJitterNs;
     }
 
+    // Independently prove that a newly-read frame within one frame duration
+    // of its source deadline is accepted even without a prior WaitUntilDue.
+    FrameTimelineScheduler newFrameJitter(kConfiguredLatenessNs);
+    const auto jitterFirst = MakeFrame(
+        0, 31, 41, 0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30));
+    const auto jitterSecond = MakeFrame(
+        1, 31, 41, 0,
+        CMTimeMake(1, 30),
+        CMTimeMake(1, 30));
+    CHECK(
+        newFrameJitter.evaluate(
+            jitterFirst,
+            31,
+            41,
+            kStartNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+    CHECK(
+        newFrameJitter.evaluate(
+            jitterSecond,
+            31,
+            41,
+            kStartNs +
+                kFrameDurationNs +
+                kQuarterFrameJitterNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+
     FrameTimelineScheduler bounded(kConfiguredLatenessNs);
     const auto boundedFirst = MakeFrame(
         0, 71, 81, 0,
@@ -506,7 +542,8 @@ bool TestFrameDurationDerivedLatenessPolicy() {
     CHECK(waits == 30);
     std::cout
         << "CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=REMEDIATED\n"
-        << "VIDEO_TIMING_MODEL_AFTER=FRAME_DURATION_DERIVED_LATENESS_WITH_SINGLE_LATE_HOST_REBASE\n"
+        << "VIDEO_TIMING_MODEL_AFTER=LATEST_DUE_PENDING_PRESENTATION_PLUS_FRAME_DURATION_NEW_FRAME_DROP_REBASE\n"
+        << "VIDEO_PENDING_LATEST_DUE_PRESENTED_AFTER_WAKE_JITTER=PASS\n"
         << "VIDEO_PUBLISH_SEQUENCE_CONTINUOUS=PASS\n"
         << "VIDEO_LATE_DROP_POLICY_BOUNDED=PASS\n"
         << "VIDEO_LATE_DROP_HOST_REBASE=PASS\n"

@@ -604,16 +604,14 @@ bool TestLateFrameDroppedWithoutPublish() {
     CHECK(pump.pumpOnceAtHostTime(start).status ==
           FramePipelinePumpStatus::Published);
 
-    const auto wait = pump.pumpOnceAtHostTime(start);
-    CHECK(wait.status ==
-          FramePipelinePumpStatus::WaitingForPresentation);
     const std::size_t beforeDrop = queue.size();
 
-    // The remediation accepts normal jitter up to one source frame duration.
-    // Verify that an actually stale frame beyond that bounded window is still
-    // dropped rather than accumulated.
+    // A newly-read frame that is already more than one frame duration late
+    // remains droppable. This is deliberately different from an already
+    // scheduled pending frame, which is latest-due and must present when its
+    // dispatch timer wakes late.
     const auto dropped = pump.pumpOnceAtHostTime(
-        *wait.dueHostTimeNs + 33'333'334ULL);
+        start + 66'666'667ULL);
 
     CHECK(dropped.status == FramePipelinePumpStatus::DroppedLate);
     CHECK(dropped.timelineStatus == TimelineScheduleStatus::DropLate);

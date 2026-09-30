@@ -68,10 +68,20 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
             };
         }
 
-        return classifyAndRebaseLate(
-            lastDueHostTimeNs_,
-            nowHostTimeNs,
-            lastDuration_);
+        TimelineScheduleResult pendingResult;
+        pendingResult.dueHostTimeNs =
+            lastDueHostTimeNs_;
+
+        // This is the same already-scheduled frame. The timed pump does not
+        // read ahead while it is pending, so there cannot be a newer source
+        // frame waiting behind it. A delayed timer wake therefore makes this
+        // frame latest-due, not stale: present it immediately rather than
+        // dropping virtual VIDEO solely because dispatch woke up late.
+        pendingResult.status =
+            nowHostTimeNs < lastDueHostTimeNs_
+                ? TimelineScheduleStatus::WaitUntilDue
+                : TimelineScheduleStatus::ReadyNow;
+        return pendingResult;
     }
 
     if (frame.identity().loopIteration < loopIteration_) {
