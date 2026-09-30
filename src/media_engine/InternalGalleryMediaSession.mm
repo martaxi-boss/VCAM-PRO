@@ -442,11 +442,12 @@ retargetVideoOutput(
     }
 #endif
 
-    // Preserve already-published VIDEO geometry variants. The pending timed
-    // frame is discarded by setTargetPreservingTimeline(), because it belongs
-    // to the old target, but the bounded ReadyFrameQueue working set remains
-    // valid for this generation/epoch and can satisfy a callback that returns
-    // to a previously prepared destination.
+    // Preserve both already-published VIDEO geometry variants and any timed
+    // frame already prepared for the previous target. That pending frame has
+    // already advanced source PTS/scheduler state, so dropping it here would
+    // create presentation starvation during rapid geometry churn. It remains
+    // valid for its original destination and publishes at its existing due
+    // time; the next source frame is prepared for the new target.
     config_.target = target;
     pump_->setTargetPreservingTimeline(
         target);

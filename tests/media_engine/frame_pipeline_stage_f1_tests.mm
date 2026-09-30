@@ -434,6 +434,132 @@ bool TestTransformUpdateDiscardsPendingWithoutTimelineReset() {
     return true;
 }
 
+bool TestGeometryRetargetPreservesPendingTimelineFrame() {
+    FrameEngineState state;
+    CHECK(PrimeState(state));
+
+    LocalVideoReader reader(state);
+    FrameNormalizer normalizer;
+    FrameTransformer transformer;
+    FrameTimelineScheduler scheduler(5'000'000ULL);
+    ReadyFrameQueue queue(4);
+
+    FramePipelinePump pump(
+        state,
+        reader,
+        normalizer,
+        transformer,
+        scheduler,
+        queue,
+        Target(8, 8));
+    pump.setPreserveLatestPerGeometryForTimedPublishing(true);
+
+    FakeTimedSource source(SourceInfo(8, 8));
+    source.add(MakeFrame(
+        0,
+        state.mediaGeneration(),
+        state.timelineEpoch(),
+        0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30)));
+    source.add(MakeFrame(
+        1,
+        state.mediaGeneration(),
+        state.timelineEpoch(),
+        0,
+        CMTimeMake(1, 30),
+        CMTimeMake(1, 30)));
+    source.add(MakeFrame(
+        2,
+        state.mediaGeneration(),
+        state.timelineEpoch(),
+        0,
+        CMTimeMake(2, 30),
+        CMTimeMake(1, 30)));
+    InstallSource(pump, source);
+
+    constexpr std::uint64_t start =
+        1'000'000'000ULL;
+
+    CHECK(
+        pump.pumpOnceAtHostTime(start).status ==
+        FramePipelinePumpStatus::Published);
+
+    const auto pending =
+        pump.pumpOnceAtHostTime(start);
+    CHECK(
+        pending.status ==
+        FramePipelinePumpStatus::
+            WaitingForPresentation);
+    CHECK(pending.dueHostTimeNs.has_value());
+    CHECK(pending.frameIdentity.has_value());
+    CHECK(pending.frameIdentity->sequence == 1);
+    CHECK(source.readCalls == 2);
+
+    pump.setTargetPreservingTimeline(
+        Target(12, 10));
+
+    // Retargeting must not read another source frame or discard the already
+    // scheduled sequence-1 frame.
+    CHECK(source.readCalls == 2);
+    const auto oldTargetPublished =
+        pump.pumpOnceAtHostTime(
+            *pending.dueHostTimeNs);
+    CHECK(
+        oldTargetPublished.status ==
+        FramePipelinePumpStatus::Published);
+    CHECK(oldTargetPublished.frameIdentity.has_value());
+    CHECK(
+        oldTargetPublished.frameIdentity->sequence ==
+        1);
+    CHECK(source.readCalls == 2);
+
+    const QueueContext context = Context(state);
+    CHECK(
+        queue.hasEligibleMatching(
+            context,
+            8,
+            8,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
+
+    const auto next =
+        pump.pumpOnceAtHostTime(
+            *pending.dueHostTimeNs);
+    CHECK(
+        next.status ==
+        FramePipelinePumpStatus::
+            WaitingForPresentation);
+    CHECK(next.dueHostTimeNs.has_value());
+    CHECK(next.frameIdentity.has_value());
+    CHECK(next.frameIdentity->sequence == 2);
+    CHECK(source.readCalls == 3);
+
+    const auto newTargetPublished =
+        pump.pumpOnceAtHostTime(
+            *next.dueHostTimeNs);
+    CHECK(
+        newTargetPublished.status ==
+        FramePipelinePumpStatus::Published);
+    CHECK(
+        queue.hasEligibleMatching(
+            context,
+            8,
+            8,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
+    CHECK(
+        queue.hasEligibleMatching(
+            context,
+            12,
+            10,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
+
+    std::cout
+        << "VIDEO_GEOMETRY_RETARGET_PENDING_FRAME_PRESERVED=PASS\n"
+        << "VIDEO_GEOMETRY_RETARGET_SOURCE_READ_AHEAD=NO\n"
+        << "VIDEO_GEOMETRY_RETARGET_TIMELINE_ADVANCE_WITHOUT_PRESENTATION=NO\n";
+    return true;
+}
+
 bool TestLateFrameDroppedWithoutPublish() {
     FrameEngineState state;
     CHECK(PrimeState(state));
@@ -993,6 +1119,9 @@ int main() {
     Run(
         "transform update discards pending without timeline reset",
         TestTransformUpdateDiscardsPendingWithoutTimelineReset);
+    Run(
+        "geometry retarget preserves pending timeline frame",
+        TestGeometryRetargetPreservesPendingTimelineFrame);
     Run(
         "late frame dropped without publish",
         TestLateFrameDroppedWithoutPublish);

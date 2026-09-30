@@ -248,9 +248,13 @@ void FramePipelinePump::setTarget(
 
 void FramePipelinePump::setTargetPreservingTimeline(
     const NormalizationTarget& target) noexcept {
+    // A geometry-only retarget must not discard a frame that has already
+    // advanced the source reader and scheduler. The pending frame remains a
+    // valid prepared VIDEO variant for its original destination and is
+    // published at its existing due host time. Subsequent source frames use
+    // the new target. Transform-revision changes use the separate explicit
+    // discardPendingTimedFrameForTransformUpdate() path.
     target_ = target;
-    pendingTimedFrame_.reset();
-    pendingPreparedResult_ = {};
 }
 
 }  // namespace vcam::media_engine
