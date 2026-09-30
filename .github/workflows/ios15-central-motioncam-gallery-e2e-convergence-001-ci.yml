@@ -12,6 +12,7 @@ on:
       - "src/frame_engine/**"
       - "src/control/**"
       - "tests/**"
+      - "tools/**"
       - "docs/**"
       - "product/**"
       - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
