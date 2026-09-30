@@ -1,0 +1,6 @@
+Package: com.vcampro.camera
+Name: VCAM PRO Video Presentation Fix 001
+Version: 0.1.0+roothide23~videofix1
+Architecture: iphoneos-arm64
+Depends: mobilesubstrate, firmware (>= 15.0)
+Description: VCAM PRO iOS 15 rootless VIDEO presentation remediation with bounded per-destination prepared state and frame-duration-derived timing.

@@ -76,7 +76,8 @@ private:
 
     TimelineScheduleResult classify(
         MonotonicHostTimeNs dueHostTimeNs,
-        MonotonicHostTimeNs nowHostTimeNs) const noexcept;
+        MonotonicHostTimeNs nowHostTimeNs,
+        CMTime frameDuration) const noexcept;
 
     void initializeContext(
         const PreparedFrame& frame,

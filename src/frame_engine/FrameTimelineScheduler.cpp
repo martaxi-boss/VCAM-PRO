@@ -52,7 +52,10 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
             currentTimelineEpoch,
             nowHostTimeNs);
 
-        return classify(lastDueHostTimeNs_, nowHostTimeNs);
+        return classify(
+            lastDueHostTimeNs_,
+            nowHostTimeNs,
+            frame.timing().duration);
     }
 
     if (hasLastScheduledFrame_ &&
@@ -65,7 +68,10 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
             };
         }
 
-        return classify(lastDueHostTimeNs_, nowHostTimeNs);
+        return classify(
+            lastDueHostTimeNs_,
+            nowHostTimeNs,
+            lastDuration_);
     }
 
     if (frame.identity().loopIteration < loopIteration_) {
@@ -143,7 +149,10 @@ TimelineScheduleResult FrameTimelineScheduler::evaluate(
     lastDueHostTimeNs_ = dueHostTimeNs;
     hasLastScheduledFrame_ = true;
 
-    return classify(dueHostTimeNs, nowHostTimeNs);
+    return classify(
+        dueHostTimeNs,
+        nowHostTimeNs,
+        frame.timing().duration);
 }
 
 void FrameTimelineScheduler::reset() noexcept {
@@ -273,7 +282,8 @@ bool FrameTimelineScheduler::checkedAdd(
 
 TimelineScheduleResult FrameTimelineScheduler::classify(
     MonotonicHostTimeNs dueHostTimeNs,
-    MonotonicHostTimeNs nowHostTimeNs) const noexcept {
+    MonotonicHostTimeNs nowHostTimeNs,
+    CMTime frameDuration) const noexcept {
     TimelineScheduleResult result;
     result.dueHostTimeNs = dueHostTimeNs;
 
@@ -285,8 +295,20 @@ TimelineScheduleResult FrameTimelineScheduler::classify(
     const MonotonicHostTimeNs latenessNs =
         nowHostTimeNs - dueHostTimeNs;
 
+    MonotonicHostTimeNs effectiveLatenessNs =
+        maxLatenessNs_;
+    MonotonicHostTimeNs frameDurationNs = 0;
+    if (positiveDurationToNanoseconds(
+            frameDuration,
+            &frameDurationNs)) {
+        effectiveLatenessNs =
+            std::max(
+                effectiveLatenessNs,
+                frameDurationNs);
+    }
+
     result.status =
-        latenessNs > maxLatenessNs_
+        latenessNs > effectiveLatenessNs
             ? TimelineScheduleStatus::DropLate
             : TimelineScheduleStatus::ReadyNow;
     return result;

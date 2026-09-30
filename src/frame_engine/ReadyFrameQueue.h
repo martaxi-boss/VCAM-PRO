@@ -88,6 +88,13 @@ public:
     PublishResult publish(PreparedFrame frame,
                           const QueueContext& context);
 
+    // VIDEO timed-presentation path: retain at most one newest frame for
+    // each recently observed destination geometry. The queue capacity remains
+    // the hard memory bound; logical generation/epoch are still authoritative.
+    PublishResult publishLatestPerGeometry(
+        PreparedFrame frame,
+        const QueueContext& context);
+
     AcquireResult tryAcquire(const QueueContext& context);
     AcquireResult tryAcquireMatching(
         const QueueContext& context,

@@ -64,8 +64,14 @@ PreparedFrame MakeFrame(
     FrameValidity validity = FrameValidity::Ready,
     OrientationState orientation = OrientationState::Normalized,
     OSType format =
-        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange) {
-    CVPixelBufferRef pixelBuffer = CreatePixelBuffer(format);
+        kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+    std::size_t width = 8,
+    std::size_t height = 6) {
+    CVPixelBufferRef pixelBuffer =
+        CreatePixelBuffer(
+            format,
+            width,
+            height);
     if (pixelBuffer == nullptr) {
         throw std::runtime_error("Unable to create CVPixelBuffer fixture.");
     }
@@ -368,6 +374,105 @@ bool TestPurgeEpoch() {
     return true;
 }
 
+
+bool TestLatestPerGeometryWorkingSetBounded() {
+    ReadyFrameQueue queue(2);
+    const QueueContext context = Context(31, 41);
+
+    CHECK(
+        queue.publishLatestPerGeometry(
+            MakeFrame(
+                31, 41, 1,
+                FrameValidity::Ready,
+                OrientationState::Normalized,
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                8, 6),
+            context) ==
+        PublishResult::Published);
+    CHECK(
+        queue.publishLatestPerGeometry(
+            MakeFrame(
+                31, 41, 2,
+                FrameValidity::Ready,
+                OrientationState::Normalized,
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                12, 10),
+            context) ==
+        PublishResult::Published);
+    CHECK(queue.size() == 2);
+
+    CHECK(
+        queue.publishLatestPerGeometry(
+            MakeFrame(
+                31, 41, 3,
+                FrameValidity::Ready,
+                OrientationState::Normalized,
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                8, 6),
+            context) ==
+        PublishResult::Published);
+    CHECK(queue.size() == 2);
+
+    AcquireResult a =
+        queue.tryAcquireMatching(
+            context,
+            8,
+            6,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    CHECK(a.kind == AcquireResultKind::Acquired);
+    CHECK(a.lease.has_value());
+    CHECK(
+        a.lease->frameLease()->
+            identity().sequence == 3);
+
+    AcquireResult b =
+        queue.tryAcquireMatching(
+            context,
+            12,
+            10,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    CHECK(b.kind == AcquireResultKind::Acquired);
+    CHECK(b.lease.has_value());
+    CHECK(
+        b.lease->frameLease()->
+            identity().sequence == 2);
+
+    CHECK(
+        queue.publishLatestPerGeometry(
+            MakeFrame(
+                31, 41, 4,
+                FrameValidity::Ready,
+                OrientationState::Normalized,
+                kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
+                8, 6),
+            context) ==
+        PublishResult::Published);
+    CHECK(a.lease->valid());
+    CHECK(
+        a.lease->frameLease()->
+            identity().sequence == 3);
+    CHECK(queue.size() <= queue.capacity());
+
+    CHECK(
+        queue.publishLatestPerGeometry(
+            MakeFrame(
+                31, 41, 5,
+                FrameValidity::Ready,
+                OrientationState::Normalized,
+                kCVPixelFormatType_420YpCbCr8BiPlanarFullRange,
+                16, 12),
+            context) ==
+        PublishResult::Published);
+    CHECK(queue.size() == 2);
+    CHECK(queue.size() <= queue.capacity());
+
+    std::cout
+        << "VIDEO_GEOMETRY_WORKING_SET_BOUNDED=PASS\n"
+        << "VIDEO_GEOMETRY_WORKING_SET_CAPACITY="
+        << queue.capacity() << "\n";
+    return true;
+}
+
 void Run(const std::string& name,
          const std::function<bool()>& test) {
     ++gTestsRun;
@@ -406,6 +511,9 @@ int main() {
     Run("Repeated publish never grows", TestRepeatedPublishNeverGrows);
     Run("Purge generation", TestPurgeGeneration);
     Run("Purge epoch", TestPurgeEpoch);
+    Run(
+        "latest per geometry working set bounded",
+        TestLatestPerGeometryWorkingSetBounded);
 
     std::cout << "Stage C1 queue tests run: " << gTestsRun
               << ", failures: " << gFailures << std::endl;

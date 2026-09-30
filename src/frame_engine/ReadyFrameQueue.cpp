@@ -125,6 +125,52 @@ PublishResult ReadyFrameQueue::publish(
     return PublishResult::Published;
 }
 
+PublishResult ReadyFrameQueue::publishLatestPerGeometry(
+    PreparedFrame frame,
+    const QueueContext& context) {
+    if (frame.validity() != FrameValidity::Ready ||
+        !frame.isInternallyConsistent() ||
+        frame.orientation() != OrientationState::Normalized) {
+        return PublishResult::DroppedInvalid;
+    }
+
+    QueueContext logicalContext = context;
+    logicalContext.minimumSequence = std::nullopt;
+    if (!frameMatchesContext(frame, logicalContext)) {
+        return PublishResult::DroppedStale;
+    }
+
+    std::lock_guard<std::mutex> lock(mutex_);
+    purgeContextLocked(logicalContext);
+
+    // A ReadyFrameLease owns its own retained CVPixelBuffer. Removing the
+    // queue entry therefore never invalidates an outstanding callback lease.
+    // Replace only the older prepared frame for this exact destination key.
+    for (auto it = entries_.begin();
+         it != entries_.end();) {
+        if ((*it)->frame.width() == frame.width() &&
+            (*it)->frame.height() == frame.height() &&
+            (*it)->frame.pixelFormat() ==
+                frame.pixelFormat()) {
+            it = entries_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+
+    // The special VIDEO working set is bounded by the existing queue
+    // capacity. If more destination keys appear, evict the oldest queue
+    // entry; any outstanding lease remains independently valid.
+    while (entries_.size() >= capacity_) {
+        entries_.pop_front();
+    }
+
+    entries_.push_back(
+        std::make_shared<Entry>(
+            std::move(frame)));
+    return PublishResult::Published;
+}
+
 AcquireResult ReadyFrameQueue::tryAcquire(
     const QueueContext& context) {
     std::unique_lock<std::mutex> lock(mutex_, std::try_to_lock);

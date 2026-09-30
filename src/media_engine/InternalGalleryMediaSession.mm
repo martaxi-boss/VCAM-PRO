@@ -440,20 +440,13 @@ retargetVideoOutput(
     if (videoRetargetCountForTesting_ != UINT64_MAX) {
         ++videoRetargetCountForTesting_;
     }
-    if (videoRetargetQueueClearCountForTesting_ != UINT64_MAX) {
-        ++videoRetargetQueueClearCountForTesting_;
-    }
-    const std::size_t readyBeforeClear = queue_.size();
-    if (readyBeforeClear >
-        UINT64_MAX - videoRetargetClearedReadyFrameCountForTesting_) {
-        videoRetargetClearedReadyFrameCountForTesting_ = UINT64_MAX;
-    } else {
-        videoRetargetClearedReadyFrameCountForTesting_ +=
-            static_cast<std::uint64_t>(readyBeforeClear);
-    }
 #endif
-    queue_.clear();
 
+    // Preserve already-published VIDEO geometry variants. The pending timed
+    // frame is discarded by setTargetPreservingTimeline(), because it belongs
+    // to the old target, but the bounded ReadyFrameQueue working set remains
+    // valid for this generation/epoch and can satisfy a callback that returns
+    // to a previously prepared destination.
     config_.target = target;
     pump_->setTargetPreservingTimeline(
         target);
@@ -699,6 +692,10 @@ installPipelineForActiveSource() {
                 SelectedMediaKind::None &&
         transformer_.
             hasNonDefaultPhotoTransform());
+    pump_->
+        setPreserveLatestPerGeometryForTimedPublishing(
+            selected_.kind ==
+                SelectedMediaKind::Video);
 
     driver_ =
         std::make_unique<ProducerWakeupDriver>(

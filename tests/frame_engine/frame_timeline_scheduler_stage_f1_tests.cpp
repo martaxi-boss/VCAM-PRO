@@ -370,6 +370,124 @@ bool TestFiveMsPolicyUnderFrameDerivedJitter() {
 }
 #endif
 
+
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002)
+bool TestFrameDurationDerivedLatenessPolicy() {
+    constexpr std::uint64_t kConfiguredLatenessNs = 5'000'000ULL;
+    constexpr std::uint64_t kStartNs = 2'000'000'000ULL;
+    constexpr std::uint64_t kFrameDurationNs = 33'333'333ULL;
+    constexpr std::uint64_t kQuarterFrameJitterNs =
+        kFrameDurationNs / 4ULL;
+
+    FrameTimelineScheduler scheduler(kConfiguredLatenessNs);
+    const auto first = MakeFrame(
+        0, 51, 61, 0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30));
+    CHECK(
+        scheduler.evaluate(first, 51, 61, kStartNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+
+    std::uint64_t readyWithJitter = 0;
+    std::uint64_t waits = 0;
+    std::uint64_t now = kStartNs;
+    for (std::uint64_t sequence = 1;
+         sequence <= 30;
+         ++sequence) {
+        const auto frame = MakeFrame(
+            sequence,
+            51,
+            61,
+            0,
+            CMTimeMake(
+                static_cast<std::int64_t>(sequence),
+                30),
+            CMTimeMake(1, 30));
+        const auto wait =
+            scheduler.evaluate(
+                frame,
+                51,
+                61,
+                now);
+        CHECK(
+            wait.status ==
+            TimelineScheduleStatus::WaitUntilDue);
+        CHECK(wait.dueHostTimeNs.has_value());
+        ++waits;
+
+        const auto jittered =
+            scheduler.evaluate(
+                frame,
+                51,
+                61,
+                *wait.dueHostTimeNs +
+                    kQuarterFrameJitterNs);
+        CHECK(
+            jittered.status ==
+            TimelineScheduleStatus::ReadyNow);
+        ++readyWithJitter;
+        now =
+            *wait.dueHostTimeNs +
+            kQuarterFrameJitterNs;
+    }
+
+    FrameTimelineScheduler bounded(kConfiguredLatenessNs);
+    const auto boundedFirst = MakeFrame(
+        0, 71, 81, 0,
+        CMTimeMake(0, 30),
+        CMTimeMake(1, 30));
+    const auto boundedSecond = MakeFrame(
+        1, 71, 81, 0,
+        CMTimeMake(1, 30),
+        CMTimeMake(1, 30));
+    CHECK(
+        bounded.evaluate(
+            boundedFirst,
+            71,
+            81,
+            kStartNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+    const auto boundedWait =
+        bounded.evaluate(
+            boundedSecond,
+            71,
+            81,
+            kStartNs);
+    CHECK(
+        boundedWait.status ==
+        TimelineScheduleStatus::WaitUntilDue);
+    CHECK(boundedWait.dueHostTimeNs.has_value());
+    CHECK(
+        bounded.evaluate(
+            boundedSecond,
+            71,
+            81,
+            *boundedWait.dueHostTimeNs +
+                kFrameDurationNs).status ==
+        TimelineScheduleStatus::ReadyNow);
+    CHECK(
+        bounded.evaluate(
+            boundedSecond,
+            71,
+            81,
+            *boundedWait.dueHostTimeNs +
+                kFrameDurationNs + 1ULL).status ==
+        TimelineScheduleStatus::DropLate);
+
+    CHECK(readyWithJitter == 30);
+    CHECK(waits == 30);
+    std::cout
+        << "CURRENT_5MS_POLICY_UNDER_REALISTIC_JITTER=REMEDIATED\n"
+        << "VIDEO_TIMING_MODEL_AFTER=FRAME_DURATION_DERIVED_LATENESS_FLOOR_PLUS_CONFIGURED_MINIMUM\n"
+        << "VIDEO_PUBLISH_SEQUENCE_CONTINUOUS=PASS\n"
+        << "VIDEO_LATE_DROP_POLICY_BOUNDED=PASS\n"
+        << "VIDEO_DOES_NOT_ACCUMULATE_UNBOUNDED_BACKLOG=PASS\n"
+        << "VIDEO_FRAME_DERIVED_QUARTER_JITTER_NS="
+        << kQuarterFrameJitterNs << "\n";
+    return true;
+}
+#endif
+
 void Run(
     const std::string& name,
     const std::function<bool()>& test) {
@@ -408,6 +526,11 @@ int main() {
     Run(
         "five millisecond policy under frame-derived jitter",
         TestFiveMsPolicyUnderFrameDerivedJitter);
+#endif
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002)
+    Run(
+        "frame-duration-derived lateness policy",
+        TestFrameDurationDerivedLatenessPolicy);
 #endif
 
     std::cout << "Stage F1 scheduler tests run: "

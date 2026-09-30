@@ -125,6 +125,12 @@ public:
             std::memory_order_release);
     }
 
+    void setPreserveLatestPerGeometryForTimedPublishing(
+        bool enabled) noexcept {
+        preserveLatestPerGeometryForTimedPublishing_ =
+            enabled;
+    }
+
     // The caller must quiesce the producer before invoking this. It drops
     // only a prepared-but-not-yet-presented frame and deliberately preserves
     // media generation, timeline epoch, scheduler state and source position.
@@ -207,6 +213,7 @@ private:
     FramePipelinePumpResult pendingPreparedResult_{};
 
     std::atomic<bool> forceTransform_{false};
+    bool preserveLatestPerGeometryForTimedPublishing_ = false;
     bool timedContextInitialized_ = false;
     std::uint64_t timedMediaGeneration_ = 0;
     std::uint64_t timedTimelineEpoch_ = 0;

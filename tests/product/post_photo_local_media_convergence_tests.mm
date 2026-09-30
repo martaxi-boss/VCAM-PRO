@@ -1309,6 +1309,412 @@ bool TestVideoColdStartAndGeometryStarvationPreFix() {
 }
 #endif
 
+
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002)
+bool WaitForMatchingVideoFrameWithoutConsuming(
+    MediaserverdRuntime& runtime,
+    CVPixelBufferRef geometry,
+    int attempts = 800) {
+    for (int attempt = 0;
+         attempt < attempts;
+         ++attempt) {
+        const auto classification =
+            runtime.cameraAdapter().
+                classifyVideoAcquireForTesting(
+                    geometry);
+        if (classification ==
+            vcam::frame_engine::
+                MatchingAcquireClassificationForTesting::Acquired) {
+            return true;
+        }
+        [NSThread sleepForTimeInterval:0.002];
+    }
+    return false;
+}
+
+bool NonDecreasingSourcePTS(
+    const MediaserverdRuntimeTestSnapshot& before,
+    const MediaserverdRuntimeTestSnapshot& after) {
+    if (!before.videoHasLastSourcePTS ||
+        !after.videoHasLastSourcePTS ||
+        before.videoLastSourcePTSTimescale <= 0 ||
+        after.videoLastSourcePTSTimescale <= 0) {
+        return false;
+    }
+
+    const CMTime lhs =
+        CMTimeMake(
+            before.videoLastSourcePTSValue,
+            before.videoLastSourcePTSTimescale);
+    const CMTime rhs =
+        CMTimeMake(
+            after.videoLastSourcePTSValue,
+            after.videoLastSourcePTSTimescale);
+    return CMTimeCompare(rhs, lhs) >= 0;
+}
+
+bool TestVideoPresentationRemediation002() {
+    const std::string root =
+        TempRoot("video-remediation-002-final");
+    CHECK(CreateDirectory(root));
+    const std::string input =
+        root + "/input.mov";
+    CHECK(CreateVideo(input, 300));
+
+    CVPixelBufferRef a =
+        MakeBuffer(
+            64,
+            48,
+            kCVPixelFormatType_420YpCbCr8BiPlanarFullRange);
+    CVPixelBufferRef b =
+        MakeBuffer(
+            80,
+            60,
+            kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange);
+    CHECK(a != nullptr);
+    CHECK(b != nullptr);
+
+    // Stable single-geometry cold start remains directly acquireable.
+    {
+        const std::string controlPath =
+            root + "/stable-final-control.plist";
+        const std::string media =
+            root + "/StableFinalMedia";
+        const std::string notification =
+            "com.vcampro.videoremed002.finalstable." +
+            std::to_string(getpid());
+
+        ProductControlOwner owner(
+            controlPath,
+            notification,
+            media);
+        MediaserverdRuntime runtime(
+            controlPath,
+            notification);
+        CHECK(runtime.start());
+        runtime.observeRealCameraBuffer(a);
+        CHECK(runtime.drainControlQueueForTesting());
+        CHECK(owner.setEnabled(true));
+
+        std::string error;
+        CHECK(owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Video,
+            &error));
+        CHECK(error.empty());
+        const auto selected = owner.snapshot();
+        CHECK(WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            1));
+
+        const auto before =
+            runtime.snapshotForTesting();
+        CHECK(before.videoReaderOpen);
+        CHECK(before.videoReaderStarted);
+        CHECK(before.videoReadFrameCount > 0);
+        CHECK(before.videoNormalizeSuccessCount > 0);
+        CHECK(before.videoTransformSuccessCount > 0);
+        CHECK(before.totalVideoPublishedFrameCount > 0);
+        CHECK(before.videoAcquireCount == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                classifyVideoAcquireForTesting(a) ==
+            vcam::frame_engine::
+                MatchingAcquireClassificationForTesting::Acquired);
+
+        const CameraDecision first =
+            runtime.decideCameraBuffer(a);
+        CHECK(IsPrepared(first));
+        CHECK(
+            runtime.cameraAdapter().
+                videoAcquireCount() > 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() > 0);
+
+        std::cout
+            << "STABLE_GEOMETRY_FIRST_ACQUIRE=PASS\n"
+            << "VIDEO_FIRST_MATCHING_ACQUIRE=PASS\n";
+    }
+
+    // Cold A/B presentation starts with no prior successful VIDEO acquire.
+    // A prepared frame must survive the first retarget while B is prepared.
+    {
+        const std::string controlPath =
+            root + "/churn-final-control.plist";
+        const std::string media =
+            root + "/ChurnFinalMedia";
+        const std::string notification =
+            "com.vcampro.videoremed002.finalchurn." +
+            std::to_string(getpid());
+
+        ProductControlOwner owner(
+            controlPath,
+            notification,
+            media);
+        MediaserverdRuntime runtime(
+            controlPath,
+            notification);
+        CHECK(runtime.start());
+        runtime.observeRealCameraBuffer(a);
+        CHECK(runtime.drainControlQueueForTesting());
+        CHECK(owner.setEnabled(true));
+
+        std::string error;
+        CHECK(owner.selectFromTemporaryPath(
+            input,
+            ProductMediaKind::Video,
+            &error));
+        CHECK(error.empty());
+        const auto selected = owner.snapshot();
+        CHECK(WaitForVideo(
+            runtime,
+            selected.selectionGeneration,
+            1));
+
+        const auto initial =
+            runtime.snapshotForTesting();
+        CHECK(initial.videoAcquireCount == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() == 0);
+        CHECK(
+            runtime.cameraAdapter().
+                classifyVideoAcquireForTesting(a) ==
+            vcam::frame_engine::
+                MatchingAcquireClassificationForTesting::Acquired);
+
+        const std::uint64_t generation =
+            initial.selectionGeneration;
+        const std::uint64_t epoch =
+            initial.queueEpoch;
+        const std::uint64_t readerOpenCount =
+            initial.videoReaderOpenCount;
+        const std::uint64_t readerStartCount =
+            initial.videoReaderStartCount;
+        const std::uint64_t logicalSessionCount =
+            initial.logicalVideoSessionCreationCount;
+
+        // The first unseen B callback is allowed to be BLACK. It is not
+        // allowed to consume/destroy A while B is prepared off-callback.
+        CHECK(runtime.suspendControlQueueForTesting());
+        runtime.observeRealCameraBuffer(b);
+        const auto coldBClassification =
+            runtime.cameraAdapter().
+                classifyVideoAcquireForTesting(b);
+        CHECK(
+            coldBClassification ==
+                vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::GeometryMismatch ||
+            coldBClassification ==
+                vcam::frame_engine::
+                    MatchingAcquireClassificationForTesting::QueueEmpty);
+        const CameraDecision coldB =
+            runtime.decideCameraBuffer(b);
+        CHECK(!IsPrepared(coldB));
+        CHECK(coldB.kind == CameraDecisionKind::Virtual);
+        CHECK(runtime.resumeControlQueueForTesting());
+        CHECK(runtime.drainControlQueueForTesting());
+
+        const auto afterFirstRetarget =
+            runtime.snapshotForTesting();
+        CHECK(afterFirstRetarget.videoRetargetCount > 0);
+        CHECK(
+            afterFirstRetarget.videoRetargetQueueClearCount ==
+            0);
+        CHECK(
+            afterFirstRetarget.
+                videoRetargetClearedReadyFrameCount ==
+            0);
+        CHECK(
+            runtime.cameraAdapter().
+                classifyVideoAcquireForTesting(a) ==
+            vcam::frame_engine::
+                MatchingAcquireClassificationForTesting::Acquired);
+
+        CHECK(
+            WaitForMatchingVideoFrameWithoutConsuming(
+                runtime,
+                b));
+        const CameraDecision firstB =
+            runtime.decideCameraBuffer(b);
+        CHECK(IsPrepared(firstB));
+
+        runtime.observeRealCameraBuffer(a);
+        CHECK(runtime.drainControlQueueForTesting());
+        CHECK(
+            WaitForMatchingVideoFrameWithoutConsuming(
+                runtime,
+                a));
+        const CameraDecision firstA =
+            runtime.decideCameraBuffer(a);
+        CHECK(IsPrepared(firstA));
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() >= 2);
+
+        const auto seeded =
+            runtime.snapshotForTesting();
+        const std::uint64_t blackAfterSeed =
+            seeded.videoBlackDecisionCount;
+
+        CVPixelBufferRef sequence[] = {
+            b, a, b, a, b, a, b, a,
+            b, a, b, a, b, a, b, a,
+        };
+        std::uint64_t steadyPrepared = 0;
+        for (CVPixelBufferRef current : sequence) {
+            runtime.observeRealCameraBuffer(current);
+            CHECK(runtime.drainControlQueueForTesting());
+            const CameraDecision decision =
+                runtime.decideCameraBuffer(current);
+            CHECK(IsPrepared(decision));
+            ++steadyPrepared;
+        }
+        CHECK(steadyPrepared == 16);
+
+        const auto afterChurn =
+            runtime.snapshotForTesting();
+        CHECK(afterChurn.videoRetargetCount >= 17);
+        CHECK(afterChurn.videoRetargetQueueClearCount == 0);
+        CHECK(
+            afterChurn.
+                videoRetargetClearedReadyFrameCount ==
+            0);
+        CHECK(
+            afterChurn.videoBlackDecisionCount ==
+            blackAfterSeed);
+        CHECK(afterChurn.videoAcquireCount > 0);
+        CHECK(
+            afterChurn.videoPreparedMediaDecisionCount >
+            0);
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestFrameCount() >= 2);
+
+        // With one geometry held steady, publication must continue rather
+        // than collapsing to a handful of frames under normal host jitter.
+        runtime.observeRealCameraBuffer(a);
+        CHECK(runtime.drainControlQueueForTesting());
+        const auto flowBefore =
+            runtime.snapshotForTesting();
+        [NSThread sleepForTimeInterval:0.5];
+        const auto flowAfter =
+            runtime.snapshotForTesting();
+        CHECK(
+            flowAfter.totalVideoPublishedFrameCount >
+            flowBefore.totalVideoPublishedFrameCount + 5);
+        CHECK(
+            flowAfter.videoTimelineReadyCount >
+            flowBefore.videoTimelineReadyCount);
+        CHECK(
+            NonDecreasingSourcePTS(
+                initial,
+                flowAfter));
+
+        CHECK(
+            flowAfter.selectionGeneration ==
+            generation);
+        CHECK(flowAfter.queueEpoch == epoch);
+        CHECK(
+            flowAfter.videoReaderOpenCount ==
+            readerOpenCount);
+        CHECK(
+            flowAfter.videoReaderStartCount ==
+            readerStartCount);
+        CHECK(
+            flowAfter.logicalVideoSessionCreationCount ==
+            logicalSessionCount);
+        CHECK(
+            flowAfter.videoSessionReplacementCount ==
+            0);
+
+        // The persistent latest cache is a post-first-acquire bridge, not a
+        // cold-start substitute. Once A and B are seeded it must sustain
+        // presentation through a producer gap.
+        const std::uint64_t reuseBefore =
+            runtime.cameraAdapter().
+                videoLatestReuseDecisionCount();
+        CHECK(runtime.stopVideoProducerForTesting());
+        for (int iteration = 0;
+             iteration < 8;
+             ++iteration) {
+            CHECK(IsPrepared(
+                runtime.decideCameraBuffer(a)));
+            CHECK(IsPrepared(
+                runtime.decideCameraBuffer(b)));
+        }
+        CHECK(
+            runtime.cameraAdapter().
+                videoLatestReuseDecisionCount() >
+            reuseBefore);
+        CHECK(
+            runtime.cameraAdapter().
+                enabledSupportedOriginalDecisionCount() ==
+            0);
+
+        const auto finalSnapshot =
+            runtime.snapshotForTesting();
+
+        std::cout
+            << "VIDEO_READER_OPEN=PASS\n"
+            << "VIDEO_READER_START=PASS\n"
+            << "VIDEO_READ_FRAMES=PASS\n"
+            << "VIDEO_NORMALIZE=PASS\n"
+            << "VIDEO_TRANSFORM=PASS\n"
+            << "VIDEO_COLD_MULTI_GEOMETRY_A_B_A_B=PASS\n"
+            << "VIDEO_QUEUE_PRESENTATION_SURVIVES_DESTINATION_CHURN=PASS\n"
+            << "VIDEO_LATEST_CACHE_SEEDED=PASS\n"
+            << "VIDEO_LATEST_REUSE=PASS\n"
+            << "VIDEO_PREPARED_MEDIA_DECISIONS_GT_ZERO=PASS\n"
+            << "VIDEO_BLACK_ONLY_WHILE_REQUIRED_VARIANT_NOT_READY=PASS\n"
+            << "VIDEO_CONTINUOUS_PRESENTATION=PASS\n"
+            << "VIDEO_TIMELINE_CONTINUOUS=PASS\n"
+            << "VIDEO_SOURCE_PTS_MONOTONIC=PASS\n"
+            << "NO_VIDEO_READER_REOPEN_ON_GEOMETRY_SWITCH=PASS\n"
+            << "NO_AVASSETREADER_RESTART_ON_GEOMETRY_SWITCH=PASS\n"
+            << "NO_VIDEO_SESSION_RECREATE_ON_GEOMETRY_SWITCH=PASS\n"
+            << "VIDEO_SELECTION_GENERATION_STABLE=PASS\n"
+            << "VCAM_ON_SUPPORTED_ORIGINAL_DECISIONS=ZERO\n"
+            << "VIDEO_GEOMETRY_MODEL_AFTER=BOUNDED_LATEST_PREPARED_FRAME_PER_DESTINATION_GEOMETRY\n"
+            << "VIDEO_READ_FRAME_COUNT_TEST="
+            << finalSnapshot.videoReadFrameCount << "\n"
+            << "VIDEO_NORMALIZE_SUCCESS_COUNT_TEST="
+            << finalSnapshot.videoNormalizeSuccessCount << "\n"
+            << "VIDEO_TRANSFORM_SUCCESS_COUNT_TEST="
+            << finalSnapshot.videoTransformSuccessCount << "\n"
+            << "VIDEO_PUBLISH_COUNT_TEST="
+            << finalSnapshot.totalVideoPublishedFrameCount << "\n"
+            << "VIDEO_ACQUIRE_COUNT_TEST="
+            << finalSnapshot.videoAcquireCount << "\n"
+            << "VIDEO_LATEST_REUSE_COUNT_TEST="
+            << runtime.cameraAdapter().
+                videoLatestReuseDecisionCount() << "\n"
+            << "VIDEO_PREPARED_MEDIA_DECISION_COUNT_TEST="
+            << finalSnapshot.videoPreparedMediaDecisionCount << "\n"
+            << "VIDEO_BLACK_DECISION_COUNT_TEST="
+            << finalSnapshot.videoBlackDecisionCount << "\n"
+            << "VIDEO_RETARGET_COUNT_TEST="
+            << finalSnapshot.videoRetargetCount << "\n"
+            << "VIDEO_RETARGET_QUEUE_CLEAR_COUNT_TEST="
+            << finalSnapshot.videoRetargetQueueClearCount << "\n";
+    }
+
+    CVPixelBufferRelease(a);
+    CVPixelBufferRelease(b);
+    [[NSFileManager defaultManager]
+        removeItemAtPath:
+            [NSString stringWithUTF8String:
+                root.c_str()]
+                   error:nil];
+    return true;
+}
+#endif
+
 bool TestVideoReaderDiagnosticBeforeStart() {
     const std::string root =
         TempRoot("video-reader-not-started");
@@ -2151,6 +2557,11 @@ int main() {
 
 #if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002_PREFX)
         if (!TestVideoColdStartAndGeometryStarvationPreFix()) {
+            return EXIT_FAILURE;
+        }
+#endif
+#if defined(VCAM_VIDEO_DEVICE_PROOF_REMEDIATION_002)
+        if (!TestVideoPresentationRemediation002()) {
             return EXIT_FAILURE;
         }
 #endif

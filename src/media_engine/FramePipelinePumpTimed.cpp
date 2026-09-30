@@ -254,11 +254,27 @@ FramePipelinePumpResult FramePipelinePump::publishTimedFrame(
         frame_engine::QueueContext queueContext;
         queueContext.currentMediaGeneration = state_.mediaGeneration();
         queueContext.currentTimelineEpoch = state_.timelineEpoch();
-        queueContext.minimumSequence = stamped.identity().sequence;
 
-        result.purgedQueueEntries = queue_.purgeStale(queueContext);
-        result.publishResult =
-            queue_.publish(std::move(stamped), queueContext);
+        if (preserveLatestPerGeometryForTimedPublishing_) {
+            // VIDEO logical presentation state is independent from one
+            // destination geometry. Keep one newest prepared frame per
+            // bounded geometry key so a retarget does not destroy the only
+            // acquireable frame before the callback can seed latest-video.
+            queueContext.minimumSequence = std::nullopt;
+            result.publishResult =
+                queue_.publishLatestPerGeometry(
+                    std::move(stamped),
+                    queueContext);
+        } else {
+            queueContext.minimumSequence =
+                stamped.identity().sequence;
+            result.purgedQueueEntries =
+                queue_.purgeStale(queueContext);
+            result.publishResult =
+                queue_.publish(
+                    std::move(stamped),
+                    queueContext);
+        }
 
         result.status =
             result.publishResult == frame_engine::PublishResult::Published
