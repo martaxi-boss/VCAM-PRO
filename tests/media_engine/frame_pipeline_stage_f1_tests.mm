@@ -451,31 +451,37 @@ bool TestGeometryRetargetPreservesPendingTimelineFrame() {
         transformer,
         scheduler,
         queue,
-        Target(8, 8));
+        Target(64, 48));
     pump.setPreserveLatestPerGeometryForTimedPublishing(true);
 
-    FakeTimedSource source(SourceInfo(8, 8));
+    FakeTimedSource source(SourceInfo(64, 48));
     source.add(MakeFrame(
         0,
         state.mediaGeneration(),
         state.timelineEpoch(),
         0,
         CMTimeMake(0, 30),
-        CMTimeMake(1, 30)));
+        CMTimeMake(1, 30),
+        64,
+        48));
     source.add(MakeFrame(
         1,
         state.mediaGeneration(),
         state.timelineEpoch(),
         0,
         CMTimeMake(1, 30),
-        CMTimeMake(1, 30)));
+        CMTimeMake(1, 30),
+        64,
+        48));
     source.add(MakeFrame(
         2,
         state.mediaGeneration(),
         state.timelineEpoch(),
         0,
         CMTimeMake(2, 30),
-        CMTimeMake(1, 30)));
+        CMTimeMake(1, 30),
+        64,
+        48));
     InstallSource(pump, source);
 
     constexpr std::uint64_t start =
@@ -497,7 +503,7 @@ bool TestGeometryRetargetPreservesPendingTimelineFrame() {
     CHECK(source.readCalls == 2);
 
     pump.setTargetPreservingTimeline(
-        Target(12, 10));
+        Target(80, 60));
 
     // Retargeting must not read another source frame or discard the already
     // scheduled sequence-1 frame.
@@ -518,17 +524,13 @@ bool TestGeometryRetargetPreservesPendingTimelineFrame() {
     CHECK(
         queue.hasEligibleMatching(
             context,
-            8,
-            8,
+            64,
+            48,
             kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
 
     const auto next =
         pump.pumpOnceAtHostTime(
             *pending.dueHostTimeNs);
-    std::cout
-        << "VIDEO_GEOMETRY_RETARGET_NEXT_STATUS="
-        << static_cast<unsigned>(next.status)
-        << "\n";
     CHECK(
         next.status ==
         FramePipelinePumpStatus::
@@ -547,14 +549,14 @@ bool TestGeometryRetargetPreservesPendingTimelineFrame() {
     CHECK(
         queue.hasEligibleMatching(
             context,
-            8,
-            8,
+            64,
+            48,
             kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
     CHECK(
         queue.hasEligibleMatching(
             context,
-            12,
-            10,
+            80,
+            60,
             kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange));
 
     std::cout
