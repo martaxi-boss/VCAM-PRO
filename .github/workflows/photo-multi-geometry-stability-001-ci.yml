@@ -160,7 +160,6 @@ jobs:
   terminal-regression-package:
     name: Exact-head full regression and RootHide candidate
     needs:
-      - pre-fix-reproduction
       - fixed-multi-geometry
     runs-on: macos-26
     timeout-minutes: 180
