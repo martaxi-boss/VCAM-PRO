@@ -1,9 +1,0 @@
-Package: com.vcampro.camera
-Name: VCAM PRO Runtime Gate
-Version: 0.1.0+roothide4~runtimegate1
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Controlled RootHide mediaserverd production runtime-start certification gate. Reference camera hook disabled; no camera interception or frame substitution.
-Maintainer: VCAM PRO
-Author: VCAM PRO
-Section: Tweaks

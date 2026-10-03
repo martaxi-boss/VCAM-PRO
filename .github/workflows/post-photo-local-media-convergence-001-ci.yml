@@ -1,18 +1,7 @@
 name: VCAM PRO Post Photo Local Media Convergence 001
 
+# Historical certification: explicit dispatch only; canonical gates run automatically.
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "tools/run_frame_regressions.sh"
-      - "product/post_photo_local_media_convergence_001/**"
-      - ".github/workflows/post-photo-local-media-convergence-001-ci.yml"
-      - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
-      - "docs/research/POST_PHOTO_LOCAL_MEDIA_CONVERGENCE_001.md"
-      - "docs/CANONICAL_PROJECT_STATE.md"
   workflow_dispatch:
 
 permissions:

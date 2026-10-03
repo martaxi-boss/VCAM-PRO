@@ -1,9 +1,0 @@
-Package: com.vcampro.camera
-Name: VCAM PRO Hook Installation Readiness Gate
-Version: 0.1.0+roothide6~hookready1
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Controlled RootHide reference camera hook installation-readiness diagnostic. Target and hook-provider symbol resolution only; hook installation and frame access are not executed.
-Maintainer: VCAM PRO
-Author: VCAM PRO
-Section: Tweaks

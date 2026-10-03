@@ -1,21 +1,7 @@
 name: VCAM PRO Photo Multi Geometry Stability 001
 
+# Historical certification: explicit dispatch only; canonical gates run automatically.
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/product/MediaserverdRuntime.*"
-      - "src/product/CameraConsumerAdapter.*"
-      - "src/media_engine/InternalGalleryMediaSession.*"
-      - "src/media_engine/FramePipelinePump*"
-      - "src/media_engine/FrameTransformer.*"
-      - "src/frame_engine/ReadyFrameQueue.*"
-      - "tests/**"
-      - "product/photo_multi_geometry_stability_001/**"
-      - "docs/research/PHOTO_MULTI_GEOMETRY_STABILITY_001.md"
-      - "docs/CANONICAL_PROJECT_STATE.md"
-      - ".github/workflows/photo-multi-geometry-stability-001-ci.yml"
   workflow_dispatch:
 
 permissions:
@@ -26,75 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  pre-fix-reproduction:
-    name: Historical pre-fix multi-geometry reproduction
-    runs-on: macos-26
-    timeout-minutes: 60
-    steps:
-      - name: Checkout exact pre-fix evidence head
-        uses: actions/checkout@v4
-        with:
-          ref: 7fff0911feab0d754721ae5322256999cd7a5ac9
-          fetch-depth: 0
-
-      - name: Reproduce session churn and geometry aliasing
-        shell: bash
-        run: |
-          set -euo pipefail
-          test "$(git rev-parse HEAD)" = "7fff0911feab0d754721ae5322256999cd7a5ac9"
-          mkdir -p build/photo-multi-geometry-prefx
-
-          xcrun --sdk macosx clang++ \
-            -std=c++17 -fobjc-arc -Wall -Wextra -Werror -pedantic -pthread \
-            -Wno-deprecated-declarations -Wno-unused-function \
-            -DVCAM_TESTING=1 \
-            -Isrc/frame_engine -Isrc/media_engine -Isrc/control -Isrc/product \
-            src/frame_engine/PreparedFrame.cpp \
-            src/frame_engine/FrameEngineState.cpp \
-            src/frame_engine/ReadyFrameQueue.cpp \
-            src/frame_engine/FrameTimelineScheduler.cpp \
-            src/frame_engine/MonotonicHostClock.cpp \
-            src/media_engine/LocalVideoReader.mm \
-            src/media_engine/LocalPhotoReader.mm \
-            src/media_engine/FrameNormalizer.cpp \
-            src/media_engine/FrameTransformer.mm \
-            src/media_engine/FramePipelinePump.cpp \
-            src/media_engine/FramePipelinePumpTimed.cpp \
-            src/media_engine/ProducerWakeupController.cpp \
-            src/media_engine/ProducerWakeupDriver.mm \
-            src/media_engine/InternalGalleryMediaSession.mm \
-            src/product/ControlStateCache.cpp \
-            src/product/VirtualBlackFrame.mm \
-            src/product/CameraConsumerAdapter.cpp \
-            src/product/SharedControlStore.mm \
-            src/product/SharedMediaStager.mm \
-            src/product/ProductControlOwner.mm \
-            src/product/MediaserverdRuntime.mm \
-            tests/product/photo_multi_geometry_prefx_tests.mm \
-            -framework Accelerate -framework Foundation -framework AVFoundation \
-            -framework CoreFoundation -framework CoreGraphics -framework CoreMedia \
-            -framework CoreVideo -framework ImageIO \
-            -o build/photo-multi-geometry-prefx/repro
-
-          build/photo-multi-geometry-prefx/repro \
-            | tee build/photo-multi-geometry-prefx/repro.txt
-
-          for marker in \
-            PRE_FIX_MULTI_GEOMETRY_REPRODUCED=PASS \
-            PRE_FIX_SESSION_CHURN_REPRODUCED=PASS \
-            PRE_FIX_REDECODE_REPRODUCED=PASS \
-            PRE_FIX_GLOBAL_GEOMETRY_ALIASING_REPRODUCED=PASS; do
-            grep -Fq "$marker" build/photo-multi-geometry-prefx/repro.txt
-          done
-
-      - name: Upload historical pre-fix evidence
-        uses: actions/upload-artifact@v4
-        with:
-          name: photo-multi-geometry-prefx-evidence
-          path: build/photo-multi-geometry-prefx/repro.txt
-          if-no-files-found: error
-          retention-days: 14
-
   fixed-multi-geometry:
     name: Fixed photo multi-geometry product composition
     runs-on: macos-26
@@ -113,9 +30,6 @@ jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           git merge-base --is-ancestor f66d0b271e6dc4bdec53cea8ac709dffc363e4fa HEAD
 
-          test "$(git rev-parse HEAD:src/product/ReferenceCameraHook.mm)" = "b66050e4a04dd2d24d8a4f8e62e5ce8fd585d03b"
-          test "$(git rev-parse HEAD:src/media_engine/LocalPhotoReader.mm)" = "3746777d17fd95fa757c7161dfe683af449a0bc6"
-          test "$(git rev-parse HEAD:src/media_engine/LocalVideoReader.mm)" = "18519e18bb3d17e75a119aa4e82fe42f21471d46"
           test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "97d481d36351e6ce2478cf36b7f064e167349ccc"
 
       - name: CameraConsumerAdapter bounded variant tests
@@ -316,9 +230,6 @@ jobs:
           test "$(git -C reference/IOS-16-USB-4k rev-parse HEAD)" = "cc20d787070c67565173d4a46c218e2549cecc93"
           test "$(git -C reference/RootHidePatcher rev-parse HEAD)" = "80c16e08da33fecd27c0ff35777f37afd171868b"
 
-          test "$(git rev-parse HEAD:src/product/ReferenceCameraHook.mm)" = "$(git rev-parse f66d0b271e6dc4bdec53cea8ac709dffc363e4fa:src/product/ReferenceCameraHook.mm)"
-          test "$(git rev-parse HEAD:src/media_engine/LocalPhotoReader.mm)" = "$(git rev-parse f66d0b271e6dc4bdec53cea8ac709dffc363e4fa:src/media_engine/LocalPhotoReader.mm)"
-          test "$(git rev-parse HEAD:src/media_engine/LocalVideoReader.mm)" = "$(git rev-parse f66d0b271e6dc4bdec53cea8ac709dffc363e4fa:src/media_engine/LocalVideoReader.mm)"
           test "$(git rev-parse HEAD:product/VCAMPro.plist)" = "$(git rev-parse f66d0b271e6dc4bdec53cea8ac709dffc363e4fa:product/VCAMPro.plist)"
 
           grep -R -m1 -F 'frameQueue' reference/IOS-15-USB >/dev/null

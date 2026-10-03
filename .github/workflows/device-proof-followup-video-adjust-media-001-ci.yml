@@ -1,17 +1,7 @@
 name: VCAM PRO Device Proof Follow-up Video Adjust Media 001
 
+# Historical certification: explicit dispatch only; canonical gates run automatically.
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "tools/run_frame_regressions.sh"
-      - "product/device_proof_followup_video_adjust_media_001/**"
-      - "product/VCAMPro.plist"
-      - ".github/workflows/device-proof-followup-video-adjust-media-001-ci.yml"
-      - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
   workflow_dispatch:
 
 permissions:

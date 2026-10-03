@@ -1,18 +1,7 @@
 name: VCAM PRO Local Media Device Proof Remediation 001
 
+# Historical certification: explicit dispatch only; canonical gates run automatically.
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/**"
-      - "tests/**"
-      - "tools/run_frame_regressions.sh"
-      - "product/local_media_device_proof_remediation_001/**"
-      - "product/VCAMPro.plist"
-      - "docs/research/LOCAL_MEDIA_DEVICE_PROOF_REMEDIATION_001.md"
-      - "docs/CANONICAL_PROJECT_STATE.md"
-      - ".github/workflows/local-media-device-proof-remediation-001-ci.yml"
   workflow_dispatch:
 
 permissions:

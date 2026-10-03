@@ -1,9 +1,0 @@
-Package: com.vcampro.camera
-Name: VCAM PRO Legacy Real Hook Runtime Activation Visible Witness Gate
-Version: 0.1.0+roothide7~realhookruntime2
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Temporary certification package for the unchanged real ReferenceCameraHook with a SpringBoard-only fresh Darwin-notify visible witness. No media selection, callback exercise, release, or production deployment.
-Maintainer: VCAM PRO
-Author: VCAM PRO
-Section: Tweaks

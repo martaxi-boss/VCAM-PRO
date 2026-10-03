@@ -1,9 +1,0 @@
-Package: com.vcampro.camera
-Name: VCAM PRO First Local Photo Substitution Diagnostic
-Version: 0.1.0+roothide12~photosubdiag1
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Complete VCAM PRO local-gallery product with bounded genuine camera callback substitution diagnostics.
-Maintainer: VCAM PRO
-Author: VCAM PRO
-Section: Tweaks

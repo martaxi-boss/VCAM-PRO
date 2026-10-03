@@ -7,6 +7,9 @@ on:
     branches:
       - builder/canonical-hook-continuation-001
     paths:
+      - "README.md"
+      - "PROJECT_STATE.md"
+      - ".github/workflows/**"
       - "src/product/**"
       - "src/media_engine/**"
       - "src/frame_engine/**"

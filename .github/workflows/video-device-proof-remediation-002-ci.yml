@@ -5,6 +5,9 @@ on:
     branches:
       - builder/canonical-hook-continuation-001
     paths:
+      - "README.md"
+      - "PROJECT_STATE.md"
+      - ".github/workflows/**"
       - "src/**"
       - "tests/**"
       - "tools/run_frame_regressions.sh"

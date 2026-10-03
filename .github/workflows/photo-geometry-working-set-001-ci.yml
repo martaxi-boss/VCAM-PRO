@@ -1,21 +1,7 @@
 name: VCAM PRO Photo Geometry Camera Critical Path Remediation 003
 
+# Historical certification: explicit dispatch only; canonical gates run automatically.
 on:
-  push:
-    branches:
-      - builder/canonical-hook-continuation-001
-    paths:
-      - "src/product/CameraConsumerAdapter.*"
-      - "src/product/MediaserverdRuntime.*"
-      - "src/product/ReferenceCameraHook.*"
-      - "src/media_engine/InternalGalleryMediaSession.*"
-      - "tests/product/photo_geometry_working_set_tests.mm"
-      - "tests/product/camera_consumer_adapter_tests.cpp"
-      - "product/photo_geometry_working_set_002/**"
-      - "docs/research/PHOTO_GEOMETRY_WORKING_SET_RENDER_PARITY_002.md"
-      - "docs/CANONICAL_PROJECT_STATE.md"
-      - ".github/workflows/photo-geometry-working-set-001-ci.yml"
-      - ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml"
   workflow_dispatch:
 
 permissions:

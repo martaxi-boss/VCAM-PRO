@@ -1,9 +1,0 @@
-Package: com.vcampro.camera
-Name: VCAM PRO Full Product Real Hook
-Version: 0.1.0+roothide8~fullrealhook1
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Complete VCAM PRO local-gallery product with real reference camera hook and visible SpringBoard install witness.
-Maintainer: VCAM PRO
-Author: VCAM PRO
-Section: Tweaks

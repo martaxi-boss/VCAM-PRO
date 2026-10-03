@@ -1,9 +1,0 @@
-Package: com.vcampro.camera
-Name: VCAM PRO Hook Reachability Gate
-Version: 0.1.0+roothide5~hookreach1
-Architecture: iphoneos-arm64
-Depends: mobilesubstrate, firmware (>= 15.0)
-Description: Controlled RootHide reference camera hook reachability diagnostic. Symbol resolution only; hook installation and frame access disabled.
-Maintainer: VCAM PRO
-Author: VCAM PRO
-Section: Tweaks
