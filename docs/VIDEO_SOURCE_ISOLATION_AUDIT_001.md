@@ -84,3 +84,16 @@ continuing publication, not A9 frame-rate performance. No production timing
 policy changes or blind same-SHA reruns are used. The immutable successor task
 `VCAM-PRO-VIDEO-CERTIFICATION-002` binds this existing regression file before
 its mutation and carries the certification forward.
+
+## Final metadata hygiene
+
+Both source-isolation gates passed on `c3c52417be047cec7560155719eb1e8f34938161`
+(runs `37461906600` and `37461906602`). The real reader/hook test preserved
+source luma, the negative test reproduced source BLACK corruption, and the
+continuity test observed six additional publications in 527 ms. These are
+intermediate exact-code evidence, not certification of later package metadata.
+The final metadata cleanup declares Maintainer, labels old 5 ms diagnostic
+findings as historical, names the source-isolation package role and points the
+canonical ledger to the immutable final Worker Result. Required gates recertify
+this material metadata revision before handoff. No new physical VIDEO PASS is
+claimed from any host run.

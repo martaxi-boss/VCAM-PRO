@@ -24,7 +24,7 @@ USER_ROTATION_GESTURE=NO
 GESTURE_UPDATE_RATE_MAX_HZ=30
 CAMERA_CALLBACK_HEAVY_WORK=PROHIBITED
 
-## Last verified implementation evidence
+## Historical presentation implementation evidence
 
 VIDEO_REMEDIATION_002_CI=36717911255
 VIDEO_REMEDIATION_002_CI_RESULT=SUCCESS
@@ -34,8 +34,8 @@ EVIDENCE_HEAD=f4087e8607929e6b3ff3c6b594e8e43cc6b0b2d8
 VIDEO_ROOT_CAUSE=RETARGET_QUEUE_CLEAR_COLD_START_STARVATION_PLUS_PENDING_TIMER_LATE_DROP_STARVATION
 VIDEO_TIMING_MODEL=LATEST_DUE_PENDING_PRESENTATION_PLUS_FRAME_DURATION_NEW_FRAME_DROP_REBASE
 VIDEO_GEOMETRY_MODEL=BOUNDED_LATEST_PREPARED_FRAME_PER_DESTINATION_GEOMETRY
-CURRENT_VIDEO_PACKAGE_VERSION=0.1.0+roothide23~videofix1
-CURRENT_VIDEO_PACKAGE=VCAM-PRO-RootHide-Video-Presentation-Fix-001.deb
+HISTORICAL_VIDEO_PACKAGE_VERSION=0.1.0+roothide23~videofix1
+HISTORICAL_VIDEO_PACKAGE=VCAM-PRO-RootHide-Video-Presentation-Fix-001.deb
 
 Device observations previously supplied by the Owner:
 
@@ -76,10 +76,22 @@ VIDEO_SOURCE_INTERCEPTION_DEFECT=GLOBAL_CAMERA_HOOK_INTERCEPTS_LOCAL_READER_IMAG
 VIDEO_SOURCE_ISOLATION=SCOPED_THREAD_LOCAL_DECODE_ACCESS_BEFORE_CAMERA_OBSERVATION
 VIDEO_SOURCE_ISOLATION_CANDIDATE_VERSION=0.1.0+roothide24~sourcefix1
 VIDEO_SOURCE_ISOLATION_CANDIDATE_PACKAGE=VCAM-PRO-RootHide-Video-Source-Isolation-001.deb
-VIDEO_SOURCE_ISOLATION_CI=PENDING
+VIDEO_SOURCE_ISOLATION_CI=SEE_IMMUTABLE_CERTIFICATION_WORKER_RESULT
 VIDEO_SOURCE_ISOLATION_DEVICE_PROOF=PENDING
 
 The previous implementation evidence above remains historical certification,
 not a claim that the present VIDEO output works on the device. The audit fixes
 an additional source-versus-camera boundary defect and the stale central gate.
 See [VIDEO_SOURCE_ISOLATION_AUDIT_001.md](VIDEO_SOURCE_ISOLATION_AUDIT_001.md).
+
+## Current certification index
+
+ACTIVE_CERTIFICATION_TASK=VCAM-PRO-VIDEO-CERTIFICATION-002
+CERTIFICATION_RESULT=.project-leader/results/VCAM-PRO-VIDEO-CERTIFICATION-002.json
+SOURCE_ISOLATION_PREDECESSOR_TASK=VCAM-PRO-VIDEO-SOURCE-ISOLATION-001
+
+The immutable Worker Result identifies the exact certified implementation SHA,
+GitHub run IDs and final artifact digest. Absence of that result means the
+current certification is still in progress. A task-local result-only descendant
+is evidence metadata, not a new implementation revision. Physical VIDEO proof
+remains pending until an actual iPhone retry is supplied.

@@ -2,5 +2,6 @@ Package: com.vcampro.camera
 Name: VCAM PRO Video Source Isolation 001
 Version: 0.1.0+roothide24~sourcefix1
 Architecture: iphoneos-arm64
+Maintainer: martaxi-boss
 Depends: mobilesubstrate, firmware (>= 15.0)
 Description: VCAM PRO iOS 15 rootless VIDEO source isolation with preserved bounded presentation and timing.
