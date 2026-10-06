@@ -1,0 +1,127 @@
+{
+  "schema_version": "2.0",
+  "task_id": "VCAM-PRO-VIDEO-CERTIFICATION-002",
+  "project": "VCAM PRO",
+  "repository": "martaxi-boss/VCAM-PRO",
+  "created_at": "2026-10-06T12:14:14.231871+00:00",
+  "authority": {
+    "kind": "DERIVED_COMPLETION_AUTHORITY",
+    "summary": "Continue the Owner-authorized source isolation correction through both exact-head gates. Remediate the existing fixed-wall-clock continuity fixture, preserve packaging evidence and executable mode, and independently audit the corrected package. This prospective successor inherits the already-published source correction and supersedes its pending certification.",
+    "source": "STANDING_OWNER_GRANT",
+    "binding_mode": "SCOPE_REF_BOUND"
+  },
+  "starting_state": {
+    "default_branch": "main",
+    "base_sha": "e725c00619146fccf4ac25a7dedfc287131cbef9",
+    "task_branch": "builder/canonical-hook-continuation-001",
+    "pr_number": null
+  },
+  "effect_class": "E1_RECOVERABLE_PROJECT_LOCAL",
+  "mutation_scope": [
+    "src/media_engine/LocalSourceAccess.h",
+    "src/media_engine/LocalVideoReader.mm",
+    "src/product/ReferenceCameraHook.h",
+    "src/product/ReferenceCameraHook.mm",
+    "tests/product/local_source_hook_isolation_tests.mm",
+    "tests/product/local_video_reader_hook_interposed.mm",
+    "tools/run_local_source_hook_isolation.sh",
+    ".github/workflows/video-device-proof-remediation-002-ci.yml",
+    ".github/workflows/ios15-central-motioncam-gallery-e2e-convergence-001-ci.yml",
+    "product/video_device_proof_remediation_002/*",
+    "docs/VIDEO_SOURCE_ISOLATION_AUDIT_001.md",
+    "docs/CANONICAL_PROJECT_STATE.md",
+    ".project-leader/tasks/VCAM-PRO-VIDEO-SOURCE-ISOLATION-001.json",
+    ".project-leader/results/VCAM-PRO-VIDEO-SOURCE-ISOLATION-001.json",
+    ".project-leader/recovery-events/VCAM-PRO-VIDEO-SOURCE-ISOLATION-001/*",
+    "tests/product/post_photo_local_media_convergence_tests.mm",
+    ".project-leader/tasks/VCAM-PRO-VIDEO-CERTIFICATION-002.json",
+    ".project-leader/results/VCAM-PRO-VIDEO-CERTIFICATION-002.json",
+    ".project-leader/recovery-events/VCAM-PRO-VIDEO-CERTIFICATION-002/*"
+  ],
+  "allowed_actions": [
+    "edit_project_files",
+    "create_commits",
+    "run_ci"
+  ],
+  "prohibited_actions": [
+    "merge_to_main",
+    "branch_protection_or_ruleset_change",
+    "release_or_publish",
+    "production_deploy",
+    "destructive_data_change",
+    "repository_or_history_deletion",
+    "production_secret_change",
+    "irreversible_infrastructure_change",
+    "paid_service_activation",
+    "modify_reference_repositories",
+    "device_installation",
+    "change_orientation_or_camera_architecture"
+  ],
+  "required_validation": [
+    "Project architecture scope audit",
+    "Mutation scope audit",
+    "GitHub evidence verification",
+    "Real source reader hook isolation and negative reproduction",
+    "Existing PHOTO and VIDEO playback regression",
+    "RootHide arm64 iOS15 package audit"
+  ],
+  "required_ci": [
+    "VCAM PRO Video Device Proof Remediation 002",
+    "VCAM PRO IOS15 Central MotionCam Gallery E2E Convergence 001"
+  ],
+  "policy": {
+    "profile": "generic-project-v1",
+    "path": "control/generic-project-policy.json",
+    "sha256": "147fb55338267ba2e9727c4a85e468e342300a69557d80781edeba4b6fa8d0f9",
+    "binding_mode": "CENTRAL_CONTROL_V1",
+    "repository": "martaxi-boss/Project-leader",
+    "revision": "8efecaccfb5708d3689f9fcd0ad3bb77ec8e40db"
+  },
+  "recovery": {
+    "mode": "APPEND_ONLY_V1"
+  },
+  "integrity_mode": "IMMUTABLE_AUTHORIZATION_V1",
+  "terminal_condition": "Both exact implementation SHA CI gates pass and the package is audited; physical VIDEO proof remains a separately identified device gate.",
+  "transition_controls": [
+    {
+      "action": "merge_to_main",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "branch_protection_or_ruleset_change",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "release_or_publish",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "production_deploy",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "destructive_data_change",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "repository_or_history_deletion",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "production_secret_change",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "irreversible_infrastructure_change",
+      "requires_authority_resolution": true
+    },
+    {
+      "action": "paid_service_activation",
+      "requires_authority_resolution": true
+    }
+  ],
+  "privacy": {
+    "contains_secrets": false,
+    "contains_private_conversation_text": false
+  }
+}
