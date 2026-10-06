@@ -1,0 +1,76 @@
+{
+  "schema_version": "2.0",
+  "task_id": "VCAM-PRO-VIDEO-CERTIFICATION-002",
+  "terminal_status": "TERMINAL_SUCCESS",
+  "repository": "martaxi-boss/VCAM-PRO",
+  "effect_class": "E1_RECOVERABLE_PROJECT_LOCAL",
+  "authorization_record": ".project-leader/tasks/VCAM-PRO-VIDEO-CERTIFICATION-002.json",
+  "authorization_commit_sha": "a649ddd9a69f70f896f5a96c07b6e950d810b986",
+  "authorization_sha256": "6aad3eb213609fa110160f9083450baf0c088dddb2405b110941d529027b053a",
+  "implementation_head_sha": "0678db3546acc43f548bfc23820e24cdd9a11369",
+  "branch": "builder/canonical-hook-continuation-001",
+  "pr_number": null,
+  "recorded_at": "2026-10-06T12:31:59.961975+00:00",
+  "state_observed_at": "2026-10-06T12:31:59.961975+00:00",
+  "changes": [
+    "Preserved real local decoder pixels with scoped thread-local hook bypass and restored nested scope; camera ownership on other threads remains active.",
+    "Added real reader/hook positive regression and negative reproduction.",
+    "Repaired stale canonical OFF assertion and scheduler-sensitive continuity fixture.",
+    "Preserved regression logs during packaging, restored executable mode, added package Maintainer and distinct version, reconciled historical and current evidence labels."
+  ],
+  "validation": [
+    {
+      "name": "Project architecture scope audit",
+      "status": "PASS",
+      "evidence": "Central mediaserverd architecture, canonical filter, orientation, PHOTO ownership, queue and production timing preserved. Exact-head central job 112267088372 and VIDEO callback audit passed."
+    },
+    {
+      "name": "Mutation scope audit",
+      "status": "PASS",
+      "evidence": "Canonical scope validator PASS for actual e725c00619146fccf4ac25a7dedfc287131cbef9..0678db3546acc43f548bfc23820e24cdd9a11369 diff; git diff --check clean. Authorization-only a649ddd9a69f70f896f5a96c07b6e950d810b986 is an ancestor and exact record SHA256 matches. Central policy revision 8efecaccfb5708d3689f9fcd0ad3bb77ec8e40db binding verified."
+    },
+    {
+      "name": "GitHub evidence verification",
+      "status": "PASS",
+      "evidence": "Live GitHub exact runs 37462990399 and 37462990449 both completed success on 0678db3546acc43f548bfc23820e24cdd9a11369, attempt 1 push. Same-SHA required contexts contain no newer/parallel red or active run; open PRs 0. main remains d476caacc4f557843f9551533c2fcbe7c5d40baa. External Supervisor audit performed; no project-local trusted gate exists and none is claimed."
+    },
+    {
+      "name": "Real source reader hook isolation and negative reproduction",
+      "status": "PASS",
+      "evidence": "VIDEO job 112266932698 and artifact 11414161561: REAL_VIDEO_READER_WITH_CAMERA_HOOK, LOCAL_SOURCE_PIXELS_PRESERVED, LOCAL_SOURCE_DOES_NOT_ENTER_CAMERA_DECISION, CONCURRENT_CAMERA_ON_OWNERSHIP, NESTED_SOURCE_SCOPE_RESTORED, CAMERA_ON_OWNERSHIP_AFTER_SOURCE_SCOPE and CAMERA_OFF_ORIGINAL all PASS. Removing only bypass fails FirstLuma(read.frame->pixelBuffer()) > 0, reproducing original corruption."
+    },
+    {
+      "name": "Existing PHOTO and VIDEO playback regression",
+      "status": "PASS",
+      "evidence": "Exact-head VIDEO and central jobs pass real PHOTO composition, bounded continuing publication, VIDEO play/pause/resume/loop, ON-empty BLACK and OFF original host assertions. Continuity test retains six new publications and uses monotonic 2-second bound; no A9 frame-rate claim."
+    },
+    {
+      "name": "RootHide arm64 iOS15 package audit",
+      "status": "PASS",
+      "evidence": "Final artifact ZIP SHA256 cfc1bdb835264f5cd350a5ee358b85745ebecd8e4bc600cc7c6797ba25b406a1 matched GitHub digest. Extracted DEB SHA256 6337d679d3ab4f39108100683e82e133d8c6054d73c302802292e233c8d7b44b matched archived checksum. dpkg-deb verified ID com.vcampro.camera, version 0.1.0+roothide24~sourcefix1, Maintainer, permissions and only dylib/plist payload. CI verifies actual arm64, minimum iOS15, valid signature, canonical filter and pinned RootHide patcher; package architecture iphoneos-arm64e retained."
+    }
+  ],
+  "ci": [
+    {
+      "name": "VCAM PRO Video Device Proof Remediation 002",
+      "status": "SUCCESS",
+      "run_id": 37462990399
+    },
+    {
+      "name": "VCAM PRO IOS15 Central MotionCam Gallery E2E Convergence 001",
+      "status": "SUCCESS",
+      "run_id": 37462990449
+    }
+  ],
+  "artifacts": [
+    "https://github.com/martaxi-boss/VCAM-PRO/actions/runs/37462990399/artifacts/11414161561",
+    "VCAM-PRO-RootHide-Video-Source-Isolation-001.deb SHA256 6337d679d3ab4f39108100683e82e133d8c6054d73c302802292e233c8d7b44b"
+  ],
+  "material_non_effects": [
+    "No merge, release, deployment or device installation. Main and three read-only reference repositories unchanged.",
+    "No architecture, orientation, PHOTO ownership, production queue or timing policy change. Historical PHOTO device evidence is not a new device test."
+  ],
+  "residual_blockers": [
+    "Separate physical VIDEO proof remains pending; host/packaging task terminal condition is satisfied. {\"decision\": \"HUMAN_GATE\", \"reason\": \"EXCLUSIVE_HUMAN_INTERVENTION\", \"action\": \"physical_video_source_isolation_proof\", \"authority_source\": null, \"human_intervention\": {\"kind\": \"PHYSICAL_DEVICE_TEST\", \"evidence\": \"Both exact-head host gates and final package audit passed. Install package SHA256 6337d679d3ab4f39108100683e82e133d8c6054d73c302802292e233c8d7b44b and observe continuous VIDEO, pause/resume, EOS loop, ON-empty BLACK and OFF original on Owner-held iPhone 6s Plus iOS 15.8.8; no physical device channel is present in this session.\"}}"
+  ]
+}

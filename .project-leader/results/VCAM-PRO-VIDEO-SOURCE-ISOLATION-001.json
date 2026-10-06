@@ -1,0 +1,38 @@
+{
+  "schema_version": "2.0",
+  "task_id": "VCAM-PRO-VIDEO-SOURCE-ISOLATION-001",
+  "terminal_status": "STALE_EXECUTION_PACKET",
+  "repository": "martaxi-boss/VCAM-PRO",
+  "effect_class": "E1_RECOVERABLE_PROJECT_LOCAL",
+  "authorization_record": ".project-leader/tasks/VCAM-PRO-VIDEO-SOURCE-ISOLATION-001.json",
+  "authorization_commit_sha": "8f5dcd2f0763bbe163828c3ad347b6249d469153",
+  "authorization_sha256": "6f848658b61cde9d13680cd24f0daafcf3a3c0efb2b0b465e785257f74014ba5",
+  "implementation_head_sha": "e725c00619146fccf4ac25a7dedfc287131cbef9",
+  "branch": "builder/canonical-hook-continuation-001",
+  "pr_number": null,
+  "recorded_at": "2026-10-06T12:31:59.961975+00:00",
+  "state_observed_at": "2026-10-06T12:31:59.961975+00:00",
+  "changes": [
+    "Preserved real local decoder pixels with scoped thread-local hook bypass and restored nested scope; camera ownership on other threads remains active.",
+    "Added real reader/hook positive regression and negative reproduction.",
+    "Repaired stale canonical OFF assertion and scheduler-sensitive continuity fixture.",
+    "Preserved regression logs during packaging, restored executable mode, added package Maintainer and distinct version, reconciled historical and current evidence labels."
+  ],
+  "validation": [],
+  "ci": [
+    {
+      "name": "VCAM PRO Video Device Proof Remediation 002",
+      "status": "FAILURE",
+      "run_id": 37461527263
+    }
+  ],
+  "artifacts": [],
+  "material_non_effects": [
+    "No merge, release, deployment or device installation. Main and three read-only reference repositories unchanged.",
+    "No architecture, orientation, PHOTO ownership, production queue or timing policy change. Historical PHOTO device evidence is not a new device test."
+  ],
+  "residual_blockers": [
+    "Initial fixed 0.5-second continuity fixture failed before new source regression; prospective successor authorization binds fixture remediation and certifies final package. This predecessor is not certified."
+  ],
+  "superseded_by": "VCAM-PRO-VIDEO-CERTIFICATION-002"
+}
