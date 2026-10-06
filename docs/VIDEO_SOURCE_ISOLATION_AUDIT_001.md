@@ -42,6 +42,12 @@ The VIDEO candidate receives a distinct version `0.1.0+roothide24~sourcefix1`
 and filename `VCAM-PRO-RootHide-Video-Source-Isolation-001.deb`, so it is not
 confused with the old installed presentation candidate. Existing packaging,
 RootHide patcher, iOS 15 minimum, arm64 build and rollback history are preserved.
+The packaging input builder previously removed the entire output directory,
+erasing regression logs produced earlier in the same run. It now cleans only
+packaging input subdirectories; the packaging audit separately clears its own
+final/extracted/evidence directories. Current regression evidence survives the
+build without reusing a stale package. The input builder's executable mode is
+preserved.
 
 ## Added regression evidence
 
@@ -65,3 +71,16 @@ EOS-only loop, ON empty BLACK and OFF original output. Device installation and
 observation are physical facts; the source defect's contribution to this exact
 phone symptom is an inference until that retry. No device action, merge,
 release or deployment occurs in this audit.
+
+## Certification recovery
+
+Initial source-isolation CI `37461527263` failed before the new source regression
+in the prior continuity fixture: publication advanced `3 -> 8` in its fixed
+0.5-second sample, exactly five rather than more than five. Source PTS advanced,
+reader and scheduler remained healthy, and the queue remained populated. The
+fixture now requires the same six additional publications against a monotonic
+2-second deadline and reports elapsed milliseconds. This proves bounded
+continuing publication, not A9 frame-rate performance. No production timing
+policy changes or blind same-SHA reruns are used. The immutable successor task
+`VCAM-PRO-VIDEO-CERTIFICATION-002` binds this existing regression file before
+its mutation and carries the certification forward.

@@ -8,7 +8,9 @@ IOS_DIR="$OUT_DIR/ios"
 PKG_ROOT="$OUT_DIR/rootless-input"
 INPUT_DIR="$OUT_DIR/input"
 
-rm -rf "$OUT_DIR"
+# Rebuild packaging inputs without erasing regression logs already collected
+# by this exact-head CI run in OUT_DIR.
+rm -rf "$IOS_DIR" "$PKG_ROOT" "$INPUT_DIR"
 mkdir -p "$IOS_DIR" "$PKG_ROOT/DEBIAN" "$INPUT_DIR"
 
 SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"

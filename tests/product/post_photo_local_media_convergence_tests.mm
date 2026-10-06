@@ -1601,12 +1601,26 @@ bool TestVideoPresentationRemediation002() {
         CHECK(runtime.drainControlQueueForTesting());
         const auto flowBefore =
             runtime.snapshotForTesting();
-        [NSThread sleepForTimeInterval:0.5];
-        const auto flowAfter =
-            runtime.snapshotForTesting();
+        // This is a liveness assertion, not a runner throughput benchmark.
+        // Require the same six additional publications, but observe progress
+        // until a bounded monotonic deadline instead of sampling once after
+        // an arbitrary sleep on a shared CI host.
+        const auto flowStart = std::chrono::steady_clock::now();
+        const auto flowDeadline = flowStart + std::chrono::seconds(2);
+        auto flowAfter = runtime.snapshotForTesting();
+        while (flowAfter.totalVideoPublishedFrameCount <=
+                   flowBefore.totalVideoPublishedFrameCount + 5 &&
+               flowAfter.producerHealthy &&
+               std::chrono::steady_clock::now() < flowDeadline) {
+            [NSThread sleepForTimeInterval:0.01];
+            flowAfter = runtime.snapshotForTesting();
+        }
 
         std::cout
-            << "VIDEO_FLOW_WINDOW_PUBLISH="
+            << "VIDEO_FLOW_WINDOW_WAIT_MS="
+            << std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::steady_clock::now() - flowStart).count()
+            << "\nVIDEO_FLOW_WINDOW_PUBLISH="
             << flowBefore.totalVideoPublishedFrameCount
             << "->"
             << flowAfter.totalVideoPublishedFrameCount
