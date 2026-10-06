@@ -1,6 +1,6 @@
 # VCAM PRO — Canonical Project State
 
-Verified from GitHub on 2026-10-03. Prior phase records remain in Git history.
+Audit starting state verified from GitHub on 2026-10-06. Prior phase records remain in Git history.
 
 REPOSITORY=martaxi-boss/VCAM-PRO
 CANONICAL_FORWARD_BRANCH=builder/canonical-hook-continuation-001
@@ -66,3 +66,20 @@ IOS15_REFERENCE=a908bccbcddb4efc072bb1bc8fbeb6ee89b1af9d
 MOTIONCAM_REFERENCE=5ede3a1973a01cb13fe7f3ab562b47513feec1b1
 IOS16_REFERENCE=cc20d787070c67565173d4a46c218e2549cecc93
 REFERENCE_REPOSITORY_MUTATIONS=NONE
+
+## VIDEO source isolation audit 001 — 2026-10-06
+
+AUDIT_START_HEAD=7d54d864829980eb307f4898aae43fda2a7a9603
+AUDIT_START_VIDEO_GATE=37143462806_SUCCESS
+AUDIT_START_CENTRAL_GATE=37143462782_FAILURE_STALE_DOCUMENTATION_CHECK
+VIDEO_SOURCE_INTERCEPTION_DEFECT=GLOBAL_CAMERA_HOOK_INTERCEPTS_LOCAL_READER_IMAGE_ACCESSOR
+VIDEO_SOURCE_ISOLATION=SCOPED_THREAD_LOCAL_DECODE_ACCESS_BEFORE_CAMERA_OBSERVATION
+VIDEO_SOURCE_ISOLATION_CANDIDATE_VERSION=0.1.0+roothide24~sourcefix1
+VIDEO_SOURCE_ISOLATION_CANDIDATE_PACKAGE=VCAM-PRO-RootHide-Video-Source-Isolation-001.deb
+VIDEO_SOURCE_ISOLATION_CI=PENDING
+VIDEO_SOURCE_ISOLATION_DEVICE_PROOF=PENDING
+
+The previous implementation evidence above remains historical certification,
+not a claim that the present VIDEO output works on the device. The audit fixes
+an additional source-versus-camera boundary defect and the stale central gate.
+See [VIDEO_SOURCE_ISOLATION_AUDIT_001.md](VIDEO_SOURCE_ISOLATION_AUDIT_001.md).

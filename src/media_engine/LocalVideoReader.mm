@@ -1,4 +1,5 @@
 #include "LocalVideoReader.h"
+#include "LocalSourceAccess.h"
 
 #import <AVFoundation/AVFoundation.h>
 #import <Foundation/Foundation.h>
@@ -355,13 +356,20 @@ ReadResult LocalVideoReader::readNext() {
             return MakeSimpleResult(ReadResultKind::NotReady);
         }
 
-        CMSampleBufferRef sample =
-            [impl_->output copyNextSampleBuffer];
+        CMSampleBufferRef sample = nullptr;
+        CVPixelBufferRef pixelBuffer = nullptr;
+        {
+            // The process-wide camera hook also intercepts our own decoder's
+            // image-buffer accessor. Preserve source pixels and avoid feeding
+            // source geometry back into the camera destination working set.
+            ScopedLocalSourceAccess sourceAccess;
+            sample = [impl_->output copyNextSampleBuffer];
+            if (sample != nullptr) {
+                pixelBuffer = CMSampleBufferGetImageBuffer(sample);
+            }
+        }
 
         if (sample != nullptr) {
-            CVPixelBufferRef pixelBuffer =
-                CMSampleBufferGetImageBuffer(sample);
-
             if (pixelBuffer == nullptr) {
                 CFRelease(sample);
                 [impl_->reader cancelReading];

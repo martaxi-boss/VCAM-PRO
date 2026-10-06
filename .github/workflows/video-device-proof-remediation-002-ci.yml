@@ -256,6 +256,26 @@ jobs:
             grep -Fq "$marker" build/video-device-proof-remediation-002/video-diagnostics.txt
           done
 
+      - name: Real camera hook isolates local source extraction
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh tools/run_local_source_hook_isolation.sh | tee build/source-hook-isolation-pass.txt
+          python3 - <<'PYTEST'
+          from pathlib import Path
+          p = Path("src/product/ReferenceCameraHook.mm").read_text()
+          block = "    if (media_engine::IsLocalSourceAccessActive()) {\n        return original;\n    }\n"
+          assert p.count(block) == 1
+          Path("build/source-hook-isolation/pre-fix-hook.mm").write_text(p.replace(block, "").replace("../media_engine/LocalSourceAccess.h", "LocalSourceAccess.h"))
+          PYTEST
+          if VCAM_SOURCE_ISOLATION_HOOK_SOURCE=build/source-hook-isolation/pre-fix-hook.mm \
+              sh tools/run_local_source_hook_isolation.sh > build/source-hook-isolation-negative.txt 2>&1; then
+            echo "Pre-fix hook unexpectedly passed source isolation"
+            exit 1
+          fi
+          grep -Fq 'Failed: FirstLuma(read.frame->pixelBuffer()) > 0' build/source-hook-isolation-negative.txt
+          echo 'PRE_FIX_SOURCE_FRAME_BLACK_CORRUPTION_REPRODUCED=PASS'
+
       - name: Real product VIDEO transform and diagnostic composition
         shell: bash
         run: |
@@ -487,11 +507,11 @@ jobs:
           sh product/video_device_proof_remediation_002/ci_build_package_and_audit.sh \
             | tee build/video-device-proof-remediation-002/package-audit.txt
 
-          FINAL=build/video-device-proof-remediation-002/final/VCAM-PRO-RootHide-Video-Presentation-Fix-001.deb
+          FINAL=build/video-device-proof-remediation-002/final/VCAM-PRO-RootHide-Video-Source-Isolation-001.deb
           REPORT=build/video-device-proof-remediation-002/evidence/validation-report.txt
           test -f "$FINAL"
           test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
-          test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide23~videofix1"
+          test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide24~sourcefix1"
           test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
 
           for marker in \
@@ -520,8 +540,9 @@ jobs:
       - name: Upload exact-head VIDEO presentation fix artifact
         uses: actions/upload-artifact@v4
         with:
-          name: VCAM-PRO-Video-Presentation-Fix-001
+          name: VCAM-PRO-Video-Source-Isolation-001
           path: |
             build/video-device-proof-remediation-002/**
+            build/source-hook-isolation-*.txt
           if-no-files-found: error
           retention-days: 30

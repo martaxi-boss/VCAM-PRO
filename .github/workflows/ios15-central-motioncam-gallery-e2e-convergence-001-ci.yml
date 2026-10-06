@@ -118,7 +118,7 @@ jobs:
           grep -Fq 'frameQueue' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
           grep -Fq 'lastObject' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
           grep -Fq 'StillImageKey' docs/research/IOS15_USB_STILL_CAPTURE_PARITY_001.md
-          grep -Fq 'ORIGINAL_CAMERA_PIXEL_BUFFER' docs/CANONICAL_PROJECT_STATE.md
+          grep -Fxq 'VCAM_OFF_OUTPUT=ORIGINAL' docs/CANONICAL_PROJECT_STATE.md
 
           grep -Fq 'UIImagePickerController' reference/MotionCam-iOS/Tweak.xm
           grep -Fq 'SavedPhotosAlbum' reference/MotionCam-iOS/Tweak.xm

@@ -9,9 +9,9 @@ PATCHER_SHA=80c16e08da33fecd27c0ff35777f37afd171868b
 
 ROOT="$PWD/build/video-device-proof-remediation-002"
 SCOPE=product/video_device_proof_remediation_002
-INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide23~videofix1_iphoneos-arm64.deb"
+INPUT="$ROOT/input/com.vcampro.camera_0.1.0+roothide24~sourcefix1_iphoneos-arm64.deb"
 FINAL_DIR="$ROOT/final"
-FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Video-Presentation-Fix-001.deb"
+FINAL="$FINAL_DIR/VCAM-PRO-RootHide-Video-Source-Isolation-001.deb"
 EXTRACT="$ROOT/extracted-final"
 EVIDENCE="$ROOT/evidence"
 PRODUCT_REL="usr/lib/TweakInject/VCAMPro.dylib"
@@ -23,7 +23,7 @@ mkdir -p "$EVIDENCE" "$FINAL_DIR"
 
 test -f "$INPUT"
 test "$(dpkg-deb -f "$INPUT" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide23~videofix1"
+test "$(dpkg-deb -f "$INPUT" Version)" = "0.1.0+roothide24~sourcefix1"
 test "$(dpkg-deb -f "$INPUT" Architecture)" = "iphoneos-arm64"
 dpkg-deb -c "$INPUT" | tee "$EVIDENCE/input-inventory.txt"
 
@@ -44,7 +44,7 @@ dpkg-deb -f "$FINAL" | tee "$EVIDENCE/final-control.txt"
 dpkg-deb -c "$FINAL" | tee "$EVIDENCE/final-inventory.txt"
 
 test "$(dpkg-deb -f "$FINAL" Package)" = "com.vcampro.camera"
-test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide23~videofix1"
+test "$(dpkg-deb -f "$FINAL" Version)" = "0.1.0+roothide24~sourcefix1"
 test "$(dpkg-deb -f "$FINAL" Architecture)" = "iphoneos-arm64e"
 test ! -e "$EXTRACT/var/jb"
 

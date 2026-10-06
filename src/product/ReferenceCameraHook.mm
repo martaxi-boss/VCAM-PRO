@@ -1,6 +1,7 @@
 #include "ReferenceCameraHook.h"
 
 #include "MediaserverdRuntime.h"
+#include "../media_engine/LocalSourceAccess.h"
 
 #if defined(VCAM_ACTIVATION_PARITY_DEVICE_REMEDIATION_PROOF)
 #include "ActivationParityDeviceRemediationProof.h"
@@ -28,7 +29,11 @@ using CMSampleBufferGetImageBufferFunction =
 
 CMSampleBufferGetImageBufferFunction
     gOriginalCMSampleBufferGetImageBuffer =
+#if defined(VCAM_REFERENCE_CAMERA_HOOK_SOURCE_ISOLATION_TEST)
+        &CMSampleBufferGetImageBuffer;
+#else
         nullptr;
+#endif
 
 extern "C" void MSHookFunction(
     void* symbol,
@@ -455,6 +460,10 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
         return nullptr;
     }
 
+    if (media_engine::IsLocalSourceAccessActive()) {
+        return original;
+    }
+
     auto& runtime =
         MediaserverdRuntime::shared();
 
@@ -525,6 +534,12 @@ CVImageBufferRef HookedCMSampleBufferGetImageBuffer(
 
 }  // namespace
 
+#if defined(VCAM_REFERENCE_CAMERA_HOOK_SOURCE_ISOLATION_TEST)
+CVImageBufferRef InvokeReferenceCameraHookForTesting(
+    CMSampleBufferRef sampleBuffer) {
+    return HookedCMSampleBufferGetImageBuffer(sampleBuffer);
+}
+#else
 bool InstallReferenceCameraHook() {
     os_log_with_type(
         OS_LOG_DEFAULT,
@@ -543,6 +558,7 @@ bool InstallReferenceCameraHook() {
         gOriginalCMSampleBufferGetImageBuffer !=
         nullptr;
 }
+#endif
 #endif
 
 }  // namespace vcam::product

@@ -26,4 +26,9 @@ bool ReferenceSampleBufferHasStillImageKey(
 
 bool InstallReferenceCameraHook();
 
+#if defined(VCAM_REFERENCE_CAMERA_HOOK_SOURCE_ISOLATION_TEST)
+CVImageBufferRef InvokeReferenceCameraHookForTesting(
+    CMSampleBufferRef sampleBuffer);
+#endif
+
 }  // namespace vcam::product
